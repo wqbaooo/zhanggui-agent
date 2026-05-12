@@ -1,0 +1,35 @@
+{
+  "title": "3 主视频添加调整",
+  "category": "拍摄剪辑",
+  "entities": [
+    {
+      "text": "然后",
+      "type": "process"
+    },
+    {
+      "text": "第二步",
+      "type": "process"
+    },
+    {
+      "text": "顺序",
+      "type": "process"
+    },
+    {
+      "text": "注意",
+      "type": "risk"
+    },
+    {
+      "text": "火锅店",
+      "type": "category"
+    }
+  ],
+  "methodologies": [],
+  "cases": [
+    {
+      "title": "这一节课我们给大家主要讲的是视频的添加以及笔地的调整这里我们点击这个加号开始创作",
+      "lesson": ""
+    }
+  ],
+  "key_points": [],
+  "actionable_tips": []
+}

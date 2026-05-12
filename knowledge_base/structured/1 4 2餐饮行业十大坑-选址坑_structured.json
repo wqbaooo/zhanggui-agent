@@ -1,0 +1,99 @@
+{
+  "title": "1 4 2餐饮行业十大坑-选址坑",
+  "category": "选址指南",
+  "entities": [
+    {
+      "text": "麻痹如果一个商圈",
+      "type": "location"
+    },
+    {
+      "text": "的产品在这个商圈",
+      "type": "location"
+    },
+    {
+      "text": "子在中国有个学校",
+      "type": "location"
+    },
+    {
+      "text": "摊位你说这个学校",
+      "type": "location"
+    },
+    {
+      "text": "术他就在一个社区",
+      "type": "location"
+    },
+    {
+      "text": "11万",
+      "type": "price"
+    },
+    {
+      "text": "最后",
+      "type": "process"
+    },
+    {
+      "text": "然后",
+      "type": "process"
+    },
+    {
+      "text": "掉你的利润最后无法",
+      "type": "method"
+    },
+    {
+      "text": "转租无法",
+      "type": "method"
+    },
+    {
+      "text": "玩手机好吧第三无法",
+      "type": "method"
+    },
+    {
+      "text": "经理拥付没有办法",
+      "type": "method"
+    },
+    {
+      "text": "的店铺内容也没办法",
+      "type": "method"
+    },
+    {
+      "text": "流所以说正确的办法",
+      "type": "method"
+    },
+    {
+      "text": "过来所以正确的解法",
+      "type": "method"
+    },
+    {
+      "text": "铺子那么正确的解法",
+      "type": "method"
+    },
+    {
+      "text": "收回去你是什么办法",
+      "type": "method"
+    },
+    {
+      "text": "可能去租这个但是原则",
+      "type": "method"
+    },
+    {
+      "text": "方没有上下水也没法",
+      "type": "method"
+    },
+    {
+      "text": "问题",
+      "type": "risk"
+    },
+    {
+      "text": "避免",
+      "type": "risk"
+    }
+  ],
+  "methodologies": [],
+  "cases": [
+    {
+      "title": "同学们大家好今天我们一起来学习一下餐饮行业的十大坑大家知道不管是餐饮创业或者是任",
+      "lesson": ""
+    }
+  ],
+  "key_points": [],
+  "actionable_tips": []
+}

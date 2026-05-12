@@ -1,0 +1,55 @@
+{
+  "title": "第一节3决定餐饮成功的因素",
+  "category": "创业1.0",
+  "entities": [
+    {
+      "text": "如何判断这个商圈",
+      "type": "location"
+    },
+    {
+      "text": "所企业在一个商圈",
+      "type": "location"
+    },
+    {
+      "text": "接着",
+      "type": "process"
+    },
+    {
+      "text": "最后",
+      "type": "process"
+    },
+    {
+      "text": "然后",
+      "type": "process"
+    },
+    {
+      "text": "定的讲究和一定的技巧",
+      "type": "method"
+    },
+    {
+      "text": "大家他们还是没办法",
+      "type": "method"
+    },
+    {
+      "text": "果是什么你也没办法",
+      "type": "method"
+    },
+    {
+      "text": "意好的店他也没办法",
+      "type": "method"
+    },
+    {
+      "text": "问题",
+      "type": "risk"
+    }
+  ],
+  "methodologies": [],
+  "cases": [
+    {
+      "title": "OK 我们接着讲决定餐饮成功的六大因素选品选址开店营销运营和管理其实这六大因素只",
+      "lesson": ""
+    }
+  ],
+  "key_points": [],
+  "actionable_tips": []
+}

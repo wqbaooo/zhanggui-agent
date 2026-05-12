@@ -1,0 +1,67 @@
+{
+  "title": "第一节4小吃行业与市场规模",
+  "category": "创业1.0",
+  "entities": [
+    {
+      "text": "再去衡量一个商圈",
+      "type": "location"
+    },
+    {
+      "text": "的时候这个商圈",
+      "type": "location"
+    },
+    {
+      "text": "30万",
+      "type": "price"
+    },
+    {
+      "text": "20万",
+      "type": "price"
+    },
+    {
+      "text": "10万",
+      "type": "price"
+    },
+    {
+      "text": "1万",
+      "type": "price"
+    },
+    {
+      "text": "1.2万",
+      "type": "price"
+    },
+    {
+      "text": "2万",
+      "type": "price"
+    },
+    {
+      "text": "最后",
+      "type": "process"
+    },
+    {
+      "text": "然后",
+      "type": "process"
+    },
+    {
+      "text": "风险",
+      "type": "risk"
+    },
+    {
+      "text": "小吃店",
+      "type": "category"
+    },
+    {
+      "text": "火锅店",
+      "type": "category"
+    }
+  ],
+  "methodologies": [],
+  "cases": [
+    {
+      "title": "什么是小吃行业因为我们从餐饮跨不到小吃行业什么是小吃行业谁知道大家看一下概念小吃",
+      "lesson": ""
+    }
+  ],
+  "key_points": [],
+  "actionable_tips": []
+}

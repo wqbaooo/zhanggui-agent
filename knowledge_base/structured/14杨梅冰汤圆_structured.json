@@ -1,0 +1,18 @@
+{
+  "title": "14杨梅冰汤圆",
+  "category": "小吃制作",
+  "entities": [
+    {
+      "text": "冰湯圓的配料及做法",
+      "type": "method"
+    },
+    {
+      "text": "彩色冰湯圓製作方法",
+      "type": "method"
+    }
+  ],
+  "methodologies": [],
+  "cases": [],
+  "key_points": [],
+  "actionable_tips": []
+}

@@ -1,0 +1,235 @@
+{
+  "title": "第三节2判断商圈的好坏",
+  "category": "创业1.0",
+  "entities": [
+    {
+      "text": "去选择优质的商圈",
+      "type": "location"
+    },
+    {
+      "text": "优质的商圈",
+      "type": "location"
+    },
+    {
+      "text": "什么样的商圈",
+      "type": "location"
+    },
+    {
+      "text": "是称为优质的商圈",
+      "type": "location"
+    },
+    {
+      "text": "步行街或者是商场",
+      "type": "location"
+    },
+    {
+      "text": "这样的商圈",
+      "type": "location"
+    },
+    {
+      "text": "是比较优质的商圈",
+      "type": "location"
+    },
+    {
+      "text": "为到步行街到商场",
+      "type": "location"
+    },
+    {
+      "text": "以说步行街和商圈",
+      "type": "location"
+    },
+    {
+      "text": "个比较优质的商圈",
+      "type": "location"
+    },
+    {
+      "text": "一下那么当然商圈",
+      "type": "location"
+    },
+    {
+      "text": "或者是步行街商场",
+      "type": "location"
+    },
+    {
+      "text": "么也要看这个商场",
+      "type": "location"
+    },
+    {
+      "text": "吧第四个就是学校",
+      "type": "location"
+    },
+    {
+      "text": "是大型的这种学校",
+      "type": "location"
+    },
+    {
+      "text": "口的这样一些学校",
+      "type": "location"
+    },
+    {
+      "text": "周边的这种社区",
+      "type": "location"
+    },
+    {
+      "text": "的但是学校",
+      "type": "location"
+    },
+    {
+      "text": "这种社区",
+      "type": "location"
+    },
+    {
+      "text": "品类是否符合学校",
+      "type": "location"
+    },
+    {
+      "text": "第二点就说像学校",
+      "type": "location"
+    },
+    {
+      "text": "响但是像某些学校",
+      "type": "location"
+    },
+    {
+      "text": "的所以说学校",
+      "type": "location"
+    },
+    {
+      "text": "虑的时候你的学校",
+      "type": "location"
+    },
+    {
+      "text": "配优质合适的商圈",
+      "type": "location"
+    },
+    {
+      "text": "个大型的这种商圈",
+      "type": "location"
+    },
+    {
+      "text": "何去判断一个商圈",
+      "type": "location"
+    },
+    {
+      "text": "现象来看本质商圈",
+      "type": "location"
+    },
+    {
+      "text": "们整个因素是商圈",
+      "type": "location"
+    },
+    {
+      "text": "有一个逛街的商圈",
+      "type": "location"
+    },
+    {
+      "text": "就是我们万达商场",
+      "type": "location"
+    },
+    {
+      "text": "推动就是万达商场",
+      "type": "location"
+    },
+    {
+      "text": "这样一个比如商圈",
+      "type": "location"
+    },
+    {
+      "text": "是整个比如说商场",
+      "type": "location"
+    },
+    {
+      "text": "不对我们走到商场",
+      "type": "location"
+    },
+    {
+      "text": "也就是说一个商圈",
+      "type": "location"
+    },
+    {
+      "text": "素是什么他的商场",
+      "type": "location"
+    },
+    {
+      "text": "没有了那你的商圈",
+      "type": "location"
+    },
+    {
+      "text": "量对吧我们的商场",
+      "type": "location"
+    },
+    {
+      "text": "白领还是来逛商场",
+      "type": "location"
+    },
+    {
+      "text": "就代表我们的商圈",
+      "type": "location"
+    },
+    {
+      "text": "面所讲的几个商圈",
+      "type": "location"
+    },
+    {
+      "text": "也代表我们的商圈",
+      "type": "location"
+    },
+    {
+      "text": "县城",
+      "type": "location"
+    },
+    {
+      "text": "市区",
+      "type": "location"
+    },
+    {
+      "text": "3万",
+      "type": "price"
+    },
+    {
+      "text": "10万",
+      "type": "price"
+    },
+    {
+      "text": "然后",
+      "type": "process"
+    },
+    {
+      "text": "首先",
+      "type": "process"
+    },
+    {
+      "text": "最后",
+      "type": "process"
+    },
+    {
+      "text": "那么他们这样的做法",
+      "type": "method"
+    },
+    {
+      "text": "所讲的我们选址的模型",
+      "type": "method"
+    },
+    {
+      "text": "是怎么样的是四个模型",
+      "type": "method"
+    },
+    {
+      "text": "问题",
+      "type": "risk"
+    },
+    {
+      "text": "避免",
+      "type": "risk"
+    }
+  ],
+  "methodologies": [],
+  "cases": [
+    {
+      "title": "第二个就是我们要去选择优质的商圈优质的商圈什么样的商圈是称为优质的商圈我在这里给",
+      "lesson": ""
+    }
+  ],
+  "key_points": [],
+  "actionable_tips": []
+}

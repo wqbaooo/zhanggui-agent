@@ -1,0 +1,39 @@
+{
+  "title": "第三节6竞品分析",
+  "category": "创业1.0",
+  "entities": [
+    {
+      "text": "摸清楚了整个商圈",
+      "type": "location"
+    },
+    {
+      "text": "否能够比这个商圈",
+      "type": "location"
+    },
+    {
+      "text": "最后",
+      "type": "process"
+    },
+    {
+      "text": "然后",
+      "type": "process"
+    },
+    {
+      "text": "定要有这样一个想法",
+      "type": "method"
+    },
+    {
+      "text": "奶茶",
+      "type": "category"
+    }
+  ],
+  "methodologies": [],
+  "cases": [
+    {
+      "title": "禁礼分析,就是我们把刚刚的那套讲完了之后就是一步一步甩卷下来最后我们到我们的这个",
+      "lesson": ""
+    }
+  ],
+  "key_points": [],
+  "actionable_tips": []
+}

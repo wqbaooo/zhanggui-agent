@@ -1,0 +1,31 @@
+{
+  "title": "8 字幕和贴纸的调整",
+  "category": "拍摄剪辑",
+  "entities": [
+    {
+      "text": "然后",
+      "type": "process"
+    },
+    {
+      "text": "首先",
+      "type": "process"
+    },
+    {
+      "text": "最后",
+      "type": "process"
+    },
+    {
+      "text": "注意",
+      "type": "risk"
+    }
+  ],
+  "methodologies": [],
+  "cases": [
+    {
+      "title": "好 同学们 大家好 这一节课的话 主要给大家讲的是我们的添加字幕啊 以及贴纸来 ",
+      "lesson": ""
+    }
+  ],
+  "key_points": [],
+  "actionable_tips": []
+}

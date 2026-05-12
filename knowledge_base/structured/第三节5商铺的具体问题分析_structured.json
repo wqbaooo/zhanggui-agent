@@ -1,0 +1,103 @@
+{
+  "title": "第三节5商铺的具体问题分析",
+  "category": "创业1.0",
+  "entities": [
+    {
+      "text": "讲透讲明白了商圈",
+      "type": "location"
+    },
+    {
+      "text": "没问题街道",
+      "type": "location"
+    },
+    {
+      "text": "了商业的这种街道",
+      "type": "location"
+    },
+    {
+      "text": "要去衡量这个商圈",
+      "type": "location"
+    },
+    {
+      "text": "刚最开始讲的商圈",
+      "type": "location"
+    },
+    {
+      "text": "你去衡量这个商圈",
+      "type": "location"
+    },
+    {
+      "text": "呀我要把这个商圈",
+      "type": "location"
+    },
+    {
+      "text": "说我要把这个商圈",
+      "type": "location"
+    },
+    {
+      "text": "边还有建什么商圈",
+      "type": "location"
+    },
+    {
+      "text": "二个就是整个商圈",
+      "type": "location"
+    },
+    {
+      "text": "从大到小我们商圈",
+      "type": "location"
+    },
+    {
+      "text": "这条街道",
+      "type": "location"
+    },
+    {
+      "text": "15万",
+      "type": "price"
+    },
+    {
+      "text": "5万",
+      "type": "price"
+    },
+    {
+      "text": "30万",
+      "type": "price"
+    },
+    {
+      "text": "3万",
+      "type": "price"
+    },
+    {
+      "text": "2万",
+      "type": "price"
+    },
+    {
+      "text": "然后",
+      "type": "process"
+    },
+    {
+      "text": "最后",
+      "type": "process"
+    },
+    {
+      "text": "是比较多现在没办法",
+      "type": "method"
+    },
+    {
+      "text": "解决没办法",
+      "type": "method"
+    },
+    {
+      "text": "问题",
+      "type": "risk"
+    }
+  ],
+  "methodologies": [],
+  "cases": [
+    {
+      "title": "商铺的具体问题然后我们把刚刚的内容系列讲清楚讲透讲明白了商圈没问题街道没问题据客",
+      "lesson": ""
+    }
+  ],
+  "key_points": [],
+  "actionable_tips": []
+}

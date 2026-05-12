@@ -1,0 +1,39 @@
+{
+  "title": "第二节4怎样让产品更优秀",
+  "category": "创业1.0",
+  "entities": [
+    {
+      "text": "19元",
+      "type": "price"
+    },
+    {
+      "text": "首先",
+      "type": "process"
+    },
+    {
+      "text": "然后",
+      "type": "process"
+    },
+    {
+      "text": "最后",
+      "type": "process"
+    },
+    {
+      "text": "星巴克",
+      "type": "brand"
+    },
+    {
+      "text": "咖啡",
+      "type": "category"
+    }
+  ],
+  "methodologies": [],
+  "cases": [
+    {
+      "title": "怎样让我们的产品更优秀也就是说我们拿到一个产品之后并不是说比如像很多在我们这学习",
+      "lesson": ""
+    }
+  ],
+  "key_points": [],
+  "actionable_tips": []
+}

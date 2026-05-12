@@ -1,0 +1,43 @@
+{
+  "title": "第二节5经验分享",
+  "category": "创业1.0",
+  "entities": [
+    {
+      "text": "那么值钱小吃学校",
+      "type": "location"
+    },
+    {
+      "text": "然后",
+      "type": "process"
+    },
+    {
+      "text": "最后",
+      "type": "process"
+    },
+    {
+      "text": "首先",
+      "type": "process"
+    },
+    {
+      "text": "接下来",
+      "type": "process"
+    },
+    {
+      "text": "问题",
+      "type": "risk"
+    },
+    {
+      "text": "小吃店",
+      "type": "category"
+    }
+  ],
+  "methodologies": [],
+  "cases": [
+    {
+      "title": "我给他讲一下我的一个经验就是我这么多年选品我们开了10年的小吃店做的到现在是十几",
+      "lesson": ""
+    }
+  ],
+  "key_points": [],
+  "actionable_tips": []
+}

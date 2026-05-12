@@ -1,0 +1,47 @@
+{
+  "title": "第五节2如何管理员工",
+  "category": "创业1.0",
+  "entities": [
+    {
+      "text": "21万",
+      "type": "price"
+    },
+    {
+      "text": "22万",
+      "type": "price"
+    },
+    {
+      "text": "然后",
+      "type": "process"
+    },
+    {
+      "text": "最后",
+      "type": "process"
+    },
+    {
+      "text": "么他们就会想方设法",
+      "type": "method"
+    },
+    {
+      "text": "他们可能会想方设法",
+      "type": "method"
+    },
+    {
+      "text": "觉得这个是没有办法",
+      "type": "method"
+    },
+    {
+      "text": "问题",
+      "type": "risk"
+    }
+  ],
+  "methodologies": [],
+  "cases": [
+    {
+      "title": "第二点,如何管理好我们的员工我们采用的是点评化管理,轮班制因为我们有很多的店铺,",
+      "lesson": ""
+    }
+  ],
+  "key_points": [],
+  "actionable_tips": []
+}

@@ -1,0 +1,102 @@
+{
+  "video_info": {
+    "path": "/Users/wqboo/Documents/MIND/02-Projects/开店Agent/资料/餐饮/5小吃福利课程/2夏日椰椰.mp4",
+    "relative_path": "5小吃福利课程/2夏日椰椰.mp4",
+    "category": "小吃制作",
+    "title": "2夏日椰椰",
+    "filename": "2夏日椰椰.mp4",
+    "size_mb": 10.57
+  },
+  "processed_at": "2026-05-08T15:17:18.528516",
+  "knowledge": {
+    "category": "小吃制作",
+    "title": "2夏日椰椰",
+    "keywords": [],
+    "tags": [],
+    "summary": "下日夜夜清补涼先将碗底铺上一层碎冰装置三四处即可加入燕麦玉泥椰果布丁 tier叶裹杜丁鸡鱗火龙裹舌丝鸦片再加入适量夜奶使其 muh-goo 碎冰然后便可出餐",
+    "key_points": [],
+    "actionable_tips": [],
+    "raw_text": "下日夜夜清补涼先将碗底铺上一层碎冰装置三四处即可加入燕麦玉泥椰果布丁 tier叶裹杜丁鸡鱗火龙裹舌丝鸦片再加入适量夜奶使其 muh-goo 碎冰然后便可出餐"
+  },
+  "transcript": {
+    "text": "下日夜夜清补涼先将碗底铺上一层碎冰装置三四处即可加入燕麦玉泥椰果布丁 tier叶裹杜丁鸡鱗火龙裹舌丝鸦片再加入适量夜奶使其 muh-goo 碎冰然后便可出餐",
+    "segments": [
+      {
+        "start": 0.0,
+        "end": 5.0,
+        "text": "下日夜夜清补涼"
+      },
+      {
+        "start": 5.0,
+        "end": 9.0,
+        "text": "先将碗底铺上一层碎冰"
+      },
+      {
+        "start": 9.0,
+        "end": 13.0,
+        "text": "装置三四处即可"
+      },
+      {
+        "start": 13.0,
+        "end": 17.0,
+        "text": "加入燕麦"
+      },
+      {
+        "start": 17.0,
+        "end": 20.0,
+        "text": "玉泥"
+      },
+      {
+        "start": 20.0,
+        "end": 23.0,
+        "text": "椰果"
+      },
+      {
+        "start": 23.0,
+        "end": 26.0,
+        "text": "布丁"
+      },
+      {
+        "start": 26.0,
+        "end": 29.0,
+        "text": "tier叶裹"
+      },
+      {
+        "start": 29.0,
+        "end": 32.0,
+        "text": "杜丁"
+      },
+      {
+        "start": 32.0,
+        "end": 34.0,
+        "text": "鸡鱗"
+      },
+      {
+        "start": 34.0,
+        "end": 38.0,
+        "text": "火龙裹"
+      },
+      {
+        "start": 38.0,
+        "end": 41.0,
+        "text": "舌丝"
+      },
+      {
+        "start": 41.0,
+        "end": 44.0,
+        "text": "鸦片"
+      },
+      {
+        "start": 44.0,
+        "end": 49.0,
+        "text": "再加入适量夜奶使其 muh-goo 碎冰"
+      },
+      {
+        "start": 49.0,
+        "end": 53.0,
+        "text": "然后便可出餐"
+      }
+    ],
+    "language": "zh"
+  }
+}

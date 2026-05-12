@@ -1,0 +1,20 @@
+{
+  "project_id": "PROJ_FFC0C1B0",
+  "profile": {},
+  "current_phase": "想法验证",
+  "created": "2026-05-12T15:28:21.754613+08:00",
+  "tasks": [
+    {
+      "id": "TASK_243FAD",
+      "description": "完成品类市场调研",
+      "phase": "想法验证",
+      "priority": "high",
+      "status": "pending",
+      "created": "2026-05-12T15:28:21.755463+08:00",
+      "deadline": "2026-05-19T15:28:21.755469+08:00",
+      "depends_on": [],
+      "completed_at": null
+    }
+  ],
+  "milestones": []
+}

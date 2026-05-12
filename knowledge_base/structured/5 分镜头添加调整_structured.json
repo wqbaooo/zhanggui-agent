@@ -1,0 +1,31 @@
+{
+  "title": "5 分镜头添加调整",
+  "category": "拍摄剪辑",
+  "entities": [
+    {
+      "text": "第一步",
+      "type": "process"
+    },
+    {
+      "text": "问题",
+      "type": "risk"
+    },
+    {
+      "text": "注意",
+      "type": "risk"
+    },
+    {
+      "text": "火锅店",
+      "type": "category"
+    }
+  ],
+  "methodologies": [],
+  "cases": [
+    {
+      "title": "好 大家好 这一节课的话主要给大家讲一下啊 我们去添加我们的一个分镜头啊上一节课",
+      "lesson": ""
+    }
+  ],
+  "key_points": [],
+  "actionable_tips": []
+}

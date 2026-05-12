@@ -1,0 +1,18 @@
+{
+  "title": "2前期准备",
+  "category": "小吃制作",
+  "entities": [
+    {
+      "text": "接下来",
+      "type": "process"
+    },
+    {
+      "text": "然后",
+      "type": "process"
+    }
+  ],
+  "methodologies": [],
+  "cases": [],
+  "key_points": [],
+  "actionable_tips": []
+}

@@ -1,0 +1,19 @@
+{
+  "source": "/Users/wqboo/Documents/MIND/02-Projects/开店Agent/资料/餐饮/餐饮选址实用指南87M整合版本.pdf",
+  "ingested_at": "2026-05-07T18:24:52.427367",
+  "status": "needs_ocr",
+  "pages": 462,
+  "empty_pages": 462,
+  "chunks": [
+    {
+      "title": "餐饮选址实用指南87M整合版本",
+      "page": null,
+      "chunk": 1,
+      "text": "该 PDF 已登记，但当前未抽取到可检索正文。请先执行 OCR，再重新入库。",
+      "status": "needs_ocr"
+    }
+  ],
+  "notes": [
+    "pypdf 未抽取到文本，PDF 很可能是扫描图片版，需要先 OCR 后才能真正进入 Agent 知识库。"
+  ]
+}

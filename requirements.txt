@@ -1,0 +1,39 @@
+# 开店 Agent v3.0 - 依赖包
+
+# === Agent框架（核心） ===
+langgraph>=0.2.0
+langchain>=0.3.0
+langchain-core>=0.3.0
+langchain-openai>=0.2.0
+
+# DeepSeek/OpenAI 兼容接口
+openai>=1.0.0
+
+# === 知识库 ===
+# PDF 文档入库
+pypdf>=4.0.0
+
+# 语音识别（可选）
+openai-whisper>=20231117
+ffmpeg-python>=0.2.0
+pydub>=0.25.0
+
+# === 联网搜索 ===
+duckduckgo-search>=6.0,<7.0
+
+# === 爬虫（数据接入） ===
+requests>=2.32.0
+beautifulsoup4>=4.12.0
+# selenium>=4.0.0
+# playwright>=1.40.0
+
+# === 向量化检索（可选，需要 faiss + sentence-transformers） ===
+# numpy>=1.24.0
+# sentence-transformers>=3.0
+# faiss-cpu>=1.8.0
+
+# === 系统依赖说明 ===
+# ffmpeg 需要单独安装：
+#   macOS: brew install ffmpeg
+#   Ubuntu/Debian: sudo apt install ffmpeg
+#   Windows: 下载并添加到 PATH

@@ -1,0 +1,91 @@
+{
+  "title": "1 3 2餐饮的基础知识-下",
+  "category": "选址指南",
+  "entities": [
+    {
+      "text": "什麼能帶動該商圈",
+      "type": "location"
+    },
+    {
+      "text": "就是這是一個商圈",
+      "type": "location"
+    },
+    {
+      "text": "些東西促進的商圈",
+      "type": "location"
+    },
+    {
+      "text": "售推動常見的商圈",
+      "type": "location"
+    },
+    {
+      "text": "哪些呢常見的商圈",
+      "type": "location"
+    },
+    {
+      "text": "大學商圈社區商圈",
+      "type": "location"
+    },
+    {
+      "text": "麼但是在同一商圈",
+      "type": "location"
+    },
+    {
+      "text": "意所以同一個商圈",
+      "type": "location"
+    },
+    {
+      "text": "常重要的這個商圈",
+      "type": "location"
+    },
+    {
+      "text": "一個十字交叉路口",
+      "type": "location"
+    },
+    {
+      "text": "原因就是這個商圈",
+      "type": "location"
+    },
+    {
+      "text": "然地理的位置商圈",
+      "type": "location"
+    },
+    {
+      "text": "的便利性對吧商圈",
+      "type": "location"
+    },
+    {
+      "text": "10%",
+      "type": "price"
+    },
+    {
+      "text": "首先",
+      "type": "process"
+    },
+    {
+      "text": "你擠開了你也沒辦法",
+      "type": "method"
+    },
+    {
+      "text": "注意",
+      "type": "risk"
+    },
+    {
+      "text": "快餐店",
+      "type": "category"
+    },
+    {
+      "text": "奶茶",
+      "type": "category"
+    }
+  ],
+  "methodologies": [],
+  "cases": [
+    {
+      "title": "好 那我們再來講第十一個SQ很多人可能不明白什麼叫SQ說人話講簡單一點就是你這個",
+      "lesson": ""
+    }
+  ],
+  "key_points": [],
+  "actionable_tips": []
+}

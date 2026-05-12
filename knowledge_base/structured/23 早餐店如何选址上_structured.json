@@ -1,0 +1,99 @@
+{
+  "title": "23 早餐店如何选址上",
+  "category": "创业2.0",
+  "entities": [
+    {
+      "text": "就是在这个商圈",
+      "type": "location"
+    },
+    {
+      "text": "家出门的这个社区",
+      "type": "location"
+    },
+    {
+      "text": "如果你这个街道",
+      "type": "location"
+    },
+    {
+      "text": "它的那个社区",
+      "type": "location"
+    },
+    {
+      "text": "开选择在一些学校",
+      "type": "location"
+    },
+    {
+      "text": "候你就要发现学校",
+      "type": "location"
+    },
+    {
+      "text": "县城",
+      "type": "location"
+    },
+    {
+      "text": "市区",
+      "type": "location"
+    },
+    {
+      "text": "乡镇",
+      "type": "location"
+    },
+    {
+      "text": "5万",
+      "type": "price"
+    },
+    {
+      "text": "首先",
+      "type": "process"
+    },
+    {
+      "text": "最后",
+      "type": "process"
+    },
+    {
+      "text": "然后",
+      "type": "process"
+    },
+    {
+      "text": "环节",
+      "type": "process"
+    },
+    {
+      "text": "有小县城开店的模型",
+      "type": "method"
+    },
+    {
+      "text": "蹲点",
+      "type": "method"
+    },
+    {
+      "text": "注意",
+      "type": "risk"
+    },
+    {
+      "text": "避免",
+      "type": "risk"
+    },
+    {
+      "text": "早餐店",
+      "type": "category"
+    },
+    {
+      "text": "包子",
+      "type": "category"
+    },
+    {
+      "text": "豆浆",
+      "type": "category"
+    }
+  ],
+  "methodologies": [],
+  "cases": [
+    {
+      "title": "Hello 同学们 大家好 这期课我们一起来聊一聊早餐店到底该如何选址以及早餐店",
+      "lesson": ""
+    }
+  ],
+  "key_points": [],
+  "actionable_tips": []
+}

@@ -1,0 +1,63 @@
+{
+  "title": "第五节3换品思维",
+  "category": "创业1.0",
+  "entities": [
+    {
+      "text": "42万",
+      "type": "price"
+    },
+    {
+      "text": "3万",
+      "type": "price"
+    },
+    {
+      "text": "38万",
+      "type": "price"
+    },
+    {
+      "text": "20万",
+      "type": "price"
+    },
+    {
+      "text": "10万",
+      "type": "price"
+    },
+    {
+      "text": "15万",
+      "type": "price"
+    },
+    {
+      "text": "然后",
+      "type": "process"
+    },
+    {
+      "text": "接下来",
+      "type": "process"
+    },
+    {
+      "text": "最后",
+      "type": "process"
+    },
+    {
+      "text": "如果大家还是没办法",
+      "type": "method"
+    },
+    {
+      "text": "问题",
+      "type": "risk"
+    },
+    {
+      "text": "小吃店",
+      "type": "category"
+    }
+  ],
+  "methodologies": [],
+  "cases": [
+    {
+      "title": "OK 第三个点就是我们整个一个店铺管理就是我们的换品思维我在前面讲的很多我们做小",
+      "lesson": ""
+    }
+  ],
+  "key_points": [],
+  "actionable_tips": []
+}

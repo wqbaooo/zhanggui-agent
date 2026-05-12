@@ -1,0 +1,26 @@
+{
+  "title": "3物料设备介绍",
+  "category": "小吃制作",
+  "entities": [
+    {
+      "text": "乡镇",
+      "type": "location"
+    },
+    {
+      "text": "首先",
+      "type": "process"
+    },
+    {
+      "text": "接下来",
+      "type": "process"
+    },
+    {
+      "text": "镇或者小城市没办法",
+      "type": "method"
+    }
+  ],
+  "methodologies": [],
+  "cases": [],
+  "key_points": [],
+  "actionable_tips": []
+}

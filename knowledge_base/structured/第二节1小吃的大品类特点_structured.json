@@ -1,0 +1,59 @@
+{
+  "title": "第二节1小吃的大品类特点",
+  "category": "创业1.0",
+  "entities": [
+    {
+      "text": "匹配什么样的商圈",
+      "type": "location"
+    },
+    {
+      "text": "如果你是开了学校",
+      "type": "location"
+    },
+    {
+      "text": "比如说我们在学校",
+      "type": "location"
+    },
+    {
+      "text": "接下来",
+      "type": "process"
+    },
+    {
+      "text": "然后",
+      "type": "process"
+    },
+    {
+      "text": "最后",
+      "type": "process"
+    },
+    {
+      "text": "接着",
+      "type": "process"
+    },
+    {
+      "text": "首先",
+      "type": "process"
+    },
+    {
+      "text": "环节",
+      "type": "process"
+    },
+    {
+      "text": "问题",
+      "type": "risk"
+    },
+    {
+      "text": "注意",
+      "type": "risk"
+    }
+  ],
+  "methodologies": [],
+  "cases": [
+    {
+      "title": "OK 各位同学我们接下来讲我们的第二章节选品那么在我们参议人里面有一句话实际上讲",
+      "lesson": ""
+    }
+  ],
+  "key_points": [],
+  "actionable_tips": []
+}

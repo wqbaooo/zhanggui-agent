@@ -1,0 +1,55 @@
+{
+  "title": "1 4 2餐饮行业十大坑-租房坑",
+  "category": "选址指南",
+  "entities": [
+    {
+      "text": "的公寓楼下的商圈",
+      "type": "location"
+    },
+    {
+      "text": "一个新打造的商圈",
+      "type": "location"
+    },
+    {
+      "text": "然后",
+      "type": "process"
+    },
+    {
+      "text": "最后",
+      "type": "process"
+    },
+    {
+      "text": "经营会涉及到各种法",
+      "type": "method"
+    },
+    {
+      "text": "设备报费物料报费法",
+      "type": "method"
+    },
+    {
+      "text": "整杆被罚款停业无法",
+      "type": "method"
+    },
+    {
+      "text": "这个条件那你就没法",
+      "type": "method"
+    },
+    {
+      "text": "风险",
+      "type": "risk"
+    },
+    {
+      "text": "避免",
+      "type": "risk"
+    }
+  ],
+  "methodologies": [],
+  "cases": [
+    {
+      "title": "第八个租房坑什么是租房坑如果踩了租房坑你会有什么样的后果所以这个章节我都是先把后",
+      "lesson": ""
+    }
+  ],
+  "key_points": [],
+  "actionable_tips": []
+}
