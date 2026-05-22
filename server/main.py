@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from server.routes import chat, audit
+from server.routes import chat, audit, finance
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -40,6 +40,7 @@ app.add_middleware(
 
 app.include_router(chat.router, prefix="/api")
 app.include_router(audit.router, prefix="/api")
+app.include_router(finance.router, prefix="/api")
 
 
 @app.get("/health")
