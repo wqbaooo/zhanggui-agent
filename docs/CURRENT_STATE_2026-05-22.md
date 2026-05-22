@@ -20,7 +20,7 @@ plan_f_relation: 无关（独立工作流）
 | 总提交数 | 3 |
 | 未提交修改 | `graph/tools.py`（去重重构，见 5.3） |
 | 未跟踪新文件 | `.gitignore`, `docs/ARCHITECTURE_SNAPSHOT.md`, `graph/tools.py.backup` |
-| 缺失 | `.env`, `.env.example` |
+| 缺失 | `.env` |
 
 ```
 3925c57 fix: 迁移路径修复 — 知识库 JSON 中 Code/MIND → 10-Core/mind
@@ -41,7 +41,7 @@ plan_f_relation: 无关（独立工作流）
 
 | 包 | 声明版本 | 用途 |
 |----|---------|------|
-| `langgraph` | `>=0.2.0` | Agent 编排框架 |
+| `langgraph` | `>=1.1.0` | Agent 编排框架 |
 | `langchain` | `>=0.3.0` | 大模型调用抽象 |
 | `langchain-core` | `>=0.3.0` | LangChain 核心 |
 | `langchain-openai` | `>=0.2.0` | OpenAI/DeepSeek 兼容接口 |
@@ -54,12 +54,15 @@ plan_f_relation: 无关（独立工作流）
 | `ffmpeg-python` (可选) | `>=0.2.0` | 音频处理 |
 | `pydub` (可选) | `>=0.25.0` | 音频处理 |
 | `pytest` (dev) | `>=7.0` | 测试框架 |
+| `fastapi` | `>=0.115.0` | Web 框架 |
+| `uvicorn` | `>=0.30.0` | ASGI 服务器 |
+| `sse-starlette` | `>=2.0` | SSE 流式支持 |
 
 ### 2.3 实际安装版本
 
 | 包 | 安装版本 | 声明版本 | 状态 |
 |----|---------|----------|------|
-| `langgraph` | **1.1.9** | `>=0.2.0` | ⚠️ 大版本跳跃 |
+| `langgraph` | **1.1.9** | `>=1.1.0` | ✅ |
 | `langgraph-checkpoint-sqlite` | 3.0.3 | 未声明 | 已装未用（用 MemorySaver） |
 | `langgraph-prebuilt` | 1.0.10 | 未声明 | 已装 |
 | `langchain-core` | 1.3.3 | `>=0.3.0` | ✅ |
@@ -70,8 +73,9 @@ plan_f_relation: 无关（独立工作流）
 | `duckduckgo-search` | 6.4.2 | `>=6.0,<7.0` | ✅ |
 | `pypdf` | 4.3.1 | `>=4.0.0` | ✅ |
 | `openai-whisper` | 20250625 | `>=20231117` | ✅ |
-| `fastapi` | **0.124.4** | **未声明** | ⚠️ 系统已装，未纳入项目 |
-| `uvicorn` | **0.33.0** | **未声明** | ⚠️ 系统已装，未纳入项目 |
+| `fastapi` | **0.124.4** | `>=0.115.0` | ✅ |
+| `uvicorn` | **0.33.0** | `>=0.30.0` | ✅ |
+| `sse-starlette` | - | `>=2.0` | 待 pip install |
 
 ### 2.4 环境变量需求
 
@@ -117,6 +121,7 @@ plan_f_relation: 无关（独立工作流）
 ├── CONSTITUTION.md       Agent 宪法 (8条不可违背准则)
 ├── README.md             项目说明
 ├── .gitignore            忽略规则（新增，未提交）
+├── .env.example         环境变量模板（新增）
 └── (无 package.json, .env, .env.example, Dockerfile, Makefile)
 ```
 
@@ -362,14 +367,14 @@ Next.js 15 (Frontend)          FastAPI (Backend)           LangGraph (Agent)
 
 | # | 问题 | 严重度 | 状态 |
 |---|------|--------|------|
-| 1 | `.env` 文件缺失 — Agent 无法启动 LangGraph 模式 | 🔴 高 | 未修复 |
-| 2 | `.env.example` 模板缺失 — README 中指向的文件不存在 | 🟡 中 | 未修复 |
-| 3 | `requirements.txt` 中 `langgraph>=0.2.0` 与实际 `1.1.9` 不匹配 | 🟡 中 | 未修复 |
+| 1 | `.env` 文件缺失 — Agent 无法启动 LangGraph 模式 | 🔴 高 | `.env.example` 已创建，`.env` 待用户填写 |
+| 2 | `.env.example` 模板缺失 — README 中指向的文件不存在 | 🟡 中 | ✅ 已修复 |
+| 3 | `requirements.txt` 中 `langgraph>=0.2.0` 与实际 `1.1.9` 不匹配 | 🟡 中 | ✅ 已修复 (`>=1.1.0`) |
 | 4 | `langgraph-checkpoint-sqlite` 已装未用 — 仍用 MemorySaver | 🟢 低 | 后续 |
-| 5 | 4 个 prompt 中引用但未注册为 tool 的函数 | 🟡 中 | tools.py 已修复 |
+| 5 | 4 个 prompt 中引用但未注册为 tool 的函数 | 🟡 中 | ✅ tools.py 已修复 |
 | 6 | 两套 `ProjectMemory` 实现未统一 | 🟡 中 | 后续 |
-| 7 | `fastapi`/`uvicorn` 系统已装但未声明为项目依赖 | 🟡 中 | 未修复 |
-| 8 | `graph/tools.py` 去重重构未提交 | 🟢 低 | 等待确认 |
+| 7 | `fastapi`/`uvicorn` 系统已装但未声明为项目依赖 | 🟡 中 | ✅ 已修复（加入 requirements.txt/pyproject.toml） |
+| 8 | `graph/tools.py` 去重重构未提交 | 🟢 低 | 等待提交 |
 
 ---
 

@@ -1,0 +1,61 @@
+# ============================================================
+# 开店 Agent - Git 忽略规则
+# ============================================================
+
+# ===== 密钥与环境变量 =====
+.env
+.env.local
+.env.production
+
+# ===== Python 编译缓存 =====
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ===== 虚拟环境 =====
+venv/
+.venv/
+env/
+.env/
+
+# ===== macOS 系统文件 =====
+.DS_Store
+._*
+.AppleDouble
+.LSOverride
+
+# ===== IDE 与编辑器 =====
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ===== 日志 =====
+*.log
+logs/
+
+# ===== 运行时数据 =====
+project_archives/
+project_data/
+
+# ===== LangGraph checkpoint（预留防护） =====
+*.checkpoint
+
+# ===== 知识库生成索引（脚本可重建） =====
+knowledge_base/vector_store/
+knowledge_base/vector_store_sharded/
+knowledge_base/rag_index.json
+
+# ===== 视频转写中间产物 =====
+knowledge_base/video_knowledge/**/*.wav
+knowledge_base/video_knowledge/**/*.mp3
+
+# ===== 临时文件 =====
+/tmp/
+*.tmp
+*.temp
+*.backup

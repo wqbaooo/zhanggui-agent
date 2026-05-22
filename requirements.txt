@@ -1,7 +1,7 @@
 # 开店 Agent v3.0 - 依赖包
 
 # === Agent框架（核心） ===
-langgraph>=0.2.0
+langgraph>=1.1.0
 langchain>=0.3.0
 langchain-core>=0.3.0
 langchain-openai>=0.2.0
@@ -37,3 +37,8 @@ beautifulsoup4>=4.12.0
 #   macOS: brew install ffmpeg
 #   Ubuntu/Debian: sudo apt install ffmpeg
 #   Windows: 下载并添加到 PATH
+
+# === Web 服务（产品化后端） ===
+fastapi>=0.115.0
+uvicorn>=0.30.0
+sse-starlette>=2.0

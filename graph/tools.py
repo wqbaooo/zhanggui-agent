@@ -355,7 +355,11 @@ def update_profile(
     personality_financial_literacy: str = "",
     personality_archetype: str = ""
 ) -> str:
-    """更新用户画像。在对话中自动提取城市/品类/预算等信息时调用。
+    """更新用户画像。在对话中自然识别用户信息并归档，支撑跨轮次记忆。
+
+    当智能体通过对话提取到用户的业务属性（城市、品类、预算、经营方式、经验、当前阶段）
+    或人格评估维度（成就动机、抗压韧性、风险偏好、学习敏捷性、社交能力、财务素养）
+    时调用此工具。每次更新都会追踪人格评估的覆盖进度。
 
     Args:
         city: 目标城市
@@ -374,42 +378,30 @@ def update_profile(
         personality_archetype: 创业者原型（实干派/社交派/精算派）
 
     Returns:
-        更新确认
+        更新确认，附业务字段与人格维度的覆盖统计
     """
-    updates = []
-    if city:
-        updates.append(f"城市 → {city} | 人格_成就动机={personality_achievement_drive}" if personality_achievement_drive else f"城市 → {city}")
-    if category:
-        updates.append(f"品类 → {category}")
-    if budget:
-        updates.append(f"预算 → {budget}")
-    if business_mode:
-        updates.append(f"经营模式 → {business_mode}")
-    if experience:
-        updates.append(f"经验 → {experience}")
-    if store_state:
-        updates.append(f"当前阶段 → {store_state}")
-    if project_id:
-        updates.append(f"项目ID → {project_id}")
-
-    # 人格维度更新
-    personality_fields = {
-        "成就动机": personality_achievement_drive,
-        "抗压韧性": personality_resilience,
-        "风险偏好": personality_risk_tolerance,
-        "学习敏捷性": personality_learning_agility,
-        "社交能力": personality_social_intelligence,
-        "财务素养": personality_financial_literacy,
-        "创业者原型": personality_archetype,
+    fields = {
+        "城市": city, "品类": category, "预算": budget,
+        "经营方式": business_mode, "经验": experience, "当前阶段": store_state,
+        "项目ID": project_id,
+        "人格_成就动机": personality_achievement_drive,
+        "人格_抗压韧性": personality_resilience,
+        "人格_风险偏好": personality_risk_tolerance,
+        "人格_学习敏捷性": personality_learning_agility,
+        "人格_社交能力": personality_social_intelligence,
+        "人格_财务素养": personality_financial_literacy,
+        "人格_创业者原型": personality_archetype,
     }
-    for dim, val in personality_fields.items():
-        if val:
-            updates.append(f"人格_{dim} → {val}")
-
-    if not updates:
-        return "未检测到需要更新的画像信息。"
-
-    return "## 画像已更新\n" + "\n".join(f"- {u}" for u in updates)
+    filled = {k: v for k, v in fields.items() if v}
+    if not filled:
+        return "未提取到可更新的画像信息。"
+    parts = []
+    for k, v in filled.items():
+        parts.append(f"  - {k}: {v}")
+    personality_count = sum(1 for k in filled if k.startswith("人格_"))
+    business_count = len(filled) - personality_count
+    return "画像已更新:\n" + "\n".join(parts) + \
+           f"\n\n（业务字段: {business_count} | 人格维度: {personality_count}/7）"
 
 
 @tool
@@ -585,247 +577,6 @@ def generate_plan(
 
     return "\n".join(lines)
 
-
-@tool
-def analyze_location(city: str, district: str = "", category: str = "", business_mode: str = "") -> str:
-    """Location analysis tool using Amap POI data.
-    
-    Uses:
-    - Search for catering POIs in target area
-    - Analyze competition density
-    - Check surrounding infrastructure (schools, hospitals, parking)
-    
-    Args:
-        city: City name (e.g. "Xinyu")
-        district: District/county name (e.g. "Yushui")
-        category: Food category (e.g. "ice jelly")
-        business_mode: Operating mode (e.g. "stall", "small shop")
-    """
-    amap = _get_amap()
-    if not amap.available():
-        return "商圈分析暂不可用（未配置高德API key）。请使用 search_knowledge 查询商圈评估方法论。"
-    try:
-        result = amap.execute({
-            "profile": {
-                "城市": city,
-                "区县": district or "非指定",
-                "品类": category,
-                "经营方式": business_mode or "未确定",
-            }
-        })
-        if result.success and result.data:
-            data = result.data
-            lines = [f"## 商圈分析：{city}" + (f" {district}" if district else ""), ""]
-            if "商圈概况" in data:
-                lines.append(f"**商圈概况**: {data['商圈概况']}")
-            if "POI统计" in data:
-                lines.append(f"\n**POI统计**: {data['POI统计']}")
-            if "竞品分析" in data:
-                lines.append(f"\n**竞品分析**: {data['竞品分析']}")
-            if "选址建议" in data:
-                lines.append(f"\n**选址建议**: {data['选址建议']}")
-            return "\n".join(lines)
-        return f"商圈分析失败: {result.error if result else '未知错误'}"
-    except Exception as exc:
-        return f"商圈分析异常: {exc}"
-
-
-@tool
-def analyze_franchise(brand: str = "", keywords: str = "") -> str:
-    """Franchise brand analysis and risk assessment tool.
-    
-    Uses:
-    - Search for franchise brand information
-    - Analyze franchise fees, contract terms, hidden costs
-    - Generate franchise risk checklist
-    
-    Args:
-        brand: Franchise brand name (e.g. "mixuebingcheng")
-        keywords: Additional search keywords for context
-    """
-    franch = _get_franchise()
-    if not franch.available():
-        return "加盟分析暂不可用（未配置加盟数据API）。请使用 search_web 搜索品牌加盟信息。"
-    try:
-        result = franch.execute({"profile": {
-            "品牌名": brand,
-            "关键词": keywords or "加盟 费用 评价",
-        }})
-        if result.success and result.data:
-            data = result.data
-            lines = [f"## 加盟分析：{brand}", ""]
-            if "品牌概况" in data:
-                lines.append(f"**品牌概况**: {data['品牌概况']}")
-            if "加盟费用" in data:
-                lines.append(f"\n**加盟费用**: {data['加盟费用']}")
-            if "门店数据" in data:
-                lines.append(f"\n**门店数据**: {data['门店数据']}")
-            if "风险分析" in data:
-                lines.append(f"\n**风险分析**: {data['风险分析']}")
-            if "加盟建议" in data:
-                lines.append(f"\n**加盟建议**: {data['加盟建议']}")
-            return "\n".join(lines)
-        return f"加盟分析失败: {result.error if result else '未知错误'}"
-    except Exception as exc:
-        return f"加盟分析异常: {exc}"
-
-
-@tool
-def update_profile(city: str = "", category: str = "", budget: str = "",
-                   business_mode: str = "", experience: str = "", store_state: str = "",
-                   project_id: str = "",
-                   personality_achievement_drive: str = "",
-                   personality_resilience: str = "",
-                   personality_risk_tolerance: str = "",
-                   personality_learning_agility: str = "",
-                   personality_social_intelligence: str = "",
-                   personality_financial_literacy: str = "",
-                   personality_archetype: str = "") -> str:
-    """Update user profile with extracted preferences and personality traits.
-
-    Called by the Agent after identifying user attributes in conversation.
-    Supports both business profile (city, category, budget) and personality
-    assessment dimensions from the Big Five entrepreneurial adaptation framework.
-
-    Uses:
-    - Store extracted attributes for cross-session memory
-    - Track personality assessment progress
-
-    Args:
-        city: Target city
-        category: Food & beverage category
-        budget: Budget amount
-        business_mode: Operating mode (stall/kiosk/small shop/standard/flagship)
-        experience: Experience level (novice/experienced/veteran)
-        store_state: Current stage (idea/location/renovation/operation)
-        project_id: Project identifier
-        personality_achievement_drive: Achievement motivation (high/medium/low)
-        personality_resilience: Stress resilience (high/medium/low)
-        personality_risk_tolerance: Risk tolerance (high/medium/low)
-        personality_learning_agility: Learning agility (high/medium/low)
-        personality_social_intelligence: Social intelligence (high/medium/low)
-        personality_financial_literacy: Financial literacy (high/medium/low)
-        personality_archetype: Entrepreneur archetype (doer/connector/analyst)
-    """
-    fields = {
-        "城市": city, "品类": category, "预算": budget,
-        "经营方式": business_mode, "经验": experience, "当前阶段": store_state,
-        "项目ID": project_id,
-        "人格_成就动机": personality_achievement_drive,
-        "人格_抗压韧性": personality_resilience,
-        "人格_风险偏好": personality_risk_tolerance,
-        "人格_学习敏捷性": personality_learning_agility,
-        "人格_社交能力": personality_social_intelligence,
-        "人格_财务素养": personality_financial_literacy,
-        "人格_创业者原型": personality_archetype,
-    }
-    filled = {k: v for k, v in fields.items() if v}
-    if not filled:
-        return "未提取到可更新的画像信息。"
-    parts = []
-    for k, v in filled.items():
-        parts.append(f"  - {k}: {v}")
-    personality_count = sum(1 for k in filled if k.startswith("人格_"))
-    business_count = len(filled) - personality_count
-    return "画像已更新:\n" + "\n".join(parts) + \
-           f"\n\n（业务字段: {business_count} | 人格维度: {personality_count}/7）"
-
-
-# ============ Plan 生成工具 ============
-
-@tool
-def generate_plan(city: str = "", category: str = "", budget: str = "",
-                   business_mode: str = "", experience: str = "",
-                   store_state: str = "想法阶段", profile_json: str = "") -> str:
-    """Generate structured 4-phase store-opening plan tailored to user profile.
-
-    Phase 1: Idea Validation → Phase 2: Location & Preparation →
-    Phase 3: Store Execution → Phase 4: Operations & Growth
-
-    The plan adapts based on user's personality archetype and includes
-    cross-cutting support (project archive, risk monitoring, task management).
-
-    Uses:
-    - Generate full lifecycle task breakdown (23 sub-modules)
-    - Adapt task descriptions to personality archetype
-    - Set Go/No-Go checkpoint criteria per phase
-
-    Args:
-        city: Target city
-        category: Food & beverage category
-        budget: Budget amount
-        business_mode: Operating mode
-        experience: Experience level
-        store_state: Current stage
-        profile_json: JSON string with extracted profile and personality data
-    """
-    import uuid, json as jmod, os as _os
-    plan_id = f"PLAN_{uuid.uuid4().hex[:8].upper()}"
-    try:
-        profile_data = jmod.loads(profile_json) if profile_json else {}
-    except Exception:
-        profile_data = {}
-    archetype = profile_data.get("人格_创业者原型", "")
-    arch_tag = f" | 原型: {archetype}" if archetype else ""
-    lines = [
-        f"# 开店计划: {city}·{category}店",
-        "",
-        f"**计划ID**: {plan_id}",
-        f"**画像**: {city} | {category} | {budget} | {business_mode or '未指定'} | {experience or '未指定'}{arch_tag}",
-        f"**当前阶段**: {store_state}",
-        "",
-        "---",
-        "",
-        "## 阶段1: 想法验证 (1-2周)",
-        "",
-        "| # | 任务 | 交付物 |",
-        "|---|------|--------|",
-        "| 1.1 | 品类市场调研 | 市场容量/竞争/价格带分析 |",
-        "| 1.2 | 财务可行性测算 | 盈亏平衡/回本周期预估 |",
-        "| 1.3 | 创业者人格评估 | 六维评估 + 原型诊断 |",
-        "| 1.4 | 能力匹配分析 | 品类要求 vs 个人能力的 GAP |",
-        "| 1.5 | Go/No-Go 决策 | 可行性报告 |",
-    ]
-    if archetype == "实干派":
-        lines.append("")
-        lines.append("**人格提示**: 实干派容易凭直觉行动——请务必完成 1.1 和 1.2，避免跳过市场验证。")
-    lines += [
-        "",
-        "## 阶段2: 选址筹备 (2-4周)",
-        "",
-        "| 2.1 | 商圈扫描 | POI密度/人流/交通分析 |",
-        "| 2.2 | 竞品调研 | 同品类价格带/评分/评价 |",
-        "| 2.3 | 候选铺位评估 | 3-5个铺位对比（硬件/租金/转让费） |",
-        "| 2.4 | 选址决策 | A/B/C方案对比 |",
-        "",
-        "## 阶段3: 开店执行 (4-8周)",
-        "",
-        "| 3.1 | 证照办理 | 营业执照/食品许可/消防 |",
-        "| 3.2 | 装修施工 | 设计/施工/验收 |",
-        "| 3.3 | 设备采购 | 清单生成/供应商比价 |",
-        "| 3.4 | 人员招聘 | 岗位设计/薪资/培训 |",
-        "| 3.5 | 供应链搭建 | 食材供应商品控/库存SOP |",
-        "",
-        "## 阶段4: 运营增长 (持续)",
-        "",
-        "| 4.1 | 开业活动 | 抖音同城/美团团购方案 |",
-        "| 4.2 | 日常运营SOP | 出品/服务/卫生标准 |",
-        "| 4.3 | 成本监控 | 日/周/月成本追踪看板 |",
-        "| 4.4 | 营销推广 | 达人合作/内容月历 |",
-        "| 4.5 | 会员体系 | 储值/积分/复购策略 |",
-        "| 4.6 | 数据分析 | 月度经营分析/盈利优化 |",
-        "",
-        "---",
-        "**贯穿维度**: 项目档案归档 | 风险实时监控 | 里程碑任务管理",
-        "",
-        f"[PLAN_ID:{plan_id}]",
-    ]
-    return "\n".join(lines)
-
-
-
-
-# ============ 可行性报告辅助函数 ============
 
 def _get_personality_from_profile(profile: dict) -> dict:
     """从画像中提取人格维度数据（人格_前缀的字段）。"""
