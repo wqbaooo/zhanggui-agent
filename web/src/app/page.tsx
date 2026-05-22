@@ -6,25 +6,95 @@ import { Badge } from "@/components/ui/badge";
 import { ProjectOverview } from "@/components/project/project-overview";
 import { FinanceTool } from "@/components/artifact/finance-tool";
 import { SiteAnalysis } from "@/components/artifact/site-analysis";
+import { CompetitorResearch } from "@/components/artifact/competitor-research";
+import { PermitChecklist } from "@/components/artifact/permit-checklist";
+import { EquipmentList } from "@/components/artifact/equipment-list";
+import { MarketingPlan } from "@/components/artifact/marketing-plan";
+import { RiskRegister } from "@/components/artifact/risk-register";
+import { OperationDashboard } from "@/components/artifact/operation-dashboard";
+import { MenuOptimization } from "@/components/artifact/menu-optimization";
 import { FloatingAI } from "@/components/chat/floating-ai";
 
 type Mode = "home" | "explore" | "prepare" | "operate";
 type NavItem = "项目概览" | "选址分析" | "竞品调研" | "财务测算" | "证照办理" | "设备采购" | "开业营销" | "风险评估";
+type OpNavItem = "经营看板" | "收支记账" | "数据分析" | "营销效果" | "客户反馈" | "库存管理" | "人员管理" | "菜单优化" | "预警中心";
 
 const navItems: NavItem[] = ["项目概览", "选址分析", "竞品调研", "财务测算", "证照办理", "设备采购", "开业营销", "风险评估"];
+const opNavItems: OpNavItem[] = ["经营看板", "收支记账", "数据分析", "营销效果", "客户反馈", "库存管理", "人员管理", "菜单优化", "预警中心"];
 
 export default function Home() {
   const [mode, setMode] = useState<Mode>("home");
   const [activeNav, setActiveNav] = useState<NavItem>("项目概览");
+  const [activeOpNav, setActiveOpNav] = useState<OpNavItem>("经营看板");
+
+  const renderPrepareContent = () => {
+    switch (activeNav) {
+      case "项目概览": return <ProjectOverview />;
+      case "选址分析": return <SiteAnalysis />;
+      case "竞品调研": return <CompetitorResearch />;
+      case "财务测算": return <FinanceTool />;
+      case "证照办理": return <PermitChecklist />;
+      case "设备采购": return <EquipmentList />;
+      case "开业营销": return <MarketingPlan />;
+      case "风险评估": return <RiskRegister />;
+    }
+  };
+
+  const renderOperateContent = () => {
+    switch (activeOpNav) {
+      case "经营看板": return <OperationDashboard />;
+      case "菜单优化": return <MenuOptimization />;
+      default:
+        return (
+          <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+            {activeOpNav} — 即将上线
+          </div>
+        );
+    }
+  };
+
+  if (mode === "operate") {
+    return (
+      <div className="flex h-screen bg-background">
+        <aside className="w-64 border-r flex flex-col p-4">
+          <button onClick={() => setMode("home")} className="text-sm text-muted-foreground hover:text-foreground mb-6 text-left">
+            ← 返回首页
+          </button>
+          <h2 className="font-semibold mb-4">大口章鱼烧 · 九江店</h2>
+          <nav className="space-y-1 text-sm">
+            {opNavItems.map((item) => (
+              <button
+                key={item}
+                onClick={() => setActiveOpNav(item)}
+                className={`block w-full text-left px-2 py-1.5 rounded transition-colors ${
+                  activeOpNav === item ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {item}
+              </button>
+            ))}
+          </nav>
+          <div className="mt-auto text-xs text-muted-foreground">
+            <p>已运营 731 天</p>
+            <div className="w-full bg-muted rounded-full h-1.5 mt-2">
+              <div className="bg-green-500 h-1.5 rounded-full w-[85%]" />
+            </div>
+            <p className="mt-1">经营健康度 85%</p>
+          </div>
+        </aside>
+        <main className="flex-1 overflow-auto">
+          {renderOperateContent()}
+        </main>
+        <FloatingAI />
+      </div>
+    );
+  }
 
   if (mode === "prepare") {
     return (
       <div className="flex h-screen bg-background">
         <aside className="w-64 border-r flex flex-col p-4">
-          <button
-            onClick={() => setMode("home")}
-            className="text-sm text-muted-foreground hover:text-foreground mb-6 text-left"
-          >
+          <button onClick={() => setMode("home")} className="text-sm text-muted-foreground hover:text-foreground mb-6 text-left">
             ← 返回首页
           </button>
           <h2 className="font-semibold mb-4">大口章鱼烧 · 南昌红谷滩</h2>
@@ -34,9 +104,7 @@ export default function Home() {
                 key={item}
                 onClick={() => setActiveNav(item)}
                 className={`block w-full text-left px-2 py-1.5 rounded transition-colors ${
-                  activeNav === item
-                    ? "bg-accent text-accent-foreground"
-                    : "text-muted-foreground hover:text-foreground"
+                  activeNav === item ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:text-foreground"
                 }`}
               >
                 {item}
@@ -50,20 +118,9 @@ export default function Home() {
             </div>
           </div>
         </aside>
-        <main className="flex-1 flex flex-col">
-          <div className="flex-1 overflow-auto">
-            {activeNav === "项目概览" && (
-              <div className="p-6">
-                <ProjectOverview />
-              </div>
-            )}
-            {activeNav === "选址分析" && <SiteAnalysis />}
-            {activeNav === "财务测算" && <FinanceTool />}
-            {!["项目概览", "选址分析", "财务测算"].includes(activeNav) && (
-              <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-                {activeNav} — 即将上线
-              </div>
-            )}
+        <main className="flex-1 overflow-auto">
+          <div className="min-h-full">
+            {renderPrepareContent()}
           </div>
         </main>
         <FloatingAI />
@@ -83,45 +140,31 @@ export default function Home() {
           </div>
 
           <div className="grid gap-4">
-            <Card
-              className="p-6 cursor-pointer hover:border-primary/50 transition-colors"
-              onClick={() => setMode("explore")}
-            >
+            <Card className="p-6 cursor-pointer hover:border-primary/50 transition-colors" onClick={() => setMode("explore")}>
               <div className="flex items-start justify-between">
                 <div>
                   <h3 className="font-medium">我还没想好做什么</h3>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    填写基本信息，几分钟获得一份可行性报告，帮你判断该不该干
-                  </p>
+                  <p className="text-sm text-muted-foreground mt-1">填写基本信息，几分钟获得一份可行性报告，帮你判断该不该干</p>
                 </div>
                 <Badge variant="secondary" className="shrink-0">探索</Badge>
               </div>
             </Card>
-
-            <Card
-              className="p-6 cursor-pointer hover:border-primary/50 transition-colors"
-              onClick={() => setMode("prepare")}
-            >
+            <Card className="p-6 cursor-pointer hover:border-primary/50 transition-colors" onClick={() => setMode("prepare")}>
               <div className="flex items-start justify-between">
                 <div>
                   <h3 className="font-medium">我正在筹备开店</h3>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    选址分析、财务测算、证照清单 — 一个工作台全部搞定
-                  </p>
+                  <p className="text-sm text-muted-foreground mt-1">选址分析、财务测算、证照清单 — 一个工作台全部搞定</p>
                 </div>
                 <Badge variant="secondary" className="shrink-0">筹备</Badge>
               </div>
             </Card>
-
-            <Card className="p-6 opacity-50">
+            <Card className="p-6 cursor-pointer hover:border-primary/50 transition-colors" onClick={() => setMode("operate")}>
               <div className="flex items-start justify-between">
                 <div>
                   <h3 className="font-medium">我已有店铺在运营</h3>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    经营看板、收支记账、菜单优化 — 日常运营工具（即将推出）
-                  </p>
+                  <p className="text-sm text-muted-foreground mt-1">经营看板、菜单优化、营销效果追踪 — 像咨询公司一样看数据</p>
                 </div>
-                <Badge variant="outline" className="shrink-0">即将推出</Badge>
+                <Badge variant="secondary" className="shrink-0">运营</Badge>
               </div>
             </Card>
           </div>
