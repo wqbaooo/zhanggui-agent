@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { apiPost } from "@/lib/api";
 
 interface FinanceResult {
   investment: number;
@@ -30,19 +31,14 @@ export function FinanceTool() {
   async function calculate() {
     setLoading(true);
     try {
-      const res = await fetch("http://localhost:8000/api/finance", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          investment: `${investment}万`,
-          daily_revenue: dailyRevenue,
-          daily_cost_rate: String(parseFloat(costRate) / 100),
-          rent_monthly: rent,
-          labor_monthly: labor,
-          other_monthly: other,
-        }),
+      const data = await apiPost<{ success: boolean; data: FinanceResult }>("/api/finance", {
+        investment: `${investment}万`,
+        daily_revenue: dailyRevenue,
+        daily_cost_rate: String(parseFloat(costRate) / 100),
+        rent_monthly: rent,
+        labor_monthly: labor,
+        other_monthly: other,
       });
-      const data = await res.json();
       if (data.success) setResult(data.data);
     } catch (e) {
       console.error(e);

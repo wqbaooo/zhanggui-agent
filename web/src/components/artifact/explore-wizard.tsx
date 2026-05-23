@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { apiPost, checkBackend } from "@/lib/api";
 
 type Step = "city" | "category" | "review" | "report";
 
@@ -15,6 +16,11 @@ export function ExploreWizard({ onBack }: { onBack: () => void }) {
   const [categories, setCategories] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [report, setReport] = useState<string>("");
+  const [backendOk, setBackendOk] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    checkBackend().then(setBackendOk);
+  }, []);
 
   const allCategories = ["早餐", "快餐", "小吃", "奶茶", "咖啡", "火锅", "烧烤", "面馆", "粉店", "日料", "炸鸡", "烘焙"];
 
@@ -25,18 +31,13 @@ export function ExploreWizard({ onBack }: { onBack: () => void }) {
   async function generate() {
     setLoading(true);
     try {
-      const res = await fetch("http://localhost:8000/api/chat/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: `我在${city}，预算${budget}，${experience === "none" ? "完全没有餐饮经验" : experience === "some" ? "有一点餐饮经验" : "开过餐饮店"}。我对${categories.join("、")}这些品类感兴趣。请帮我做一份可行性分析报告，包括：1）品类推荐排序 2）预算拆解 3）风险提示 4）Go/No-Go判断。`,
-        }),
+      const data = await apiPost<{ response: string }>("/api/chat/sync", {
+        message: `我在${city}，预算${budget}，${experience === "none" ? "完全没有餐饮经验" : experience === "some" ? "有一点餐饮经验" : "开过餐饮店"}。我对${categories.join("、")}这些品类感兴趣。请帮我做一份可行性分析报告，包括：1）品类推荐排序 2）预算拆解 3）风险提示 4）Go/No-Go判断。`,
       });
-      const data = await res.json();
       setReport(data.response);
       setStep("report");
     } catch (e) {
-      setReport("抱歉，生成报告失败。请检查后端是否启动。");
+      setReport("⚠️ 无法连接后端服务。请先启动后端：\n\n```bash\ncd 开店Agent\npython3 -m uvicorn server.main:app --port 8000\n```\n\n然后重试。");
       setStep("report");
     } finally {
       setLoading(false);
@@ -66,6 +67,11 @@ export function ExploreWizard({ onBack }: { onBack: () => void }) {
       <div className="text-center">
         <h1 className="text-xl font-semibold">开店可行性分析</h1>
         <p className="text-sm text-muted-foreground mt-1">3 步填写基本信息，AI 帮你判断该不该干</p>
+        {backendOk === false && (
+          <p className="text-xs text-red-600 mt-2 bg-red-50 py-1 px-2 rounded inline-block">
+            ⚠️ 后端未连接 — 启动方式见页面底部
+          </p>
+        )}
       </div>
 
       <div className="flex justify-center gap-2">
@@ -127,9 +133,14 @@ export function ExploreWizard({ onBack }: { onBack: () => void }) {
             <div className="flex justify-between"><span className="text-muted-foreground">经验</span><span>{experience === "none" ? "零经验" : experience === "some" ? "有点经验" : "开过店"}</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">品类</span><span>{categories.join("、")}</span></div>
           </div>
+          {backendOk === false && (
+            <p className="text-xs text-red-600 bg-red-50 p-2 rounded">
+              后端未连接。请在新终端运行：<code className="bg-red-100 px-1">python3 -m uvicorn server.main:app --port 8000</code>
+            </p>
+          )}
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => setStep("category")}>上一步</Button>
-            <Button className="flex-1" onClick={generate} disabled={loading}>{loading ? "生成中…" : "生成可行性报告"}</Button>
+            <Button className="flex-1" onClick={generate} disabled={loading || backendOk === false}>{loading ? "生成中…" : backendOk === false ? "后端未连接" : "生成可行性报告"}</Button>
           </div>
         </Card>
       )}
