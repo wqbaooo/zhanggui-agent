@@ -119,39 +119,61 @@ def research_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _search_knowledge_base(query: str, profile: Dict) -> str:
-    """内部知识库检索，返回格式化的上下文。"""
+    """内部知识库检索，返回去重、多样化的格式化上下文。"""
     try:
         from tools.vector_search_tool import VectorSearchTool
-        from tools.rag_tool import RagTool
 
-        # 优先向量搜索
         vec = VectorSearchTool()
         if vec.available():
-            result = vec.execute({"query": query, "limit": 4, "hybrid": True})
+            result = vec.execute({"query": query, "limit": 8, "hybrid": True})
             if result.success and result.data:
-                parts = ["[知识库研究结果 — 以下内容来自勇哥餐饮课程和案例库]"]
-                for i, ev in enumerate(result.data[:4], 1):
+                parts = ["[知识库研究结果 — 以下内容来自勇哥餐饮课程和案例库，请在你的回答中引用这些内容]"]
+                seen = set()
+                count = 0
+                for ev in result.data:
                     title = getattr(ev, 'title', '未命名')
-                    text = getattr(ev, 'text', str(ev))[:400]
+                    text = getattr(ev, 'text', str(ev))[:350]
                     source = getattr(ev, 'source', '知识库')
+                    # 去重：相同标题只保留第一条
+                    dedup_key = f"{source}:{title}"
+                    if dedup_key in seen:
+                        continue
+                    seen.add(dedup_key)
+                    count += 1
                     score = getattr(ev, 'score', 0)
-                    parts.append(f"\n--- 来源 {i}: {source} (相关度: {score:.0%}) ---")
+                    parts.append(f"\n--- 来源 {count}: {source} (相关度: {score:.0%}) ---")
                     parts.append(f"标题: {title}")
                     parts.append(f"内容: {text}")
+                    if count >= 5:
+                        break
+                if count == 0:
+                    return ""
                 return "\n".join(parts)
 
         # BM25 降级
+        from tools.rag_tool import RagTool
         rag = RagTool()
-        result = rag.execute({"query": query, "limit": 4})
+        result = rag.execute({"query": query, "limit": 8})
         if result.success and result.data:
-            parts = ["[知识库研究结果 — 以下内容来自勇哥餐饮课程和案例库]"]
-            for i, ev in enumerate(result.data[:4], 1):
+            parts = ["[知识库研究结果]"]
+            seen = set()
+            count = 0
+            for ev in result.data:
                 title = getattr(ev, 'title', '未命名')
-                text = getattr(ev, 'text', str(ev))[:400]
+                text = getattr(ev, 'text', str(ev))[:350]
                 source = getattr(ev, 'source', '知识库')
-                parts.append(f"\n--- 来源 {i}: {source} ---")
+                dedup_key = f"{source}:{title}"
+                if dedup_key in seen:
+                    continue
+                seen.add(dedup_key)
+                count += 1
+                parts.append(f"\n--- 来源 {count}: {source} ---")
                 parts.append(f"标题: {title}")
                 parts.append(f"内容: {text}")
+                if count >= 5:
+                    break
+            if count == 0:
+                return ""
             return "\n".join(parts)
 
     except Exception as e:
