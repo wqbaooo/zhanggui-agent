@@ -88,6 +88,8 @@ class ProjectMemory:
                     m.achieved_at = md.get("achieved_at")
                     self.milestones.append(m)
             except Exception:
+                import logging
+                logging.getLogger(__name__).warning("加载里程碑数据失败")
                 pass
 
     def save(self):

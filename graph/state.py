@@ -104,17 +104,34 @@ class GraphState:
 
 
 # 全局状态实例（用于单会话）
+import time as _time
 _state_instances: Dict[str, GraphState] = {}
+_state_last_access: Dict[str, float] = {}
+_SESSION_TTL = 1800  # 30 分钟无活动自动清理
+
+
+def _cleanup_expired():
+    """清理过期会话，防止内存泄漏。"""
+    now = _time.time()
+    expired = [k for k, t in _state_last_access.items() if now - t > _SESSION_TTL]
+    for k in expired:
+        _state_instances.pop(k, None)
+        _state_last_access.pop(k, None)
+    if expired:
+        logger = __import__("logging").getLogger(__name__)
+        logger.info("清理 %d 个过期会话", len(expired))
 
 
 def get_state(session_id: str) -> GraphState:
     """获取或创建状态实例。"""
+    _cleanup_expired()
     if session_id not in _state_instances:
         _state_instances[session_id] = GraphState(session_id=session_id)
+    _state_last_access[session_id] = _time.time()
     return _state_instances[session_id]
 
 
 def clear_state(session_id: str):
     """清除状态实例。"""
-    if session_id in _state_instances:
-        del _state_instances[session_id]
+    _state_instances.pop(session_id, None)
+    _state_last_access.pop(session_id, None)

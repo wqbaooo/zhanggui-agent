@@ -9,6 +9,9 @@
 而是通过搜索引擎聚合公开可见的商家信息。
 """
 
+import logging
+logger = logging.getLogger(__name__)
+
 from __future__ import annotations
 
 import re
@@ -91,6 +94,7 @@ class MeituanCompetitionTool(BaseTool):
                 if sr.success and sr.data:
                     results.extend(sr.data)
             except Exception:
+                logger.warning("美团搜索查询 '%s' 失败", q)
                 continue
 
         if not results:

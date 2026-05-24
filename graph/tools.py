@@ -103,7 +103,8 @@ def _get_cost_data():
         try:
             with open(_path) as _f:
                 _cost_data = _json.load(_f)
-        except Exception:
+        except Exception as e:
+            logger.warning("加载城市成本数据失败: %s", e)
             _cost_data = {}
     return _cost_data
 

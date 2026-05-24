@@ -55,4 +55,5 @@ async def chat_sync(req: ChatRequest):
         response = agent.get_response(req.message)
         return {"response": response, "session_id": req.session_id or "sync"}
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        logger.exception("同步对话失败")
+        raise HTTPException(status_code=500, detail="服务暂不可用，请稍后重试")

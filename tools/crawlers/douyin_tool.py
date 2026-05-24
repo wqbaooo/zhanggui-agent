@@ -4,9 +4,10 @@
 
 通过联网搜索间接获取抖音上的本地生活内容数据，
 包括热门视频趋势、达人探店情况、本地话题热度。
-
-注意：不直接爬取抖音页面，而是通过搜索引擎聚合公开可见的内容信息。
 """
+
+import logging
+logger = logging.getLogger(__name__)
 
 from __future__ import annotations
 
@@ -90,6 +91,7 @@ class DouyinLocalTool(BaseTool):
                 if sr.success and sr.data:
                     results.extend(sr.data)
             except Exception:
+                logger.warning("抖音搜索查询 '%s' 失败", q)
                 continue
 
         if not results:

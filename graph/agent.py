@@ -215,7 +215,7 @@ def agent_node(state: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as exc:
         logger.error("LLM调用失败: %s", exc)
         return {
-            "messages": [AIMessage(content=f"抱歉，LLM服务暂时不可用：{exc}")],
+            "messages": [AIMessage(content="抱歉，LLM 服务暂时不可用，请稍后重试。")],
         }
 
     return {"messages": [response]}
@@ -525,7 +525,7 @@ def run_cli():
 
         except Exception as exc:
             logger.error("Agent执行异常: %s", exc)
-            print(f"\n抱歉，处理时出现异常：{exc}")
+            print("\n抱歉，处理时出现异常，请稍后重试。")
 
 
 if __name__ == "__main__":
