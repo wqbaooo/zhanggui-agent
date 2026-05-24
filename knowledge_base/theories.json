@@ -1,0 +1,151 @@
+{
+  "_meta": {
+    "description": "餐饮开店垂直领域理论框架库 — 多源整合，非单一来源",
+    "version": "1.0",
+    "principle": "每个框架标注适用场景、局限、与其他框架的关系"
+  },
+  "frameworks": {
+    "location_analysis": [
+      {
+        "name": "360度商圈评估（人·流·场）",
+        "source": "勇哥餐饮方法论",
+        "use": "快速评估商圈质量，三维度打分",
+        "limitation": "依赖主观判断，缺乏量化模型"
+      },
+      {
+        "name": "Huff引力模型",
+        "source": "David Huff (1963)",
+        "use": "量化计算消费者选择特定商场的概率，基于距离和吸引力",
+        "formula": "P_ij = (A_j^α / D_ij^β) / Σ(A_k^α / D_ik^β)",
+        "limitation": "需要精确的商场面积和距离数据"
+      },
+      {
+        "name": "波特五力分析",
+        "source": "Michael Porter (1979)",
+        "use": "评估商圈竞争结构：现有竞争者/新进入者/替代品/供应商/买家",
+        "limitation": "静态分析，不反映快速变化的市场"
+      }
+    ],
+    "competition_analysis": [
+      {
+        "name": "SWOT-TOWS矩阵",
+        "source": "Heinz Weihrich (1982)",
+        "use": "从SWOT分析推导可执行策略：SO/WO/ST/WT四象限",
+        "limitation": "主观性强，需要定期更新"
+      },
+      {
+        "name": "蓝海战略",
+        "source": "W. Chan Kim & Renée Mauborgne (2005)",
+        "use": "识别未被竞争的市场空间，通过价值创新避开红海",
+        "limitation": "餐饮业真正的蓝海极少，多数是微创新"
+      },
+      {
+        "name": "品类生命周期分析",
+        "source": "市场营销学经典",
+        "use": "判断品类处于导入/成长/成熟/衰退哪个阶段",
+        "limitation": "餐饮品类生命周期越来越短"
+      }
+    ],
+    "financial_modeling": [
+      {
+        "name": "盈亏平衡分析（BEP）",
+        "source": "管理会计基础",
+        "formula": "BEP(日) = 月固定成本 ÷ 30 ÷ (1 - 变动成本率)",
+        "use": "计算不亏不赚的最低日营业额",
+        "limitation": "假设线性关系，实际有规模效应"
+      },
+      {
+        "name": "单位经济学（Unit Economics）",
+        "source": "SaaS/创业方法论",
+        "formula": "单客利润 = 客单价 - 食材成本 - 包装 - 平台抽成",
+        "use": "判断每个客户是否赚钱，比总量更有意义",
+        "limitation": "不反映固定成本覆盖情况"
+      },
+      {
+        "name": "敏感性分析",
+        "source": "财务建模标准实践",
+        "use": "测试关键变量（客流/客单价/食材成本）波动对利润的影响",
+        "limitation": "单一变量分析，不反映多变量联动"
+      }
+    ],
+    "menu_engineering": [
+      {
+        "name": "Kasavana-Smith菜单工程矩阵",
+        "source": "Kasavana & Smith (1982)",
+        "use": "按毛利×销量将菜品分为明星/潜力/走量/瘦狗四象限",
+        "limitation": "需要考虑菜品间的互补和替代效应"
+      },
+      {
+        "name": "价格心理学",
+        "source": "行为经济学",
+        "use": "锚定效应、左位效应、中间选项偏好等定价策略",
+        "limitation": "文化差异影响效果"
+      }
+    ],
+    "marketing": [
+      {
+        "name": "4P-4C营销组合",
+        "source": "McCarthy(1960) + Lauterborn(1990)",
+        "use": "产品/价格/渠道/推广 ←→ 顾客/成本/便利/沟通 双视角设计营销",
+        "limitation": "传统框架，需补充数字营销维度"
+      },
+      {
+        "name": "AIDA模型",
+        "source": "E. St. Elmo Lewis (1898)",
+        "use": "关注→兴趣→渴望→行动 四步转化，尤其是抖音/美团的内容设计",
+        "limitation": "线性模型，实际消费决策更复杂"
+      },
+      {
+        "name": "RFM客户分层",
+        "source": "直销/CRM领域",
+        "use": "按最近消费/频率/金额将客户分层，差异化运营",
+        "limitation": "需要消费数据积累"
+      }
+    ],
+    "operations": [
+      {
+        "name": "精益创业（MVP）",
+        "source": "Eric Ries (2011)",
+        "use": "先摆摊/快闪测试市场 → 验证后再投入 → 持续迭代",
+        "limitation": "餐饮的MVP周期比软件长"
+      },
+      {
+        "name": "约束理论（TOC）",
+        "source": "Eliyahu Goldratt (1984)",
+        "use": "找到运营瓶颈（出餐速度/翻台率/备料），优先解决瓶颈",
+        "limitation": "瓶颈会转移，需要持续监控"
+      },
+      {
+        "name": "排队论",
+        "source": "运筹学",
+        "use": "优化高峰期的等待体验和出餐效率",
+        "limitation": "需要实测数据校准"
+      }
+    ],
+    "risk_management": [
+      {
+        "name": "FMEA失效模式分析",
+        "source": "质量管理体系",
+        "use": "系统识别开店各环节的失效模式、影响和概率",
+        "limitation": "需要经验数据支撑概率评估"
+      },
+      {
+        "name": "黑天鹅理论",
+        "source": "Nassim Taleb (2007)",
+        "use": "识别不可预测的极端风险（疫情封控、食品安全事故）",
+        "limitation": "无法预测，只能做韧性建设"
+      }
+    ]
+  },
+  "framework_selection_guide": {
+    "by_scenario": {
+      "选址评估": ["360度商圈", "Huff模型", "波特五力"],
+      "竞品分析": ["SWOT-TOWS", "蓝海战略", "品类生命周期"],
+      "财务测算": ["盈亏平衡", "单位经济学", "敏感性分析"],
+      "菜单定价": ["菜单工程矩阵", "价格心理学"],
+      "营销策划": ["4P-4C", "AIDA", "RFM分层"],
+      "开业验证": ["精益创业MVP", "约束理论"],
+      "风险评估": ["FMEA", "黑天鹅理论"]
+    }
+  }
+}
