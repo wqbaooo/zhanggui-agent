@@ -184,18 +184,82 @@ def _search_knowledge_base(query: str, profile: Dict) -> str:
 
 # ============ Agent节点 ============
 
+def _load_skills(user_query: str) -> str:
+    """条件加载技能文件。
+
+    扫描 skills/ 目录，匹配用户查询中的触发关键词。
+    只加载匹配的 skill（渐进式披露），避免上下文浪费。
+    """
+    import os
+    skills_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "skills")
+    if not os.path.isdir(skills_dir):
+        return ""
+
+    loaded = []
+    for fname in sorted(os.listdir(skills_dir)):
+        if not fname.endswith(".md"):
+            continue
+        fpath = os.path.join(skills_dir, fname)
+        try:
+            content = open(fpath).read()
+        except Exception:
+            continue
+
+        # 提取 trigger 行
+        trigger_line = ""
+        in_trigger = False
+        for line in content.split("\n"):
+            if line.strip() == "## trigger":
+                in_trigger = True
+                continue
+            if in_trigger:
+                if line.startswith("##") or line.startswith("# "):
+                    break
+                trigger_line += line + " "
+
+        # 匹配 trigger 关键词
+        triggers = [t.strip() for t in trigger_line.replace("、", ",").replace("，", ",").split(",") if t.strip()]
+        if any(t in user_query for t in triggers):
+            # 提取方法论和领域知识（跳过 metadata）
+            skill_content = []
+            in_body = False
+            for line in content.split("\n"):
+                if line.startswith("## methodology") or line.startswith("## domain_knowledge") or line.startswith("## output_guidance"):
+                    in_body = True
+                    skill_content.append(f"\n### {line.replace('#', '').strip()}")
+                    continue
+                if in_body:
+                    if line.startswith("## ") and not line.startswith("### "):
+                        break
+                    skill_content.append(line)
+            loaded.append(f"[技能加载: {fname.replace('.md','')}]\n" + "\n".join(skill_content))
+
+    if loaded:
+        logger.info("加载技能: %s", ", ".join(fname.replace(".md","") for fname in os.listdir(skills_dir) if fname.endswith(".md") and any(t in user_query for t in open(os.path.join(skills_dir, fname)).read().split("## trigger\n")[1].split("##")[0].replace("、",",").split(",") if t.strip())))
+        return "\n\n---\n\n".join(loaded)
+    return ""
+
+
 def agent_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """LLM决策节点：决定下一步是调用工具、追问用户、还是回复。
-
-    这是Agent的核心——LLM看到对话历史和工具描述，
-    自己决定要做什么。不是硬编码路由，是真正的推理。
     """
     # 兼容dict和GraphState dataclass
     messages = state.get("messages", []) if isinstance(state, dict) else getattr(state, 'messages', [])
     profile = state.get("profile", {}) if isinstance(state, dict) else getattr(state, 'profile', {})
 
-    # 构建系统提示（包含画像上下文）
+    # 构建系统提示（包含画像上下文 + 条件技能加载）
     system_content = SYSTEM_PROMPT
+
+    # 条件加载技能（渐进式披露 — 只加载匹配的 skill）
+    last_user_msg = ""
+    for msg in reversed(messages):
+        if isinstance(msg, HumanMessage):
+            last_user_msg = msg.content if isinstance(msg.content, str) else str(msg.content)
+            break
+    if last_user_msg:
+        skills_text = _load_skills(last_user_msg)
+        if skills_text:
+            system_content += f"\n\n## 激活的专业知识\n{skills_text}"
     if profile:
         profile_lines = [f"- {k}: {v}" for k, v in profile.items()
                          if k not in ("__intent__", "__intent_confidence__")]
