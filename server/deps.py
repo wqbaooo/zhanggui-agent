@@ -28,13 +28,17 @@ def _cleanup():
         logger.info("清理 %d 个过期 Agent 会话", len(expired))
 
 
-def get_agent(project_id: str = "") -> 开店Agent:
-    """获取或创建 Agent 实例。"""
+def get_agent(project_id: str = "", session_id: str = "") -> 开店Agent:
+    """获取或创建 Agent 实例。
+
+    session_id 优先：同一 session_id 复用同一实例（跨轮次记忆）。
+    project_id 降级：用于项目级别的会话隔离。
+    """
     _cleanup()
-    key = project_id or f"anon_{uuid.uuid4().hex[:8]}"
+    key = session_id or project_id or f"anon_{uuid.uuid4().hex[:8]}"
     if key not in _sessions:
         _sessions[key] = 开店Agent(project_id=project_id if project_id else None)
-        logger.info("Agent 实例已创建: project=%s", project_id or "anonymous")
+        logger.info("Agent 实例已创建: session=%s project=%s", session_id or "auto", project_id or "anonymous")
     _sessions_last_access[key] = _time.time()
     return _sessions[key]
 

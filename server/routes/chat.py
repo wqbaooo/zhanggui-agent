@@ -50,10 +50,17 @@ async def chat_endpoint(req: ChatRequest):
 @router.post("/chat/sync")
 async def chat_sync(req: ChatRequest):
     """同步对话端点（非流式，用于调试和简单调用）。"""
-    agent = get_agent(req.project_id)
+    agent = get_agent(req.project_id, req.session_id or "")
     try:
-        response = agent.get_response(req.message)
+        import asyncio
+        response = await asyncio.wait_for(
+            asyncio.to_thread(agent.get_response, req.message),
+            timeout=90
+        )
         return {"response": response, "session_id": req.session_id or "sync"}
+    except asyncio.TimeoutError:
+        logger.warning("同步对话超时")
+        raise HTTPException(status_code=504, detail="请求处理超时，请简化问题或稍后重试")
     except Exception as exc:
         logger.exception("同步对话失败")
         raise HTTPException(status_code=500, detail="服务暂不可用，请稍后重试")
