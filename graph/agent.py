@@ -1,26 +1,30 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""真正的Agent核心：LLM驱动的ReAct循环 + 苏格拉底追问。
+"""Agent核心：研究→推理→审查 工作流。
 
-架构：bind_tools + ToolNode + interrupt()
-- LLM自己决定调什么工具、传什么参数
-- LLM自己决定是否追问用户、追问什么
-- ReAct循环：LLM → 工具 → 观察 → 再判断（循环直到完成）
--_human-in-the-loop：ask_user工具使用interrupt()暂停执行
+架构灵感来源 Harvey AI (Plan→Research→Work→Deliver→Review):
+- research: 架构化知识检索节点，自动搜索知识库作为推理上下文
+- agent: LLM 决策节点，在已有研究基础上推理+调工具
+- constitution_check: 宪法审查
+- personality_inject: 人格追问
 
-不再是"关键词路由伪装的Agent"，而是LLM真正推理驱动的Agent。
+核心设计原则：
+- 方法论 = 架构，不是 prompt。研究节点是系统节点，LLM 无法跳过。
+- 每条事实性结论必须带引用来源。
+- Review 是交付前的最后一步。
 """
 
 from __future__ import annotations
 
+import json
 import logging
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
 
 from config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
-from graph.prompts import SYSTEM_PROMPT
+from graph.prompts import SYSTEM_PROMPT, RESEARCH_SYSTEM_PROMPT
 from graph.tools import get_all_tools
 
 logger = logging.getLogger(__name__)
@@ -71,6 +75,91 @@ def _create_llm():
         return None
 
 
+# ============ 研究节点（架构化知识检索） ============
+
+def research_node(state: Dict[str, Any]) -> Dict[str, Any]:
+    """研究节点：自动搜索知识库，为 LLM 推理提供上下文。
+
+    这不是可选的 —— 每次用户输入都经过此节点。
+    LLM 不需要"决定"是否检索 —— 检索结果已经在上下文里了。
+    LLM 可以自由选择用或不用，但它无法跳过检索过程。
+
+    Harvey AI 的 Research phase 对应此节点：
+    "从文件、数据库、实时网络拉取，每条结论带引用"
+    """
+    messages = state.get("messages", []) if isinstance(state, dict) else getattr(state, 'messages', [])
+    profile = state.get("profile", {}) if isinstance(state, dict) else getattr(state, 'profile', {})
+
+    # 取最新用户消息
+    last_user_msg = ""
+    for msg in reversed(messages):
+        if isinstance(msg, HumanMessage):
+            last_user_msg = msg.content if isinstance(msg.content, str) else str(msg.content)
+            break
+
+    if not last_user_msg:
+        return {}
+
+    # 自动搜索知识库（RAG + 向量混合检索）
+    knowledge_context = _search_knowledge_base(last_user_msg, profile)
+
+    if knowledge_context:
+        # 将研究结果作为 SystemMessage 注入，放在消息列表最前面
+        research_msg = SystemMessage(content=knowledge_context)
+        # 找到最后一个 system message 的位置，在其后插入
+        new_messages = list(messages)
+        insert_idx = 0
+        for i, msg in enumerate(new_messages):
+            if isinstance(msg, SystemMessage) and RESEARCH_SYSTEM_PROMPT not in str(msg.content):
+                insert_idx = i + 1
+        new_messages.insert(insert_idx, research_msg)
+        return {"messages": new_messages}
+
+    return {}
+
+
+def _search_knowledge_base(query: str, profile: Dict) -> str:
+    """内部知识库检索，返回格式化的上下文。"""
+    try:
+        from tools.vector_search_tool import VectorSearchTool
+        from tools.rag_tool import RagTool
+
+        # 优先向量搜索
+        vec = VectorSearchTool()
+        if vec.available():
+            result = vec.execute({"query": query, "limit": 4, "hybrid": True})
+            if result.success and result.data:
+                parts = ["[知识库研究结果 — 以下内容来自勇哥餐饮课程和案例库]"]
+                for i, ev in enumerate(result.data[:4], 1):
+                    title = getattr(ev, 'title', '未命名')
+                    text = getattr(ev, 'text', str(ev))[:400]
+                    source = getattr(ev, 'source', '知识库')
+                    score = getattr(ev, 'score', 0)
+                    parts.append(f"\n--- 来源 {i}: {source} (相关度: {score:.0%}) ---")
+                    parts.append(f"标题: {title}")
+                    parts.append(f"内容: {text}")
+                return "\n".join(parts)
+
+        # BM25 降级
+        rag = RagTool()
+        result = rag.execute({"query": query, "limit": 4})
+        if result.success and result.data:
+            parts = ["[知识库研究结果 — 以下内容来自勇哥餐饮课程和案例库]"]
+            for i, ev in enumerate(result.data[:4], 1):
+                title = getattr(ev, 'title', '未命名')
+                text = getattr(ev, 'text', str(ev))[:400]
+                source = getattr(ev, 'source', '知识库')
+                parts.append(f"\n--- 来源 {i}: {source} ---")
+                parts.append(f"标题: {title}")
+                parts.append(f"内容: {text}")
+            return "\n".join(parts)
+
+    except Exception as e:
+        logger.warning("知识库检索失败: %s", e)
+
+    return ""
+
+
 # ============ Agent节点 ============
 
 def agent_node(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -91,18 +180,25 @@ def agent_node(state: Dict[str, Any]) -> Dict[str, Any]:
         if profile_lines:
             system_content += f"\n\n## 当前用户画像\n" + "\n".join(profile_lines)
 
-    # 确保系统提示在最前面
+    # 确保系统提示在最前面，同时保留研究节点的知识库上下文
     conv_messages = []
-    has_system = False
+    has_main_system = False
     for msg in messages:
         if isinstance(msg, SystemMessage):
-            has_system = True
-            conv_messages.append(SystemMessage(content=system_content))
+            content = msg.content if isinstance(msg.content, str) else str(msg.content)
+            if "知识库研究结果" in content:
+                # 保留研究节点的检索结果
+                conv_messages.append(msg)
+            elif not has_main_system:
+                # 第一个非研究 SystemMessage → 替换为主系统提示
+                has_main_system = True
+                conv_messages.append(SystemMessage(content=system_content))
+            # 其他 SystemMessage 跳过（已被主提示替换）
         else:
             conv_messages.append(msg)
 
-    if not has_system:
-        conv_messages = [SystemMessage(content=system_content)] + conv_messages
+    if not has_main_system:
+        conv_messages.insert(0, SystemMessage(content=system_content))
 
     # 调用LLM
     llm = _create_llm()
@@ -309,9 +405,12 @@ def extract_profile_from_messages(messages: list) -> Dict[str, str]:
 # ============ 构建Agent图 ============
 
 def build_agent():
-    """构建真正的Agent图：LLM驱动的ReAct循环。"""
+    """构建 Agent 图：研究→推理→审查 工作流。
+
+    流程: START → research → agent → constitution_check → personality_inject → [tools|END]
+    """
     from langgraph.graph import StateGraph, START, END
-    from langgraph.prebuilt import ToolNode, tools_condition
+    from langgraph.prebuilt import ToolNode
     from langgraph.checkpoint.memory import MemorySaver
 
     from graph.state import GraphState
@@ -319,35 +418,29 @@ def build_agent():
     tools = get_all_tools()
     tool_node = ToolNode(tools, handle_tool_errors=True)
 
-    # 定义图
     workflow = StateGraph(GraphState)
 
     # 添加节点
+    workflow.add_node("research", research_node)
     workflow.add_node("agent", agent_node)
     workflow.add_node("constitution_check", constitution_check_node)
     workflow.add_node("personality_inject", personality_inject_node)
     workflow.add_node("tools", tool_node)
 
     # 定义边
-    workflow.add_edge(START, "agent")
-
-    # agent输出后先经过宪法审查
+    workflow.add_edge(START, "research")
+    workflow.add_edge("research", "agent")
     workflow.add_edge("agent", "constitution_check")
-
-    # 注入人格追问
     workflow.add_edge("constitution_check", "personality_inject")
 
-    # 审查后决定是否继续调工具
     workflow.add_conditional_edges(
         "personality_inject",
         should_continue,
         {"tools": "tools", "__end__": END},
     )
 
-    # 工具结果回到LLM，继续推理
     workflow.add_edge("tools", "agent")
 
-    # 编译（带检查点支持interrupt）
     memory = MemorySaver()
     graph = workflow.compile(checkpointer=memory)
 
