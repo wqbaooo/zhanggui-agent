@@ -1,107 +1,70 @@
 "use client";
 
-import { useState } from "react";
-import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { ClipboardCheck, FileText, Gauge, PlugZap, ShieldCheck, Wrench } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
 
-interface Equipment {
-  id: string;
-  name: string;
-  qty: number;
-  estPrice: number;
-  actualPrice: number | null;
-  status: "pending" | "ordered" | "received";
-}
-
-const defaultEquipment: Equipment[] = [
-  { id: "1", name: "章鱼烧烤盘（6孔）", qty: 2, estPrice: 3500, actualPrice: 3200, status: "ordered" },
-  { id: "2", name: "商用冷冻柜 300L", qty: 1, estPrice: 2800, actualPrice: null, status: "pending" },
-  { id: "3", name: "收银机 + 小票打印机", qty: 1, estPrice: 1800, actualPrice: null, status: "pending" },
-  { id: "4", name: "不锈钢操作台 1.5m", qty: 2, estPrice: 1200, actualPrice: null, status: "pending" },
-  { id: "5", name: "排烟罩 + 风机", qty: 1, estPrice: 2500, actualPrice: null, status: "pending" },
-  { id: "6", name: "展示柜（前厅）", qty: 1, estPrice: 1800, actualPrice: null, status: "pending" },
-  { id: "7", name: "电子秤 + 温度计", qty: 2, estPrice: 300, actualPrice: null, status: "pending" },
-  { id: "8", name: "一次性餐具（首批）", qty: 500, estPrice: 800, actualPrice: 500, status: "ordered" },
+const auditItems = [
+  { icon: Wrench, title: "设备归属", detail: "转租费是否包含章鱼烧炉、冷柜、收银机、操作台、展示柜，逐项写进交接清单。" },
+  { icon: Gauge, title: "可用状态", detail: "开机、加热、制冷、排烟、漏电保护都要现场测试，不能只看外观。" },
+  { icon: PlugZap, title: "水电排烟", detail: "确认商场档口电量、上下水、排烟和消防要求能支撑高峰出餐。" },
+  { icon: FileText, title: "总部要求", detail: "加盟品牌如果要求指定设备或指定物料，先确认哪些不能替换。" },
 ];
 
-const statusLabels: Record<string, { text: string; variant: "outline" | "secondary" | "default" }> = {
-  pending: { text: "待采购", variant: "outline" },
-  ordered: { text: "已下单", variant: "secondary" },
-  received: { text: "已到货", variant: "default" },
-};
+const handoverChecklist = [
+  "设备型号、数量、照片、购买凭证或维修记录",
+  "耗材与原料库存是否随店转让，临期品单独列出",
+  "收银机、外卖平台、团购后台、二维码收款的账号归属",
+  "水电费、物业费、商场扣点和押金是否有历史欠款",
+  "损坏设备谁负责维修，交接后发现暗病如何处理",
+];
 
 export function EquipmentList() {
-  const [equipment, setEquipment] = useState(defaultEquipment);
-
-  function cycle(id: string) {
-    setEquipment((prev) =>
-      prev.map((e) => {
-        if (e.id !== id) return e;
-        const next: Record<string, Equipment["status"]> = { pending: "ordered", ordered: "received", received: "pending" };
-        return { ...e, status: next[e.status] };
-      })
-    );
-  }
-
-  const totalEst = equipment.reduce((s, e) => s + e.estPrice * e.qty, 0);
-  const totalActual = equipment.reduce((s, e) => s + (e.actualPrice || e.estPrice) * e.qty, 0);
-  const spent = equipment.filter((e) => e.status !== "pending").reduce((s, e) => s + (e.actualPrice || e.estPrice) * e.qty, 0);
-
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">设备采购 · 大口章鱼烧</h2>
-        <Badge variant="secondary">{equipment.filter((e) => e.status === "received").length}/{equipment.length} 到货</Badge>
-      </div>
-
-      <div className="grid grid-cols-3 gap-3">
-        <Card className="p-4">
-          <p className="text-xs text-muted-foreground">预算总计</p>
-          <p className="text-xl font-semibold mt-1">¥{totalEst.toLocaleString()}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-xs text-muted-foreground">已花费</p>
-          <p className="text-xl font-semibold mt-1">¥{spent.toLocaleString()}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-xs text-muted-foreground">预估 vs 实际</p>
-          <p className={`text-xl font-semibold mt-1 ${totalActual < totalEst ? "text-green-700" : "text-red-700"}`}>
-            {totalActual < totalEst ? "↓" : "↑"} ¥{Math.abs(totalEst - totalActual).toLocaleString()}
+    <div className="space-y-6 p-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold">设备与交接 · 大口章鱼烧</h2>
+          <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
+            这家店是转租接手，设备页面优先做交接审计，而不是假设你重新采购一整套设备。真实价格和维修成本要现场录入后再计算。
           </p>
-        </Card>
+        </div>
+        <Badge variant="secondary">接店前核验</Badge>
       </div>
 
-      <div className="space-y-2">
-        {equipment.map((e) => (
-          <Card
-            key={e.id}
-            className="p-3 cursor-pointer hover:border-primary/30 transition-colors"
-            onClick={() => cycle(e.id)}
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <span className="text-sm font-medium w-40">{e.name}</span>
-                <span className="text-xs text-muted-foreground">×{e.qty}</span>
-                <span className="text-xs text-muted-foreground">
-                  预估 ¥{(e.estPrice * e.qty).toLocaleString()}
-                  {e.actualPrice && (
-                    <span className={e.actualPrice < e.estPrice ? "text-green-700 ml-1" : "text-red-700 ml-1"}>
-                      → 实际 ¥{(e.actualPrice * e.qty).toLocaleString()}
-                    </span>
-                  )}
-                </span>
-              </div>
-              <Badge variant={statusLabels[e.status].variant} className="text-xs">
-                {statusLabels[e.status].text}
-              </Badge>
-            </div>
+      <div className="grid gap-3 md:grid-cols-4">
+        {auditItems.map((item) => (
+          <Card key={item.title} className="p-4">
+            <item.icon className="size-5 text-[#d95b00]" />
+            <p className="mt-3 font-medium">{item.title}</p>
+            <p className="mt-2 text-sm leading-5 text-muted-foreground">{item.detail}</p>
           </Card>
         ))}
       </div>
 
-      <p className="text-xs text-muted-foreground">点击切换采购状态 · 核心设备买新，辅助淘二手，比价 ≥ 3 家</p>
+      <Card className="p-5">
+        <div className="flex items-center gap-2">
+          <ClipboardCheck className="size-5 text-[#d95b00]" />
+          <p className="font-semibold">交接清单</p>
+        </div>
+        <div className="mt-4 space-y-3">
+          {handoverChecklist.map((item, index) => (
+            <div key={item} className="flex gap-3 rounded-lg bg-[#fbfcfd] p-3 ring-1 ring-[var(--app-border)]">
+              <span className="flex size-6 shrink-0 items-center justify-center rounded bg-[#fff1df] text-xs font-semibold text-[#d95b00]">{index + 1}</span>
+              <span className="text-sm leading-6 text-muted-foreground">{item}</span>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      <Card className="border-[#fed7aa] bg-[#fff7ed] p-4">
+        <div className="flex items-start gap-3">
+          <ShieldCheck className="mt-0.5 size-5 text-[#d95b00]" />
+          <p className="text-sm leading-6 text-[#9a3412]">
+            Agent 会在录入设备清单后输出“可继续用 / 必须维修 / 建议替换 / 总部不允许替换”四类结论，并把缺口自动带入开业预算。
+          </p>
+        </div>
+      </Card>
     </div>
   );
 }

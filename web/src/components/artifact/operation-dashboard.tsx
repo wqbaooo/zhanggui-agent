@@ -1,75 +1,111 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { DEFAULT_PROJECT_ID, getOperationSummary, type OperationSummary } from "@/lib/api";
 
-const alerts = [
-  { id: "1", text: "食材成本连续 2 周上升至 42%（30日均值 38%），建议检查章鱼进货渠道", severity: "high", time: "2 小时前" },
-  { id: "2", text: "周五晚市人力不足，过去 3 周此时段产能缺口 30%，建议加 1 名兼职", severity: "medium", time: "昨天" },
-  { id: "3", text: "小红书新增 2 条差评，涉及出餐速度和口味一致性", severity: "high", time: "昨天" },
-  { id: "4", text: "库存：章鱼粉剩余不足 3 天用量，需补货", severity: "medium", time: "3 小时前" },
-];
+function money(value: number) {
+  return `¥${Math.round(value).toLocaleString()}`;
+}
 
 export function OperationDashboard() {
+  const [summary, setSummary] = useState<OperationSummary | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    getOperationSummary(DEFAULT_PROJECT_ID, 7)
+      .then(setSummary)
+      .catch(() => setError("后端暂未启动，启动 API 后这里会显示真实经营数据。"));
+  }, []);
+
+  const latest = summary?.latest_entry;
+  const grossProfit = latest
+    ? latest.revenue - latest.food_cost - latest.platform_fee - latest.marketing_cost - latest.inventory_loss
+    : 0;
+  const grossRate = latest?.revenue ? Math.round((grossProfit / latest.revenue) * 100) : 0;
+
   return (
     <div className="p-6 space-y-6">
-      <h2 className="text-lg font-semibold">经营看板 · 大口章鱼烧 九江店</h2>
+      <h2 className="text-lg font-semibold">经营看板 · 新余恒太城大口章鱼烧</h2>
 
-      <div className="grid grid-cols-4 gap-3">
-        <Card className="p-4">
-          <p className="text-xs text-muted-foreground">今日营业额</p>
-          <p className="text-2xl font-semibold mt-1">¥2,840</p>
-          <p className="text-xs text-green-700 mt-1">↑ 8% vs 上周同天</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-xs text-muted-foreground">订单数</p>
-          <p className="text-2xl font-semibold mt-1">73 单</p>
-          <p className="text-xs text-muted-foreground mt-1">客单价 ¥38.9</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-xs text-muted-foreground">毛利预估</p>
-          <p className="text-2xl font-semibold mt-1">¥1,562</p>
-          <p className="text-xs text-muted-foreground mt-1">毛利率 55%</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-xs text-muted-foreground">本周趋势</p>
-          <p className="text-2xl font-semibold mt-1">↑</p>
-          <p className="text-xs text-muted-foreground mt-1">周一→周五 稳步上升</p>
-        </Card>
-      </div>
+      {error ? (
+        <Card className="p-4 border-l-4 border-l-yellow-500 text-sm">{error}</Card>
+      ) : null}
 
-      <div>
-        <h3 className="text-sm font-medium mb-3">营销渠道效果</h3>
-        <div className="grid grid-cols-4 gap-3">
-          {[
-            { channel: "抖音", metric: "1.2万 曝光", sub: "团购核销 18 单", roi: "ROI 1:3.2" },
-            { channel: "美团", metric: "42 单外卖", sub: "评分 4.6", roi: "佣金 ¥226" },
-            { channel: "小红书", metric: "3 篇笔记", sub: "收藏 156", roi: "自然流量" },
-            { channel: "私域", metric: "186 群成员", sub: "复购率 32%", roi: "零成本" },
-          ].map((c) => (
-            <Card key={c.channel} className="p-3">
-              <p className="text-xs font-medium">{c.channel}</p>
-              <p className="text-lg font-semibold mt-1">{c.metric}</p>
-              <p className="text-xs text-muted-foreground">{c.sub}</p>
-              <p className="text-xs text-green-700 mt-0.5">{c.roi}</p>
+      {!summary || summary.entry_count === 0 ? (
+        <Card className="p-5">
+          <p className="text-sm font-medium">还没有录入营业数据</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            开店前先录入转租费、押金、租金和试营业数据；开店后每天记录营业额、订单、食材、人工、外卖扣点和活动成本。
+          </p>
+        </Card>
+      ) : (
+        <>
+          <div className="grid grid-cols-4 gap-3">
+            <Card className="p-4">
+              <p className="text-xs text-muted-foreground">最近一日营业额</p>
+              <p className="text-2xl font-semibold mt-1">{money(latest?.revenue || 0)}</p>
+              <p className="text-xs text-muted-foreground mt-1">{latest?.date || "暂无日期"}</p>
             </Card>
-          ))}
-        </div>
-      </div>
-
-      <div>
-        <h3 className="text-sm font-medium mb-3">预警中心</h3>
-        <div className="space-y-2">
-          {alerts.map((a) => (
-            <Card key={a.id} className={`p-3 border-l-4 ${a.severity === "high" ? "border-l-red-500" : "border-l-yellow-500"}`}>
-              <div className="flex items-center justify-between">
-                <p className="text-sm">{a.text}</p>
-                <span className="text-xs text-muted-foreground shrink-0 ml-4">{a.time}</span>
-              </div>
+            <Card className="p-4">
+              <p className="text-xs text-muted-foreground">最近一日订单</p>
+              <p className="text-2xl font-semibold mt-1">{latest?.orders || 0} 单</p>
+              <p className="text-xs text-muted-foreground mt-1">客单价 {money(summary.avg_order_value)}</p>
             </Card>
-          ))}
-        </div>
-      </div>
+            <Card className="p-4">
+              <p className="text-xs text-muted-foreground">最近一日毛利预估</p>
+              <p className="text-2xl font-semibold mt-1">{money(grossProfit)}</p>
+              <p className="text-xs text-muted-foreground mt-1">毛利率 {grossRate}%</p>
+            </Card>
+            <Card className="p-4">
+              <p className="text-xs text-muted-foreground">7 日净利润</p>
+              <p className={`text-2xl font-semibold mt-1 ${summary.net_profit >= 0 ? "text-green-700" : "text-red-700"}`}>
+                {money(summary.net_profit)}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">食材率 {(summary.food_cost_rate * 100).toFixed(1)}%</p>
+            </Card>
+          </div>
+
+          <div>
+            <h3 className="text-sm font-medium mb-3">渠道与成本信号</h3>
+            <div className="grid grid-cols-4 gap-3">
+              <Card className="p-3">
+                <p className="text-xs font-medium">外卖占比</p>
+                <p className="text-lg font-semibold mt-1">{(summary.takeout_ratio * 100).toFixed(1)}%</p>
+                <p className="text-xs text-muted-foreground">必须单独算平台扣点</p>
+              </Card>
+              <Card className="p-3">
+                <p className="text-xs font-medium">平台/营销</p>
+                <p className="text-lg font-semibold mt-1">{money((latest?.platform_fee || 0) + (latest?.marketing_cost || 0))}</p>
+                <p className="text-xs text-muted-foreground">最近一日</p>
+              </Card>
+              <Card className="p-3">
+                <p className="text-xs font-medium">人工</p>
+                <p className="text-lg font-semibold mt-1">{money(latest?.labor || 0)}</p>
+                <p className="text-xs text-muted-foreground">区分亲自守店/请人</p>
+              </Card>
+              <Card className="p-3">
+                <p className="text-xs font-medium">租金摊销</p>
+                <p className="text-lg font-semibold mt-1">{money(latest?.rent_allocated || 0)}</p>
+                <p className="text-xs text-muted-foreground">看真实日盈亏</p>
+              </Card>
+            </div>
+          </div>
+
+          <div>
+            <h3 className="text-sm font-medium mb-3">预警中心</h3>
+            <div className="space-y-2">
+              {summary.alerts.length === 0 ? (
+                <Card className="p-3 text-sm text-muted-foreground">当前没有触发预警；持续录入后会按食材率、亏损、外卖成本自动判断。</Card>
+              ) : summary.alerts.map((alert, index) => (
+                <Card key={`${alert.level}-${index}`} className={`p-3 border-l-4 ${alert.level === "high" ? "border-l-red-500" : "border-l-yellow-500"}`}>
+                  <p className="text-sm">{alert.message}</p>
+                </Card>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

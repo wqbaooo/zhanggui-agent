@@ -1,102 +1,59 @@
 "use client";
 
-import { Card } from "@/components/ui/card";
+import { AlertTriangle, Building2, ClipboardCheck, ReceiptText, Store } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-
-const tasks = [
-  { id: "1", title: "实地走访万达金街铺位", phase: "选址筹备", priority: "high", due: "5月28日", status: "pending" },
-  { id: "2", title: "完成竞品调研报告", phase: "选址筹备", priority: "high", due: "5月30日", status: "in_progress" },
-  { id: "3", title: "更新财务测算（租金确认后）", phase: "选址筹备", priority: "medium", due: "6月2日", status: "pending" },
-  { id: "4", title: "确认证照办理流程", phase: "开店执行", priority: "medium", due: "6月10日", status: "pending" },
-];
-
-const insights = [
-  "红谷滩万达商圈评分 72/100，同类小吃竞品密度高，但章鱼烧品类空缺",
-  "建议周末18:00-21:00增加1名兼职，过去3周此时段产能不足30%",
-];
-
-const priorityColors: Record<string, string> = {
-  high: "bg-red-100 text-red-800",
-  medium: "bg-yellow-100 text-yellow-800",
-  low: "bg-gray-100 text-gray-800",
-};
+import { Card } from "@/components/ui/card";
 
 export function ProjectOverview() {
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 p-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold">大口章鱼烧 · 南昌红谷滩</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            预算 200,000 · 目标开业 2026-08 · 剩余 76 天
-          </p>
+          <h1 className="text-xl font-semibold">大口章鱼烧 · 新余恒太城</h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">转租费 ¥30,000 · 押金 ¥10,000 · 当前阶段：开业计划</p>
         </div>
-        <Badge variant="secondary">筹备中</Badge>
+        <Badge variant="secondary">准备接店</Badge>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
-        <Card className="p-4">
-          <p className="text-xs text-muted-foreground">候选铺位</p>
-          <p className="text-2xl font-semibold mt-1">3</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-xs text-muted-foreground">已记录竞品</p>
-          <p className="text-2xl font-semibold mt-1">12</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-xs text-muted-foreground">预算已消耗</p>
-          <p className="text-2xl font-semibold mt-1">¥12,000</p>
-        </Card>
+      <div className="grid gap-3 md:grid-cols-4">
+        {[
+          [Store, "铺位", "恒太城美食城", "已确定"],
+          [ReceiptText, "投入", "¥40,000", "转租+押金"],
+          [Building2, "品牌", "加盟大口章鱼烧", "需补总部约束"],
+          [ClipboardCheck, "经营账本", "0 天", "待试营业录入"],
+        ].map(([Icon, label, value, sub]) => (
+          <Card key={label as string} className="p-4">
+            <Icon className="size-5 text-[#d95b00]" />
+            <p className="mt-3 text-xs text-muted-foreground">{label as string}</p>
+            <p className="mt-1 text-lg font-semibold">{value as string}</p>
+            <p className="text-xs text-muted-foreground">{sub as string}</p>
+          </Card>
+        ))}
       </div>
 
-      <div>
-        <h3 className="text-sm font-medium mb-3">项目进度</h3>
-        <div className="space-y-2">
-          {["想法验证", "选址筹备", "开店执行", "运营增长"].map((phase, i) => {
-            const pcts = [100, 58, 0, 0];
-            return (
-              <div key={phase} className="flex items-center gap-3 text-sm">
-                <span className="w-20 text-muted-foreground">{phase}</span>
-                <div className="flex-1 bg-muted rounded-full h-2">
-                  <div
-                    className="bg-primary h-2 rounded-full transition-all"
-                    style={{ width: `${pcts[i]}%` }}
-                  />
-                </div>
-                <span className="w-10 text-right text-xs text-muted-foreground">{pcts[i]}%</span>
-              </div>
-            );
-          })}
+      <Card className="p-5">
+        <div className="flex items-start gap-3">
+          <AlertTriangle className="mt-0.5 size-5 text-[#d95b00]" />
+          <div>
+            <p className="font-semibold">当前项目最重要的不是再找铺，而是把接店前的假设变成可验证账本</p>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              选址基本确定后，项目概览要围绕合同、转租条件、总部约束、试营业日账和开业 30 天执行来推进。这里不会再展示南昌/九江样例数据。
+            </p>
+          </div>
         </div>
-      </div>
+      </Card>
 
-      <div>
-        <h3 className="text-sm font-medium mb-3">下一步任务</h3>
-        <div className="space-y-1">
-          {tasks.map((t) => (
-            <div key={t.id} className="flex items-center gap-3 text-sm py-2 px-3 rounded-lg hover:bg-muted/50 transition-colors">
-              <span className={t.status === "in_progress" ? "text-blue-600" : "text-muted-foreground"}>
-                {t.status === "in_progress" ? "●" : "○"}
-              </span>
-              <span className="flex-1">{t.title}</span>
-              <span className={`text-xs px-1.5 py-0.5 rounded ${priorityColors[t.priority]}`}>
-                {t.priority === "high" ? "高" : t.priority === "medium" ? "中" : "低"}
-              </span>
-              <span className="text-xs text-muted-foreground w-16 text-right">{t.due}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div>
-        <h3 className="text-sm font-medium mb-3">AI 洞察</h3>
-        <div className="space-y-2">
-          {insights.map((insight, i) => (
-            <Card key={i} className="p-3 text-sm text-muted-foreground">
-              {insight}
-            </Card>
-          ))}
-        </div>
+      <div className="grid gap-3 md:grid-cols-3">
+        {[
+          ["接店前", "确认房东、转租协议、总部加盟约束、设备归属"],
+          ["试营业", "连续记录 7 天营业额、订单、食材、人工、平台费"],
+          ["开业后", "用 30/60/90 天复盘推进运营接管、复购增长、可复制模型"],
+        ].map(([title, text]) => (
+          <Card key={title} className="p-4">
+            <p className="font-medium">{title}</p>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">{text}</p>
+          </Card>
+        ))}
       </div>
     </div>
   );

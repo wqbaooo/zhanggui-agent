@@ -1,290 +1,281 @@
-# 开店做生意 Agent v3.0
+# 掌柜Agent v3.0
 
-> 基于 LangGraph/ReAct 的餐饮开店智能 Agent，集成勇哥说餐饮理论、视频课程索引和真实数据工具。
-
----
-
-## 📋 项目概述
-
-这是一个面向餐饮创业者的智能规划 Agent。v3.0 版本基于 **LangGraph/ReAct 架构**重新构建，不再是简单的关键词检索，而是具备真正推理能力的 Agent：
-
-1. **理解意图**：分析用户输入，识别开店阶段（想法验证/选址筹备/开店执行/运营增长）
-2. **补齐画像**：通过苏格拉底式追问收集城市、品类、预算、经验等关键信息
-3. **检索证据**：调用知识库搜索、联网搜索、财务测算、地图分析、加盟分析等工具
-4. **诊断风险**：基于宪法约束（利润中性/风险前置/事实分离）评估风险
-5. **制定规划**：生成阶段性判断（Go/No-Go/Needs More Data）和下一步行动
-
-**双架构兼容**：配置 LLM API key 时启用 LangGraph/ReAct（推荐），无 key 时自动降级到旧状态机。
+> 餐饮开店 AI 智能顾问 — 基于 LangGraph/ReAct 架构，集成知识库、财务测算、商圈分析、加盟尽调。
 
 ---
 
-## 🚀 快速开始
+## 项目概述
 
-### 1. 安装依赖
+面向餐饮创业者的 AI Agent，覆盖从想法验证到门店运营的全生命周期：
+
+1. **理解意图** — 分析用户输入，识别开店阶段
+2. **补齐画像** — 苏格拉底式追问收集城市/品类/预算/经验
+3. **检索证据** — 知识库搜索、联网搜索、财务测算、地图分析、加盟分析
+4. **诊断风险** — 宪法约束（利润中性/风险前置/事实分离）
+5. **制定规划** — Go/No-Go 判断 + 下一步行动
+
+---
+
+## 快速开始
+
+### 后端（Python Agent）
 
 ```bash
-cd /Users/wqboo/Documents/MIND/02-Projects/开店Agent
 pip install -r requirements.txt
-```
-
-> **注意**：如果需要视频转写功能，需额外安装 ffmpeg：
-> - macOS: `brew install ffmpeg`
-> - Ubuntu: `sudo apt install ffmpeg`
-
-### 2. 配置环境变量
-
-```bash
 cp .env.example .env
-# 编辑 .env，填入你的 API key
-```
+# 编辑 .env，填入 DEEPSEEK_API_KEY
 
-最少配置（只有 DeepSeek key 也能完整运行）：
-```bash
-DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-```
-
-### 3. 启动 Agent
-
-**交互式对话（推荐）**
-```bash
+# 交互式对话
 python3 开店Agent.py
-```
 
-**单次查询**
-```bash
+# 单次查询
 python3 开店Agent.py "我想用20万在县城开早餐店，帮我分析"
+
+# 总助理接口
+echo '{"user_message":"如何选址？"}' | python3 main.py --json
 ```
 
-**审计知识库状态**
+### 前端（Next.js）
+
 ```bash
-python3 开店Agent.py --audit
+cd web
+npm install
+npm run dev
+# 打开 http://localhost:3000
 ```
 
-**总助理接口测试（JSON 模式）**
+### 启动后端 API
+
 ```bash
-echo '{"user_message":"如何选址？"}' | python3 开店Agent.py --json
+python3 -m uvicorn server.main:app --port 8000
 ```
 
 ---
 
-## 🏗️ 架构说明
+## 架构
 
-### LangGraph v3.0 状态图
+### 后端：LangGraph ReAct
 
 ```
 [START]
   ↓
-[agent] —— LLM 决策节点（苏格拉底辩证法 + 工具选择）
+[agent] — LLM 决策（苏格拉底辩证法 + 工具选择）
   ↓
-[constitution_check] —— 宪法审查（利润承诺/品牌推荐/风险弱化/数据造假检测）
+[constitution_check] — 宪法审查
   ↓
-  ├─ 需要调工具 ──→ [tools] —— ToolNode 执行（搜索/财务/地图/加盟/画像更新）
-  │                      ↓
-  └─ 直接回复 ──→ [END]     回到 [agent] 继续推理
+  ├─ 调工具 → [tools] → 回到 [agent]
+  └─ 直接回复 → [END]
 ```
 
-### 核心组件
+### 前端：Editorial Bento Workspace
 
-| 模块 | 文件 | 说明 |
-|------|------|------|
-| 统一入口 | `main.py` | LangGraph 优先 + 旧架构降级，总助理接口 |
-| Agent 图 | `graph/agent.py` | ReAct 循环：agent → 宪法审查 → tools → agent |
-| 状态定义 | `graph/state.py` | GraphState：画像/计划/推理/证据/风险/输出 |
-| 工具定义 | `graph/tools.py` | 6 个 LLM 可调工具 |
-| 系统提示 | `graph/prompts.py` | 苏格拉底辩证法 + 宪法约束 + 加盟分析指引 |
-| 数据模型 | `models/schemas.py` | AssistantRequest/Response 总助理接口格式 |
-| 旧架构 | `core/session.py` | 状态机（无 API key 时降级使用） |
+Halo Lab 编辑品牌风格的 Agent 工作台：
 
-### 可用工具
-
-| 工具 | 功能 | 触发场景 |
-|------|------|----------|
-| `search_knowledge` | 知识库语义搜索（BM25 + 向量混合） | 查询方法论、案例、避坑经验 |
-| `search_web` | DuckDuckGo 联网搜索 | 查实时信息、政策、品牌口碑 |
-| `calculate_finance` | 财务测算（盈亏平衡/回本/敏感性） | 涉及成本、预算、回本周期 |
-| `analyze_location` | 高德地图商圈分析 | 涉及选址、商圈、竞品分布 |
-| `analyze_franchise` | 加盟品牌真实成本和风险分析 | 涉及加盟、品牌、连锁 |
-| `update_profile` | 更新用户画像 | 获取到城市/品类/预算等信息时 |
+- **色彩**：`#0A0A0A` 黑框 + `#F5EFE3` 奶油 + `#0F4C3A` 深绿 + `#D9261C` 红 + `#7FE05A` 薄荷
+- **字体**：Antonio（Display）+ JetBrains Mono（标签）+ Noto Sans SC（中文）
+- **布局**：黑色画布框架 + 12 列 Bento Grid + 厚边框分隔
+- **交互**：平面色块，无阴影无渐变，hover 微动
 
 ---
 
-## 📁 项目结构
+## 项目结构
 
 ```
 开店Agent/
-├── main.py                  # 统一入口（LangGraph 优先 + 降级）
-├── 开店Agent.py             # 兼容入口（委托给 main.py）
-├── requirements.txt         # 依赖清单
-├── .env.example             # 环境变量模板
-├── config.py                # 全局配置
+├── main.py                    # 统一入口（LangGraph + 降级）
+├── 开店Agent.py               # CLI 入口
+├── agent_v3.py                # v3.0 Agent 类
+├── config.py                  # 全局配置
 │
-├── graph/                   # LangGraph v3.0 核心
-│   ├── agent.py             # Agent 图构建 + ReAct 循环
-│   ├── state.py             # GraphState 状态定义
-│   ├── tools.py             # 工具定义（LLM function calling）
-│   └── prompts.py           # 系统提示词 + 节点提示词
+├── graph/                     # LangGraph 核心
+│   ├── agent.py               # Agent 图 + ReAct 循环
+│   ├── state.py               # GraphState 状态定义
+│   ├── tools.py               # 6 个 LLM 工具
+│   └── prompts.py             # 系统提示词
 │
-├── core/                    # 旧架构（降级备用）
-│   ├── session.py           # Session 状态机
-│   ├── state_machine.py     # 状态流转
-│   └── orchestrator.py      # 编排器
+├── tools/                     # 工具实现
+│   ├── rag_tool.py            # BM25 知识库检索
+│   ├── vector_search_tool.py  # 向量语义搜索
+│   ├── web_search_tool.py     # DuckDuckGo 联网搜索
+│   ├── finance_tool.py        # 财务测算
+│   ├── amap_tool.py           # 高德地图商圈分析
+│   └── franchise_tool.py      # 加盟品牌分析
 │
-├── nodes/                   # 旧架构节点（意图/画像/检索/风险/回复）
+├── models/                    # 数据模型
+│   ├── schemas.py             # 总助理接口格式
+│   ├── plan.py                # 计划/任务模型
+│   └── project.py             # 项目档案模型
 │
-├── tools/                   # 工具实现
-│   ├── rag_tool.py          # BM25 知识库检索
-│   ├── vector_search_tool.py# 向量语义搜索（可选）
-│   ├── web_search_tool.py   # 联网搜索
-│   ├── finance_tool.py      # 财务测算
-│   ├── amap_tool.py         # 高德地图
-│   └── franchise_tool.py    # 加盟分析
+├── knowledge_base/            # 知识库
+│   ├── 开店Agent知识库.md
+│   ├── video_knowledge/       # 162 个视频课程
+│   ├── vector_store/          # Faiss 向量索引
+│   └── qa_pairs.json          # QA 对
 │
-├── models/                  # 数据模型
-│   ├── schemas.py           # 总助理接口格式
-│   ├── plan.py              # 计划/任务模型
-│   └── project.py           # 项目档案模型
+├── server/                    # FastAPI 后端
+│   ├── main.py                # FastAPI 应用
+│   ├── routes/                # API 路由
+│   │   ├── chat.py            # 对话接口
+│   │   ├── finance.py         # 财务接口
+│   │   ├── projects.py        # 项目接口
+│   │   └── audit.py           # 审计接口
+│   └── stream.py              # 流式响应
 │
-├── knowledge_base/          # 知识库
-│   ├── 开店Agent知识库.md    # 核心 Markdown 知识
-│   ├── document_knowledge/  # PDF/文档抽取
-│   └── video_knowledge/     # 视频课程（162个）
+├── web/                       # Next.js 前端
+│   ├── src/
+│   │   ├── app/
+│   │   │   ├── page.tsx       # 主页面
+│   │   │   └── globals.css    # 设计系统
+│   │   ├── components/
+│   │   │   ├── workspace/     # Agent 工作台
+│   │   │   │   ├── space-shell.tsx    # 空间外壳
+│   │   │   │   ├── bento.tsx          # Bento 卡片系统
+│   │   │   │   ├── command-bar.tsx    # 命令栏
+│   │   │   │   └── cards/             # 5 张核心卡片
+│   │   │   ├── artifact/      # 功能组件（财务/选址/竞品等）
+│   │   │   ├── chat/          # 对话组件
+│   │   │   ├── project/       # 项目组件
+│   │   │   └── ui/            # shadcn/ui 基础组件
+│   │   └── lib/
+│   │       ├── api.ts         # API 客户端
+│   │       └── utils.ts       # 工具函数
+│   └── package.json
 │
-└── scripts/                 # 工具脚本
-    ├── audit_sources.py     # 知识库审计
-    ├── ingest_documents.py  # 文档入库
-    ├── video_processor.py   # 视频转写
-    └── build_rag_index.py   # RAG 索引构建
+├── harness/                   # 评估体系
+│   └── evaluate.py            # 60 条测试用例
+│
+├── tests/                     # 单元测试
+├── skills/                    # 垂直领域技能（7 个）
+└── scripts/                   # 工具脚本
 ```
 
 ---
 
-## 🔌 总助理接口
+## 可用工具
 
-Agent 支持被外部系统（总助理）通过结构化接口调用：
+| 工具 | 功能 | 触发场景 |
+|------|------|---------|
+| `search_knowledge` | 知识库语义搜索（BM25 + 向量混合） | 方法论、案例、避坑经验 |
+| `search_web` | DuckDuckGo 联网搜索 | 实时信息、政策、品牌口碑 |
+| `calculate_finance` | 财务测算（盈亏平衡/回本/敏感性） | 成本、预算、回本周期 |
+| `analyze_location` | 高德地图商圈分析 | 选址、商圈、竞品分布 |
+| `analyze_franchise` | 加盟品牌成本和风险分析 | 加盟、品牌、连锁 |
+| `update_profile` | 更新用户画像 | 城市/品类/预算等信息 |
+
+---
+
+## 前端设计系统
+
+### 色板
+
+| Token | 色值 | 用途 |
+|-------|------|------|
+| Black | `#0A0A0A` | 画布框架、文字、边框 |
+| Cream | `#F5EFE3` | 主卡片背景 |
+| Green | `#0F4C3A` | 次卡片背景（状态/天气） |
+| Red | `#D9261C` | 强调卡片、紧急标记 |
+| Mint | `#7FE05A` | 小型高亮（药丸/状态点） |
+
+### 字体
+
+| 用途 | 字体 | 规格 |
+|------|------|------|
+| Display 标题 | Antonio 900 | letter-spacing: -0.03em, line-height: 0.95 |
+| 标签/元数据 | JetBrains Mono 500 | 10-11px, letter-spacing: 0.06em, `[ TAG ]` 格式 |
+| 中文正文 | Noto Sans SC 500 | 13-15px |
+
+### 布局
+
+- 黑色画布框架 `padding: 14px, border-radius: 24px`
+- 12 列网格 `grid-auto-rows: 64px, gap: 10px`
+- 卡片 `border-radius: 20px, padding: 18px`
+- 响应式：760px 以下折叠为 6 列
+
+---
+
+## API 接口
+
+### 总助理接口
 
 ```python
 from main import handle_assistant_request
 
 result = handle_assistant_request({
     "user_message": "我想加盟蜜雪冰城，预算30万",
-    "task_type": "finance",      # general | profile | site_eval | finance | permit | marketing | risk_review
-    "project_id": "user_123",    # 可选，用于会话隔离
-    "context": {"city": "杭州"},  # 可选，已有上下文
+    "task_type": "finance",
+    "project_id": "user_123",
+    "context": {"city": "杭州"},
 })
 
-# 返回字段
-print(result["response_text"])   # 自然语言回复
-print(result["decision"])        # go | no_go | needs_more_data | conditional_go
-print(result["summary"])         # 摘要
-print(result["risks"])           # 风险列表
-print(result["next_actions"])    # 下一步行动
-print(result["scores"])          # 评分
+# 返回
+result["response_text"]   # 自然语言回复
+result["decision"]        # go | no_go | needs_more_data | conditional_go
+result["summary"]         # 摘要
+result["risks"]           # 风险列表
+result["next_actions"]    # 下一步行动
 ```
 
-CLI 测试方式：
-```bash
-echo '{"user_message":"如何选址？"}' | python3 main.py --json
-```
+### REST API（FastAPI）
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/chat` | POST | 流式对话（SSE） |
+| `/api/chat/sync` | POST | 同步对话 |
+| `/api/finance` | POST | 财务测算 |
+| `/api/projects/{id}/cockpit` | GET | 项目驾驶舱数据 |
+| `/api/projects/{id}/operations` | GET/POST | 经营数据 |
+| `/api/projects/{id}/tasks` | GET/POST | 任务管理 |
+| `/health` | GET | 健康检查 |
 
 ---
 
-## 📊 知识库状态
+## 知识库
 
-运行 `python3 开店Agent.py --audit` 查看最新状态：
-
-- 核心 Markdown 知识片段：26 个
-- 视频课程 JSON：162 个
-- 视频已完成语音转写：141/162 个
-- PDF《餐饮选址实用指南》：已登记，待 OCR
+- 核心 Markdown 知识：26 个片段
+- 视频课程：162 个（141 个已完成语音转写）
 - RAG BM25 索引：1302 chunks
+- 向量索引：Faiss（可选，需安装 `sentence-transformers`）
 
 ---
 
-## 🛠️ 进阶配置
-
-### 向量化检索（可选，提升语义搜索质量）
+## 测试
 
 ```bash
-pip install numpy sentence-transformers faiss-cpu
-```
+# 单元测试
+python3 -m pytest tests/
 
-运行向量索引构建：
-```bash
-python3 scripts/build_rag_index.py --vector
-```
-
-### 视频转写入库（可选，耗时较长）
-
-```bash
-python3 scripts/video_processor.py --use-whisper --whisper-model small --limit 3
+# Agent 评估（60 条用例）
+python3 harness/evaluate.py
 ```
 
 ---
 
-## 📝 使用示例
+## 宪法约束
 
-### 示例1：选址咨询
-```bash
-python3 开店Agent.py "我在新余恒太城看中了一个铺位，月租8000，30平米，做早餐怎么样？"
-```
+Agent 回答遵循不可违背的原则：
 
-Agent 会自动：
-1. 用 `update_profile` 记录城市/商圈/预算/品类
-2. 用 `analyze_location` 分析恒太城周边竞品和客流
-3. 用 `calculate_finance` 测算盈亏平衡点
-4. 给出阶段性判断和风险提示
-
-### 示例2：加盟防骗
-```bash
-python3 开店Agent.py "我想加盟正新鸡排，加盟费3.5万，总投资说20万，靠谱吗？"
-```
-
-Agent 会自动：
-1. 用 `analyze_franchise` 分析品牌隐性成本
-2. 用 `search_web` 搜索闭店率和加盟商投诉
-3. 列出签约前必须确认的问题清单
-4. 给出 Conditional Go / No-Go 判断
+1. **利润中性** — 永不承诺盈利，只做保守假设
+2. **风险前置** — 致命风险先讲，不帮合理化冲动决策
+3. **事实-建议分离** — 标注信息来源
+4. **专业边界** — 不替代律师/会计师
+5. **用户利益优先** — 加盟必须展示真实成本
+6. **苏格拉底主权** — 关键决策必须中断确认
 
 ---
 
-## ⚠️ 重要原则
+## 技术栈
 
-Agent 的回答遵循以下不可违背的宪法约束：
-
-1. **利润中性**：永不承诺盈利，只做保守假设
-2. **风险前置**：致命风险先讲，不帮用户合理化冲动决策
-3. **事实-建议分离**：标注信息来源（知识库/搜索/测算/地图）
-4. **专业边界**：不替代律师/会计师，超出能力说"我不知道"
-5. **用户利益优先**：不存在"友情推荐"，加盟必须展示真实成本
-6. **苏格拉底主权**：关键决策必须中断确认，追问有明确目的
-
----
-
-## 🔄 版本更新
-
-### v3.0 (2026-05-10) — LangGraph 重构
-- 引入 LangGraph/ReAct 架构，LLM 真正驱动推理循环
-- 实现宪法审查节点（自动检测违规输出）
-- 支持双架构：LangGraph（有 key）/ 旧状态机（无 key）
-- 新增 6 个 LLM 自主调用工具（知识库/联网/财务/地图/加盟/画像）
-- 苏格拉底辩证法系统提示词
-
-### v2.0 (2026-04-19)
-- 轻量状态机架构
-- 整合 162 个视频课程
-- DeepSeek LLM 可选接入
-
-### v1.0 (2026-04)
-- 初始版本
-- 关键词搜索和视频推荐
+| 层 | 技术 |
+|----|------|
+| Agent 框架 | LangGraph + LangChain |
+| LLM | DeepSeek V4 Pro / OpenAI |
+| 后端 | FastAPI |
+| 前端 | Next.js 16 + React 19 + Tailwind v4 |
+| UI | shadcn/ui (Base UI) + 自定义 Bento 系统 |
+| 向量 | Faiss + sentence-transformers |
+| 搜索 | DuckDuckGo |
+| 地图 | 高德地图 API |
 
 ---
 
-## 📚 参考资源
-
-- [勇哥说餐饮 - 抖音账号](https://www.douyin.com/user/xxxxxx)
-- [MIND 记忆宫殿 - 知识检索系统](/Palace/)
-
----
-
-**祝您创业顺利！** 🍀
+**掌柜Agent** — 餐饮创业者的 AI 经营伙伴。

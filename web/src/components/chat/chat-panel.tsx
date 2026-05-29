@@ -49,7 +49,7 @@ export function ChatPanel({ projectId, className }: ChatPanelProps) {
             return updated;
           });
         },
-        (name, id) => {
+        (name) => {
           setMessages((prev) => {
             const updated = [...prev];
             const last = updated[updated.length - 1];

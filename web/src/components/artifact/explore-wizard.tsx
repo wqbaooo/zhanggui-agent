@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { apiPost, checkBackend } from "@/lib/api";
 
 type Step = "city" | "category" | "review" | "report";
@@ -36,7 +35,7 @@ export function ExploreWizard({ onBack }: { onBack: () => void }) {
       });
       setReport(data.response);
       setStep("report");
-    } catch (e) {
+    } catch {
       setReport("⚠️ 无法连接后端服务。请先启动后端：\n\n```bash\ncd 开店Agent\npython3 -m uvicorn server.main:app --port 8000\n```\n\n然后重试。");
       setStep("report");
     } finally {
@@ -86,7 +85,7 @@ export function ExploreWizard({ onBack }: { onBack: () => void }) {
           <div className="space-y-3">
             <div>
               <label className="text-xs text-muted-foreground mb-1 block">目标城市</label>
-              <input value={city} onChange={(e) => setCity(e.target.value)} placeholder="如：南昌红谷滩" className="w-full border rounded-md px-3 py-2 text-sm" />
+              <input value={city} onChange={(e) => setCity(e.target.value)} placeholder="如：江西新余 / 恒太城" className="w-full border rounded-md px-3 py-2 text-sm" />
             </div>
             <div>
               <label className="text-xs text-muted-foreground mb-1 block">预算范围</label>

@@ -1,128 +1,100 @@
 "use client";
 
-import { Card } from "@/components/ui/card";
+import { BadgeCheck, CalendarDays, CircleDollarSign, MessageSquareText, RadioTower, ReceiptText, Repeat2, Video } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
 
-interface ChannelPlan {
-  channel: string;
-  icon: string;
-  budget: string;
-  roi: string;
-  actions: { title: string; detail: string }[];
-}
+const channels = [
+  {
+    icon: Video,
+    title: "抖音同城",
+    status: "内容先行",
+    detail: "先拍制作过程、出餐特写、试吃反馈和商场动线，不预设曝光数字；有核销后再判断是否投流。",
+  },
+  {
+    icon: ReceiptText,
+    title: "美团/点评",
+    status: "开业入口",
+    detail: "重点不是满减越大越好，而是菜单图、团购结构、评价承接和差评处理速度。",
+  },
+  {
+    icon: MessageSquareText,
+    title: "私域社群",
+    status: "复购底座",
+    detail: "把到店顾客沉淀为可触达用户，用新品试吃、集章和工作日低峰券拉复购。",
+  },
+  {
+    icon: BadgeCheck,
+    title: "商场资源",
+    status: "低成本放大",
+    detail: "争取美食城入口海报、商场社群、开业广播、楼层导视和联合活动曝光。",
+  },
+];
 
-const marketingPlan: ChannelPlan[] = [
-  {
-    channel: "抖音同城",
-    icon: "🎵",
-    budget: "投流 ¥500-1500/月 + 达人 ¥1000/位",
-    roi: "预期曝光 3-5万 / 月",
-    actions: [
-      { title: "短视频内容", detail: "制作过程解压视频 + 顾客好评实录，每周 3-5 条，挂 POI 定位和团购链接" },
-      { title: "达人探店", detail: "同城美食达人 1-2 位/月，预算 500-1000 元/位，要求挂团购 + POI" },
-      { title: "DOU+ 投流", detail: "针对 3km 内 18-35 岁女性，高峰时段（11:30/17:30）投放，ROI ＞ 1:3 时加投" },
-      { title: "团购设计", detail: "招牌章鱼烧 ¥25 → 团购价 ¥19.9，双人套餐 ¥45 → ¥35，核销率目标 60%" },
-    ],
-  },
-  {
-    channel: "小红书",
-    icon: "📕",
-    budget: "内容制作 ¥300/月",
-    roi: "自然流量 + 搜索占位",
-    actions: [
-      { title: "种草笔记", detail: "每周 2 篇图文笔记：'南昌最好吃的章鱼烧'、'红谷滩宝藏小吃'，带位置标签" },
-      { title: "关键词占位", detail: "抢占「南昌章鱼烧」「红谷滩小吃」「南昌美食推荐」搜索排名" },
-      { title: "UGC 激励", detail: "顾客发小红书带定位 → 免费加料一份，低成本撬动真实口碑" },
-    ],
-  },
-  {
-    channel: "美团团购",
-    icon: "🛵",
-    budget: "平台佣金 5-8%",
-    roi: "新店流量扶持 30 天",
-    actions: [
-      { title: "新店入驻", detail: "上传专业菜品图（投入 ¥500 拍摄），转化率提升 30%+" },
-      { title: "满减活动", detail: "满 30 减 5，新客立减 8 元，配合平台新店流量包" },
-      { title: "评价管理", detail: "差评 24 小时内回复处理，好评引导（送小料），评分维持 4.5+" },
-    ],
-  },
-  {
-    channel: "私域运营",
-    icon: "💬",
-    budget: "几乎零成本",
-    roi: "复购率提升 25%+",
-    actions: [
-      { title: "微信群", detail: "到店顾客扫码入群，每日发「今日特供」+ 限量福利，沉淀 200+ 活跃用户" },
-      { title: "朋友圈", detail: "每日 1-2 条真实内容：制作花絮、顾客故事，不硬广，场景化触达" },
-      { title: "集章卡", detail: "买 10 送 1，纸质集章卡，简单有效，适合低线市场的复购利器" },
-      { title: "储值锁定", detail: "充 200 送 30，充 500 送 100，锁定现金流 + 提升到店频次" },
-    ],
-  },
+const timeline = [
+  ["D-14", "账号、门店 POI、菜单图、团购结构和开业物料全部建好。"],
+  ["D-7", "试拍 5 条短视频，准备 2 套开业套餐，确认总部是否允许改价和赠品。"],
+  ["D-3", "亲友试吃和软开业，记录出餐时间、差评点、顾客最常问的问题。"],
+  ["D-Day", "只做可承接的活动，避免排队过长、出餐崩盘和品质失控。"],
+  ["D+7", "按流水、核销、复购、评价、损耗复盘，不用感觉判断渠道好坏。"],
+  ["D+30", "决定下月是加投、改菜单、调班，还是换品类备选。"],
+];
+
+const metrics = [
+  { icon: CircleDollarSign, label: "投放预算", value: "待设上限", hint: "先设止损，不先承诺 ROI" },
+  { icon: Repeat2, label: "复购动作", value: "待建档", hint: "从社群/会员/集章开始" },
+  { icon: RadioTower, label: "渠道归因", value: "待接入", hint: "抖音、美团、私域分开记账" },
 ];
 
 export function MarketingPlan() {
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">开业营销方案 · 大口章鱼烧</h2>
-        <Badge variant="secondary">4 渠道覆盖</Badge>
+    <div className="space-y-6 p-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold">开业营销作战图 · 新余恒太城</h2>
+          <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
+            这里不写“预期曝光”“预期复购”这类没有数据支撑的结果。Agent 先帮你搭建可执行动作和记账口径，试营业后按真实核销与流水调优。
+          </p>
+        </div>
+        <Badge variant="secondary">开业前 30 天</Badge>
       </div>
 
-      <div className="grid grid-cols-4 gap-3">
-        <Card className="p-3 text-center">
-          <p className="text-xs text-muted-foreground">抖音投流</p>
-          <p className="text-lg font-semibold">¥1,500</p>
-          <p className="text-xs text-muted-foreground">/月</p>
-        </Card>
-        <Card className="p-3 text-center">
-          <p className="text-xs text-muted-foreground">美团佣金</p>
-          <p className="text-lg font-semibold">5-8%</p>
-          <p className="text-xs text-muted-foreground">营业额</p>
-        </Card>
-        <Card className="p-3 text-center">
-          <p className="text-xs text-muted-foreground">小红书</p>
-          <p className="text-lg font-semibold">¥300</p>
-          <p className="text-xs text-muted-foreground">/月</p>
-        </Card>
-        <Card className="p-3 text-center">
-          <p className="text-xs text-muted-foreground">私域</p>
-          <p className="text-lg font-semibold text-green-700">¥0</p>
-          <p className="text-xs text-muted-foreground">低成本</p>
-        </Card>
-      </div>
-
-      <div className="space-y-4">
-        {marketingPlan.map((channel) => (
-          <Card key={channel.channel} className="p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="text-lg">{channel.icon}</span>
-              <span className="font-medium">{channel.channel}</span>
-              <Badge variant="outline" className="text-xs">{channel.budget}</Badge>
-              <span className="text-xs text-muted-foreground ml-auto">{channel.roi}</span>
-            </div>
-            <div className="space-y-2">
-              {channel.actions.map((action) => (
-                <div key={action.title} className="pl-6 border-l-2 border-muted">
-                  <p className="text-sm font-medium">{action.title}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">{action.detail}</p>
-                </div>
-              ))}
-            </div>
+      <div className="grid gap-3 md:grid-cols-3">
+        {metrics.map((item) => (
+          <Card key={item.label} className="p-4">
+            <item.icon className="size-5 text-[#d95b00]" />
+            <p className="mt-3 text-xs text-muted-foreground">{item.label}</p>
+            <p className="mt-1 text-lg font-semibold">{item.value}</p>
+            <p className="text-xs text-muted-foreground">{item.hint}</p>
           </Card>
         ))}
       </div>
 
-      <Card className="p-4 bg-accent/30">
-        <p className="text-sm font-medium mb-2">30 天开业活动时间线</p>
-        <div className="text-sm text-muted-foreground space-y-1">
-          <p>D-14 · 抖音账号装修 + 3 条预热视频储备</p>
-          <p>D-7 · 美团/点评店铺入驻 + 团购上架审核</p>
-          <p>D-3 · 朋友圈/微信群转发集赞活动启动</p>
-          <p>D-1 · 试营业体验日（邀请亲友 + 收集反馈）</p>
-          <p>D-Day · 正式开业：买一送一 + 抖音直播 + 到店扫码入群</p>
-          <p>D+7 · 首周数据复盘：调整投流策略 + 优化团购价格</p>
-          <p>D+15 · 达人探店视频上线 + 小红书种草笔记发布</p>
-          <p>D+30 · 满月复盘：各渠道 ROI 分析 + 下月营销日历</p>
+      <div className="grid gap-3 lg:grid-cols-4">
+        {channels.map((channel) => (
+          <Card key={channel.title} className="p-4">
+            <div className="flex items-start justify-between gap-3">
+              <channel.icon className="size-5 shrink-0 text-[#d95b00]" />
+              <Badge variant="outline" className="text-xs">{channel.status}</Badge>
+            </div>
+            <p className="mt-4 font-medium">{channel.title}</p>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">{channel.detail}</p>
+          </Card>
+        ))}
+      </div>
+
+      <Card className="p-5">
+        <div className="flex items-center gap-2">
+          <CalendarDays className="size-5 text-[#d95b00]" />
+          <p className="font-semibold">30 天时间线</p>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          {timeline.map(([day, text]) => (
+            <div key={day} className="flex gap-3 rounded-lg bg-[#fbfcfd] p-3 ring-1 ring-[var(--app-border)]">
+              <span className="flex h-7 min-w-14 items-center justify-center rounded bg-[#fff1df] text-xs font-semibold text-[#d95b00]">{day}</span>
+              <p className="text-sm leading-6 text-muted-foreground">{text}</p>
+            </div>
+          ))}
         </div>
       </Card>
     </div>

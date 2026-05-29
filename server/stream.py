@@ -26,6 +26,7 @@ async def stream_agent_response(
         事件类型: text-delta, tool-input-start, tool-output-available,
                   reasoning-delta, finish
     """
+    from core.readiness import build_readiness_overlay
     from graph.agent import build_agent
     from graph.state import get_state
     from langchain_core.messages import HumanMessage
@@ -38,6 +39,8 @@ async def stream_agent_response(
     messages.append(HumanMessage(content=user_message))
 
     yield _sse("start-step", {})
+
+    emitted_text = ""
 
     try:
         async for event in agent.astream_events(
@@ -52,6 +55,7 @@ async def stream_agent_response(
                 if chunk and hasattr(chunk, "content") and chunk.content:
                     text = chunk.content
                     if isinstance(text, str) and text:
+                        emitted_text += text
                         yield _sse("text-delta", text)
 
                 if chunk and hasattr(chunk, "tool_call_chunks") and chunk.tool_call_chunks:
@@ -79,6 +83,10 @@ async def stream_agent_response(
     except Exception as exc:
         logger.error("Agent stream error: %s", exc)
         yield _sse("text-delta", f"\n\n抱歉，处理时出现问题：{exc}")
+
+    overlay = build_readiness_overlay(user_message)
+    if overlay and "项目审查补齐：新手加盟最低闭环" not in emitted_text:
+        yield _sse("text-delta", "\n\n---\n\n" + overlay)
 
     yield _sse("finish-step", {})
     yield _sse("finish", {})

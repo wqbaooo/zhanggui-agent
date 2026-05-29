@@ -260,6 +260,16 @@ def agent_node(state: Dict[str, Any]) -> Dict[str, Any]:
         skills_text = _load_skills(last_user_msg)
         if skills_text:
             system_content += f"\n\n## 激活的专业知识\n{skills_text}"
+        from core.case_intelligence import build_case_intelligence_guidance
+
+        case_guidance = build_case_intelligence_guidance(last_user_msg)
+        if case_guidance:
+            system_content += f"\n\n{case_guidance}"
+        from core.philosophy import build_philosophy_guidance
+
+        philosophy_guidance = build_philosophy_guidance(last_user_msg)
+        if philosophy_guidance:
+            system_content += f"\n\n{philosophy_guidance}"
     if profile:
         profile_lines = [f"- {k}: {v}" for k, v in profile.items()
                          if k not in ("__intent__", "__intent_confidence__")]

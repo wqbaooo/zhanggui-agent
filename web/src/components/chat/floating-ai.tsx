@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { MessageCircle, SendHorizonal, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { apiPost, checkBackend } from "@/lib/api";
+import { apiPost } from "@/lib/api";
 
 const suggestions = ["分析这个铺位的优劣", "计算回本周期", "生成证照清单", "我的成本结构健康吗"];
 
@@ -43,12 +44,17 @@ export function FloatingAI() {
 
   return (
     <>
-      <button onClick={() => setOpen(true)} className="fixed bottom-6 right-6 w-12 h-12 rounded-full bg-primary text-primary-foreground shadow-lg hover:shadow-xl transition-shadow flex items-center justify-center z-50">
-        <span className="text-lg">?</span>
+      <button onClick={() => setOpen(true)} className="fixed bottom-5 right-5 z-50 flex size-12 items-center justify-center rounded-full bg-[#d95b00] text-white shadow-[0_16px_35px_rgba(217,91,0,0.32)] transition-transform hover:-translate-y-0.5 hover:shadow-[0_18px_42px_rgba(217,91,0,0.38)]">
+        <MessageCircle className="size-5" />
       </button>
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent side="right" className="w-[400px] sm:w-[480px] flex flex-col p-0">
-          <SheetHeader className="px-4 pt-4 pb-2"><SheetTitle className="text-sm">开店顾问</SheetTitle></SheetHeader>
+          <SheetHeader className="border-b px-4 py-4">
+            <SheetTitle className="flex items-center gap-2 text-sm">
+              <span className="flex size-7 items-center justify-center rounded-lg bg-[#fff1df] text-[#d95b00]"><Sparkles className="size-4" /></span>
+              开店顾问
+            </SheetTitle>
+          </SheetHeader>
           <div ref={scrollRef} className="flex-1 overflow-auto px-4 py-2 space-y-3">
             {messages.map((msg, i) => (
               <div key={i}><p className="text-xs text-muted-foreground mb-0.5">{msg.role === "user" ? "你" : "Agent"}</p><p className="text-sm whitespace-pre-wrap">{msg.content}</p></div>
@@ -62,7 +68,10 @@ export function FloatingAI() {
             </div>
             <div className="flex gap-2">
               <Textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder="输入问题…" className="min-h-[36px] max-h-24 resize-none text-sm" rows={1} />
-              <Button onClick={() => send()} disabled={loading || !input.trim()} size="sm">发送</Button>
+              <Button onClick={() => send()} disabled={loading || !input.trim()} size="sm">
+                <SendHorizonal className="size-4" />
+                发送
+              </Button>
             </div>
           </div>
         </SheetContent>

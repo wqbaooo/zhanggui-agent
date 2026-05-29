@@ -25,6 +25,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from config import DEEPSEEK_API_KEY
+from core.readiness import build_readiness_structured, merge_readiness_overlay
 from models.schemas import AssistantRequest, AssistantResponse
 
 logger = logging.getLogger(__name__)
@@ -66,15 +67,9 @@ def handle_assistant_request(request_data: Dict[str, Any]) -> Dict[str, Any]:
         task_type=request.task_type,
     )
 
-    text = agent.get_response(enhanced_message)
-
-    # 构建结构化响应
-    response = AssistantResponse(
-        response_text=text,
-        summary=text[:200] if text else "",
-        decision=_infer_decision(text),
-    )
-    return response.to_dict()
+    response = agent.get_structured_response(enhanced_message)
+    response["decision"] = response.get("decision") or _infer_decision(response.get("response_text", ""))
+    return response
 
 
 def _build_enhanced_message(
@@ -179,8 +174,10 @@ class 开店Agent:
     def get_response(self, user_input: str) -> str:
         """获取回复（纯文本）。"""
         if self._use_langgraph:
-            return self._langgraph_get_response(user_input)
-        return self._session.get_response(user_input)
+            text = self._langgraph_get_response(user_input)
+        else:
+            text = self._session.get_response(user_input)
+        return merge_readiness_overlay(user_input, text)
 
     def _langgraph_get_response(self, user_input: str) -> str:
         """使用 LangGraph 获取回复。
@@ -221,26 +218,38 @@ class 开店Agent:
         """获取结构化回复（总助理格式）。"""
         if self._use_langgraph:
             text = self.get_response(user_input)
+            readiness = build_readiness_structured(user_input)
             return {
                 "response_text": text,
-                "decision": "needs_more_data",
+                "decision": readiness.get("decision", "needs_more_data"),
                 "summary": text[:200] if text else "",
-                "facts": [],
-                "assumptions": [],
-                "risks": [],
+                "facts": readiness.get("facts", []),
+                "assumptions": readiness.get("assumptions", []),
+                "risks": readiness.get("risks", []),
                 "scores": {
                     "site": None,
                     "finance": None,
                     "category_fit": None,
                     "execution_difficulty": None,
                 },
-                "next_actions": [],
-                "questions_for_user": [],
+                "next_actions": readiness.get("next_actions", []),
+                "questions_for_user": readiness.get("questions_for_user", []),
                 "sources": [],
                 "artifacts": [],
-                "memory_updates": {},
+                "memory_updates": readiness.get("memory_updates", {}),
             }
-        return self._session.get_structured_response(user_input)
+        structured = self._session.get_structured_response(user_input)
+        structured["response_text"] = merge_readiness_overlay(
+            user_input,
+            structured.get("response_text", ""),
+        )
+        readiness = build_readiness_structured(user_input)
+        if readiness:
+            for key in ("facts", "assumptions", "risks", "next_actions", "questions_for_user"):
+                structured[key] = readiness.get(key, [])
+            structured["decision"] = readiness["decision"]
+            structured["memory_updates"] = readiness.get("memory_updates", {})
+        return structured
 
     def reset_conversation(self):
         """重置对话（清空 MemorySaver checkpoint + 本地状态）。"""

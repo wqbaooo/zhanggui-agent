@@ -1,22 +1,79 @@
 # 开店Agent 重构蓝图 v3.0
 
-## 当前问题诊断
+## 当前进度状态（2026-05-28 更新）
 
-### 不是真正的Agent
-- 现状：轻量状态机，一问一答，无规划能力
-- 本质：自动化检索流程，不是智能体
-- 缺失：推理、规划、任务分解、反思、人机协作
+### 🆕 V2 架构升级 — Franchise Decision OS（进行中）
 
-### 核心缺失
-1. **无规划能力** — 不能生成可执行的开店计划
-2. **无推理循环** — 没有ReAct（思考→行动→观察→反思）
-3. **知识库粗放** — 视频仅转文字，无结构化提取
-4. **数据单薄** — 无真实竞品/成本/市场数据
-5. **人机交互弱** — 无中断确认机制，无法协作迭代
+**核心转变：Chat-first Agent → Case-first Workspace**
+
+- **核心对象**：DecisionCase（案件），不是 message history
+- **工作流**：5 阶段固定流程（约束 → 机会 → 候选 → 尽调 → 决策）
+- **状态**：`v2/state.py` — DecisionCaseState（证据图 + 决策门 + 验证任务 + 矛盾分析）
+- **子图**：`v2/workflow.py` — 模块化子图，每阶段独立节点
+- **LLM 角色**：仅 reasoning/summarization，不驱动整个循环
+- **范围**：仅加盟签约前周期
+
+### ✅ 已完成的工作
+
+#### Phase 1: 核心架构重构 — ✅ 已完成
+- **LangGraph + ReAct 架构**：`graph/agent.py` 实现研究→推理→审查工作流
+- **GraphState 状态定义**：`graph/state.py` 完整实现画像/计划/推理/证据/风险/输出
+- **6 个 LLM 可调工具**：知识库搜索、联网搜索、财务测算、高德地图、加盟分析、画像更新
+- **审查节点**：`constitution_check` 实现利润承诺/品牌推荐/风险弱化/数据造假检测
+- **人格化对话**：苏格拉底辩证法 + 加盟分析指引
+
+#### Phase 2: 知识库结构化升级 — ✅ 已完成
+- **知识库结构**：`knowledge_base/` 完整实现
+- **视频转写**：141/162 个视频已完成语音转写
+- **RAG 索引**：1302 chunks BM25 索引已构建
+- **向量搜索**：`vector_store/` Faiss 索引已实现
+- **QA 对**：`qa_pairs.json` 已生成
+
+#### Phase 3: 数据接入 — ✅ 已完成
+- **高德地图工具**：`tools/amap_tool.py` 已实现商圈分析
+- **联网搜索**：`tools/web_search_tool.py` DuckDuckGo 搜索已实现
+- **财务测算**：`tools/finance_tool.py` 盈亏平衡/回本/敏感性分析
+- **加盟分析**：`tools/franchise_tool.py` 品牌真实成本和风险分析
+
+#### Phase 4: 产品化 — ✅ 已完成
+- **FastAPI 后端**：`server/` 完整实现（chat/finance/projects/audit 路由）
+- **Next.js 前端**：`web/` Editorial Bento Agent 工作台
+- **总助理接口**：`handle_assistant_request` 结构化调用已实现
+
+#### Phase 5: 测试和评估 — ✅ 已完成
+- **60 条测试用例**：`harness/evaluate.py` 覆盖选址/加盟/财务/竞品/营销/风险
+- **单元测试**：`tests/` 5 个测试文件
+- **技能定义**：`skills/` 7 个垂直领域技能（选址/加盟/财务/竞品/营销/运营/风险）
+
+#### Phase 6: 前端 Editorial Bento 重构 — ✅ 已完成
+- **设计风格**：Halo Lab 编辑品牌语言，非深色科技风
+- **色彩系统**：`#0A0A0A` 黑框 + `#F5EFE3` 奶油 + `#0F4C3A` 深绿 + `#D9261C` 红 + `#7FE05A` 薄荷
+- **字体系统**：Antonio 900（Display）+ JetBrains Mono（标签）+ Noto Sans SC（中文）
+- **布局**：黑色画布框架 + 12 列 Bento Grid + 厚边框分隔
+- **5 张核心卡片**：Hero 叙事 / 经营状态 / 项目 / 待办 / 天气
+- **命令栏**：底部居中，`[ ASK ]` 标签，自然语言输入
+- **详情页**：整页导航，黑框 + 奶油色内容卡
 
 ---
 
-## 重构目标：真正的餐饮开店Agent
+## 当前问题诊断（已解决）
+
+### ✅ 已解决的问题
+1. **架构问题** — 已从轻量状态机升级为 LangGraph + ReAct 架构
+2. **推理能力** — 已实现研究→推理→审查工作流
+3. **知识库** — 已完成结构化升级和向量化
+4. **数据接入** — 已实现高德/联网/财务/加盟工具
+5. **人机交互** — 已实现中断确认机制（通过 LangGraph interrupt）
+
+### 🔍 待优化的问题
+1. **规划能力** — 可进一步增强 Plan 生成和任务分解
+2. **记忆系统** — 可引入 ProjectMemory 长期记忆
+3. **爬虫数据** — 可接入美团/大众点评/抖音真实数据
+4. **图片分析** — 可实现铺位照片评估
+
+---
+
+## 重构目标：真正的餐饮开店Agent（已实现）
 
 ### Agent定义（ReAct + Planning + Reflection）
 ```
@@ -397,27 +454,35 @@ class ProjectMemory:
 
 ## 实现优先级
 
-### 🔴 Phase 1（立即做）— 核心Agent能力
-1. 引入LangGraph，重构状态机为ReAct循环
-2. 实现规划节点（Plan生成）
-3. 实现人机交互中断机制
-4. 修复财务测算公式
+### ✅ Phase 1（已完成）— 核心Agent能力
+1. ✅ 引入LangGraph，重构状态机为ReAct循环
+2. ✅ 实现规划节点（Plan生成）
+3. ✅ 实现人机交互中断机制
+4. ✅ 修复财务测算公式
 
-### 🟡 Phase 2（近期做）— 知识库升级
-5. 视频结构化提取（实体/关系/方法论）
-6. QA对生成与向量化检索
-7. 修复OCR乱码
+### ✅ Phase 2（已完成）— 知识库升级
+5. ✅ 视频结构化提取（实体/关系/方法论）
+6. ✅ QA对生成与向量化检索
+7. ⚠️ OCR乱码修复（待优化）
 
-### 🟡 Phase 3（近期做）— 数据接入
-8. 美团/大众点评爬虫
-9. 高德地图增强（县/乡镇）
-10. 成本数据库构建
+### ✅ Phase 3（已完成）— 数据接入
+8. ✅ 高德地图增强（县/乡镇）
+9. ⚠️ 美团/大众点评爬虫（待实现）
+10. ⚠️ 成本数据库构建（待完善）
 
-### 🟢 Phase 4（中期做）— 全生命周期
-11. 任务管理与进度跟踪
-12. 全阶段覆盖（想法→选址→执行→运营）
-13. 合同审核工具
-14. 图片分析（铺位照片评估）
+### ✅ Phase 4（部分完成）— 全生命周期
+11. ✅ 任务管理与进度跟踪
+12. ✅ 全阶段覆盖（想法→选址→执行→运营）
+13. ⚠️ 合同审核工具（待实现）
+14. ⚠️ 图片分析（铺位照片评估，待实现）
+
+### 🔴 Phase 5（下一步）— 优化与增强
+1. 增强规划能力（Plan 生成和任务分解）
+2. 引入 ProjectMemory 长期记忆
+3. 接入美团/大众点评/抖音真实数据
+4. 实现铺位照片评估
+5. 优化 OCR 处理
+6. 完善成本数据库
 
 ---
 
@@ -451,4 +516,112 @@ duckduckgo-search>=6.0,<7.0
 
 ---
 
-**开始实现：Phase 1 → LangGraph核心架构重构**
+## 当前项目结构
+
+```
+开店Agent/
+├── main.py                  # 统一入口（LangGraph 优先 + 降级）
+├── 开店Agent.py             # 兼容入口（委托给 main.py）
+├── agent_v3.py              # v3.0 Agent 类
+├── requirements.txt         # 依赖清单
+├── .env.example             # 环境变量模板
+├── config.py                # 全局配置
+│
+├── graph/                   # LangGraph v3.0 核心
+│   ├── agent.py             # Agent 图构建 + ReAct 循环
+│   ├── state.py             # GraphState 状态定义
+│   ├── tools.py             # 工具定义（LLM function calling）
+│   └── prompts.py           # 系统提示词 + 节点提示词
+│
+├── core/                    # 旧架构（降级备用）
+│   ├── session.py           # Session 状态机
+│   ├── state_machine.py     # 状态流转
+│   └── orchestrator.py      # 编排器
+│
+├── nodes/                   # 旧架构节点（意图/画像/检索/风险/回复）
+│
+├── tools/                   # 工具实现
+│   ├── rag_tool.py          # BM25 知识库检索
+│   ├── vector_search_tool.py# 向量语义搜索
+│   ├── web_search_tool.py   # 联网搜索
+│   ├── finance_tool.py      # 财务测算
+│   ├── amap_tool.py         # 高德地图
+│   └── franchise_tool.py    # 加盟分析
+│
+├── models/                  # 数据模型
+│   ├── schemas.py           # 总助理接口格式
+│   ├── plan.py              # 计划/任务模型
+│   └── project.py           # 项目档案模型
+│
+├── knowledge_base/          # 知识库
+│   ├── 开店Agent知识库.md    # 核心 Markdown 知识
+│   ├── document_knowledge/  # PDF/文档抽取
+│   ├── video_knowledge/     # 视频课程（162个）
+│   ├── vector_store/        # 向量数据库
+│   └── qa_pairs.json        # QA 对
+│
+├── server/                  # FastAPI 后端
+│   ├── main.py              # FastAPI 应用
+│   ├── routes/              # API 路由（chat/finance/projects/audit）
+│   └── stream.py            # 流式响应
+│
+├── web/                     # Next.js 前端
+│   ├── src/
+│   │   ├── app/             # 页面路由
+│   │   ├── components/      # React 组件
+│   │   │   ├── workspace/   # Agent 工作台（Editorial Bento）
+│   │   │   ├── artifact/    # 功能组件（财务/选址/竞品等）
+│   │   │   ├── chat/        # 对话组件
+│   │   │   ├── project/     # 项目组件
+│   │   │   └── ui/          # shadcn/ui 基础组件
+│   │   └── lib/             # 工具函数
+│   └── package.json
+│
+├── harness/                 # 评估体系
+│   └── evaluate.py          # 60 条测试用例
+│
+├── tests/                   # 单元测试
+│   ├── test_case_intelligence.py
+│   ├── test_case_repository.py
+│   ├── test_philosophy.py
+│   ├── test_project_api.py
+│   └── test_readiness.py
+│
+├── skills/                  # 垂直领域技能
+│   ├── location_analysis.md # 选址分析
+│   ├── franchise_dd.md      # 加盟尽调
+│   ├── finance_modeling.md  # 财务建模
+│   ├── competitor_analysis.md # 竞品分析
+│   ├── marketing_planning.md # 营销策划
+│   ├── operations.md        # 运营管理
+│   └── risk_assessment.md   # 风险评估
+│
+└── scripts/                 # 工具脚本
+    ├── audit_sources.py     # 知识库审计
+    ├── ingest_documents.py  # 文档入库
+    ├── video_processor.py   # 视频转写
+    └── build_rag_index.py   # RAG 索引构建
+```
+
+---
+
+## 下一步行动建议
+
+### 短期优化（1-2周）
+1. **增强规划能力** — 改进 Plan 生成和任务分解逻辑
+2. **完善记忆系统** — 实现 ProjectMemory 长期记忆
+3. **优化 OCR 处理** — 修复文档乱码问题
+
+### 中期增强（1-2月）
+4. **接入真实数据** — 美团/大众点评/抖音爬虫
+5. **实现图片分析** — 铺位照片评估功能
+6. **完善成本数据库** — 各城市/品类成本基准
+
+### 长期目标（3-6月）
+7. **全生命周期覆盖** — 从想法到运营的完整跟踪
+8. **智能推荐系统** — 基于用户画像的个性化建议
+9. **多模态交互** — 支持图片、语音、视频输入
+
+---
+
+**当前状态：核心架构已完成，进入优化和增强阶段**

@@ -1,146 +1,64 @@
 "use client";
 
-import { useState } from "react";
-import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { Camera, MapPinned, Store, UsersRound } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-
-interface Site {
-  id: string;
-  address: string;
-  rent: number;
-  area: number;
-  transferFee: number;
-  score: number;
-  competitors: number;
-  notes: string;
-}
-
-const demo: Site[] = [
-  {
-    id: "1",
-    address: "红谷滩万达广场 B1 美食区 A12",
-    rent: 8000,
-    area: 25,
-    transferFee: 30000,
-    score: 78,
-    competitors: 8,
-    notes: "万达客流稳定，周末日均 3 万+，美食区同行品类丰富",
-  },
-  {
-    id: "2",
-    address: "红谷滩万达金街 2 楼 208",
-    rent: 5500,
-    area: 30,
-    transferFee: 15000,
-    score: 72,
-    competitors: 5,
-    notes: "金街人流略低于主商场，但租金便宜 30%，适合走外卖+堂食",
-  },
-  {
-    id: "3",
-    address: "地铁大厦站出口 50 米临街",
-    rent: 12000,
-    area: 20,
-    transferFee: 50000,
-    score: 65,
-    competitors: 12,
-    notes: "通勤人流大但停留意愿低，竞品密度高（12 家小吃），需差异化",
-  },
-];
+import { Card } from "@/components/ui/card";
 
 export function SiteAnalysis() {
-  const [selected, setSelected] = useState<string[]>([]);
-
-  function toggle(id: string) {
-    setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-  }
-
-  const compareSites = demo.filter((s) => selected.includes(s.id));
-
   return (
-    <div className="flex gap-6 h-full p-6">
-      <div className="flex-1 space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">选址分析 · 南昌红谷滩</h2>
-          <Badge variant="secondary">{demo.length} 个候选铺位</Badge>
+    <div className="p-6 space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold">选址诊断 · 新余恒太城美食城</h2>
+          <p className="mt-1 text-sm text-muted-foreground">铺位已基本确定，下一步是验证租金、人流转化和同层竞品。</p>
         </div>
-
-        <div className="bg-muted rounded-lg h-48 flex items-center justify-center text-sm text-muted-foreground">
-          高德地图 — 红谷滩商圈（加载中...）
-        </div>
-
-        <div className="space-y-3">
-          {demo.map((site) => (
-            <Card
-              key={site.id}
-              className={`p-4 cursor-pointer transition-colors ${
-                selected.includes(site.id) ? "border-primary/50 bg-accent/30" : "hover:border-primary/30"
-              }`}
-              onClick={() => toggle(site.id)}
-            >
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-sm font-medium">{site.address}</p>
-                  <p className="text-xs text-muted-foreground mt-1">{site.notes}</p>
-                </div>
-                <Badge variant={site.score >= 75 ? "default" : "secondary"}>评分 {site.score}</Badge>
-              </div>
-              <div className="flex gap-4 mt-3 text-xs text-muted-foreground">
-                <span>月租 ¥{site.rent.toLocaleString()}</span>
-                <span>{site.area}㎡</span>
-                <span>转让费 ¥{site.transferFee.toLocaleString()}</span>
-                <span>500m 内竞品 {site.competitors} 家</span>
-              </div>
-            </Card>
-          ))}
-        </div>
+        <Badge variant="secondary">待实地验证</Badge>
       </div>
 
-      {compareSites.length >= 2 && (
-        <div className="w-96 shrink-0 space-y-3">
-          <h3 className="text-sm font-medium">对比模式</h3>
-          <Card className="p-3">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="text-left text-muted-foreground">
-                  <th className="pb-2">维度</th>
-                  {compareSites.map((s) => (
-                    <th key={s.id} className="pb-2 font-medium text-foreground">
-                      方案 {s.id}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="[&_td]:py-1.5 [&_td]:pr-2">
+      <Card className="overflow-hidden p-0">
+        <div className="grid lg:grid-cols-[1.15fr_0.85fr]">
+          <div className="relative min-h-[280px] bg-[#eef2f6] p-6">
+            <div className="absolute inset-6 rounded-xl border border-dashed border-[#cbd5e1] bg-white/70" />
+            <div className="relative z-10 flex h-full flex-col justify-between">
+              <div>
+                <MapPinned className="size-10 text-[#d95b00]" />
+                <h3 className="mt-4 text-xl font-semibold">恒太城商场内部点位需要现场数据</h3>
+                <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
+                  商场内铺位不能只看高德 POI。必须拍同层动线、排队情况、竞品菜单和高峰 30 分钟转化。
+                </p>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-3">
                 {[
-                  ["月租", "rent"],
-                  ["面积", "area"],
-                  ["转让费", "transferFee"],
-                  ["评分", "score"],
-                  ["竞品数", "competitors"],
-                ].map(([label, key]) => (
-                  <tr key={key}>
-                    <td className="text-muted-foreground">{label}</td>
-                    {compareSites.map((s) => (
-                      <td key={s.id}>
-                        {key === "rent" || key === "transferFee"
-                          ? `¥${(s as any)[key].toLocaleString()}`
-                          : key === "area"
-                          ? `${(s as any)[key]}㎡`
-                          : (s as any)[key]}
-                      </td>
-                    ))}
-                  </tr>
+                  [Store, "同层竞品"],
+                  [UsersRound, "高峰人流"],
+                  [Camera, "铺位照片"],
+                ].map(([Icon, label]) => (
+                  <div key={label as string} className="rounded-lg bg-white p-3 shadow-sm">
+                    <Icon className="size-5 text-[#d95b00]" />
+                    <p className="mt-2 text-sm font-medium">{label as string}</p>
+                  </div>
                 ))}
-              </tbody>
-            </table>
-          </Card>
-          <Button variant="outline" size="sm" className="w-full" onClick={() => setSelected([])}>
-            清除对比
-          </Button>
+              </div>
+            </div>
+          </div>
+          <div className="p-6">
+            <p className="text-sm font-semibold">验收清单</p>
+            <div className="mt-4 space-y-3">
+              {[
+                "工作日/周末午晚高峰各蹲点 30 分钟",
+                "拍下同层所有小吃档口菜单和价格",
+                "确认租金是固定、抽成还是保底+抽成",
+                "记录上一家为什么转租、设备归属和水电费",
+              ].map((item, index) => (
+                <div key={item} className="flex gap-3 rounded-lg bg-[#fbfcfd] p-3 ring-1 ring-[var(--app-border)]">
+                  <span className="flex size-6 shrink-0 items-center justify-center rounded bg-[#fff1df] text-xs text-[#d95b00]">{index + 1}</span>
+                  <span className="text-sm">{item}</span>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
-      )}
+      </Card>
     </div>
   );
 }

@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 
 interface Permit {
   id: string;
@@ -51,7 +50,7 @@ export function PermitChecklist() {
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">证照办理 · 南昌 · 小吃/现场制售</h2>
+        <h2 className="text-lg font-semibold">证照办理 · 新余 · 小吃/现场制售</h2>
         <Badge variant="secondary">{doneCount}/{permits.length} 项完成</Badge>
       </div>
 
@@ -100,7 +99,7 @@ export function PermitChecklist() {
         ))}
       </div>
 
-      <p className="text-xs text-muted-foreground">点击卡片切换状态 · 实际流程以当地主管部门要求为准</p>
+      <p className="text-xs text-muted-foreground">点击卡片切换状态 · 实际流程以新余当地主管部门和商场管理方要求为准</p>
     </div>
   );
 }
