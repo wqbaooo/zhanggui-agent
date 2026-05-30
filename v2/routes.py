@@ -8,7 +8,9 @@ from v2.state import (
     DecisionCaseState, CasePhase, DecisionMode, SprintStage,
     FranchiseConstraint, Opportunity, Evidence, ActionMission,
 )
-from v2.workflow import build_graph
+from v2.workflow import build_graph, resume_after_interrupt, get_interrupt_state
+from v2.engines import GateEngine, BlockerEngine
+from v2.alpha import AlphaStore, AlphaFeedback, AlphaReport, FeedbackType, Severity
 
 router = APIRouter(prefix="/api/v2/cases", tags=["cases"])
 
@@ -87,3 +89,123 @@ async def complete_mission(case_id: str, mission_id: str):
 
     result = _workflow.invoke({"missions": updated}, config)
     return {"status": "completed", "signability": result.get("signability", 0)}
+
+
+@router.get("/{case_id}/workspace")
+async def get_workspace(case_id: str):
+    """Case Workspace 三栏数据"""
+    config = {"configurable": {"thread_id": case_id}}
+    try:
+        state = _workflow.get_state(config)
+        if not state or not state.values:
+            return {"status": "not_found"}
+
+        vals = state.values
+        gates = vals.get("gates", GateEngine.init_gates())
+        evidence_bank = vals.get("evidence_bank", [])
+        missions = vals.get("missions", [])
+
+        gate_list = []
+        for g in gates:
+            gate_list.append({
+                "id": g.id.value if hasattr(g.id, 'value') else str(g.id),
+                "label": g.label,
+                "status": g.status.value if hasattr(g.status, 'value') else str(g.status),
+                "emoji": "🟢" if (hasattr(g, 'status') and g.status.value == "passed") else ("🟡" if "partial" in str(getattr(g, 'status', '')) else "🔴"),
+                "why": g.why_matters,
+            })
+
+        missions_done = sum(1 for m in missions if (hasattr(m, 'status') and m.status == "done"))
+        blocker = BlockerEngine.find_blocker(gates, missions_done, len(missions) or 1, vals.get("last_action_time"))
+
+        ev_list = []
+        for ev in evidence_bank[-5:]:
+            ev_list.append({
+                "claim": getattr(ev, 'claim', str(ev))[:80],
+                "source": getattr(ev, 'source_type', 'system'),
+                "ok": getattr(ev, 'verified', False),
+            })
+
+        m_list = []
+        for m in missions:
+            m_list.append({
+                "id": getattr(m, 'id', ''),
+                "title": getattr(m, 'title', str(m)),
+                "done": hasattr(m, 'status') and m.status == "done",
+            })
+
+        return {
+            "project_name": vals.get("project_name", ""),
+            "current_phase": vals.get("current_phase", "constraints"),
+            "signability": vals.get("signability", 0),
+            "gates": gate_list,
+            "blocker": blocker.title,
+            "evidence": ev_list,
+            "missions": m_list,
+            "next_action": blocker.to_next_action(),
+        }
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
+
+
+@router.get("/{case_id}/interrupt")
+async def check_interrupt(case_id: str):
+    """检查是否有中断等待用户输入"""
+    state = get_interrupt_state(case_id)
+    return state
+
+
+@router.post("/{case_id}/resume")
+async def resume_case(case_id: str, user_input: str):
+    """HITL: 用户确认后恢复工作流"""
+    try:
+        result = resume_after_interrupt(user_input, case_id)
+        return {
+            "status": "resumed",
+            "next_best_action": result.get("next_best_action", ""),
+            "phase": result.get("current_phase", ""),
+            "signability": result.get("signability", 0),
+        }
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
+
+
+# ============ Alpha Testing ============
+
+alpha_router = APIRouter(prefix="/api/alpha", tags=["alpha"])
+
+
+@alpha_router.post("/{case_id}/feedback")
+async def record_feedback(case_id: str, type: str, notes: str, context: str = "", severity: str = "medium"):
+    """记录一条 Alpha 观察"""
+    store = AlphaStore(case_id)
+    fb = store.record(AlphaFeedback(
+        type=FeedbackType(type),
+        severity=Severity(severity),
+        context=context,
+        notes=notes,
+    ))
+    return {"recorded": True, "id": fb.id, "total": len(store.list_all())}
+
+
+@alpha_router.get("/{case_id}/feedback")
+async def list_feedback(case_id: str):
+    """列出所有观察记录"""
+    store = AlphaStore(case_id)
+    return {"feedbacks": [fb.to_dict() for fb in store.list_all()]}
+
+
+@alpha_router.get("/{case_id}/report")
+async def get_report(case_id: str):
+    """自动生成 Alpha 测试报告"""
+    store = AlphaStore(case_id)
+    report = AlphaReport(store)
+    return report.generate()
+
+
+@alpha_router.delete("/{case_id}/feedback")
+async def clear_feedback(case_id: str):
+    """清空观察记录"""
+    store = AlphaStore(case_id)
+    store.clear()
+    return {"cleared": True}

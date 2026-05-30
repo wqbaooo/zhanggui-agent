@@ -227,4 +227,18 @@ export function getIntegrations(projectId = DEFAULT_PROJECT_ID) {
   return apiGet<IntegrationListResponse>(`/api/projects/${projectId}/integrations`);
 }
 
+// V2 Case Workspace
+export async function getCaseWorkspace(caseId = DEFAULT_PROJECT_ID) {
+  return apiGet<{
+    project_name?: string;
+    current_phase?: string;
+    signability?: number;
+    gates?: Array<{ id: string; label: string; status: string; emoji: string; why: string }>;
+    blocker?: string;
+    evidence?: Array<{ claim: string; source: string; ok: boolean }>;
+    missions?: Array<{ id: string; title: string; done: boolean }>;
+    next_action?: { next_best_action: string; next_action_why: string; blocker_title: string };
+  }>(`/api/v2/cases/${caseId}/workspace`);
+}
+
 export { API_BASE };

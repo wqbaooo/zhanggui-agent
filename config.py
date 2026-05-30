@@ -12,7 +12,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 
 # 知识库路径
 KNOWLEDGE_BASE_DIR = PROJECT_ROOT / "knowledge_base"
-DEFAULT_KB_PATH = KNOWLEDGE_BASE_DIR / "开店Agent知识库.md"
+DEFAULT_KB_PATH = KNOWLEDGE_BASE_DIR / "掌柜Agent知识库.md"
 DEFAULT_VIDEO_KB_DIR = KNOWLEDGE_BASE_DIR / "video_knowledge"
 DEFAULT_DOCUMENT_KB_DIR = KNOWLEDGE_BASE_DIR / "document_knowledge"
 DEFAULT_RAG_INDEX_PATH = KNOWLEDGE_BASE_DIR / "rag_index.json"

@@ -26,10 +26,10 @@ cp .env.example .env
 # 编辑 .env，填入 DEEPSEEK_API_KEY
 
 # 交互式对话
-python3 开店Agent.py
+python3 掌柜Agent.py
 
 # 单次查询
-python3 开店Agent.py "我想用20万在县城开早餐店，帮我分析"
+python3 掌柜Agent.py "我想用20万在县城开早餐店，帮我分析"
 
 # 总助理接口
 echo '{"user_message":"如何选址？"}' | python3 main.py --json
@@ -81,9 +81,9 @@ Halo Lab 编辑品牌风格的 Agent 工作台：
 ## 项目结构
 
 ```
-开店Agent/
+掌柜Agent/
 ├── main.py                    # 统一入口（LangGraph + 降级）
-├── 开店Agent.py               # CLI 入口
+├── 掌柜Agent.py               # CLI 入口
 ├── agent_v3.py                # v3.0 Agent 类
 ├── config.py                  # 全局配置
 │
@@ -107,7 +107,7 @@ Halo Lab 编辑品牌风格的 Agent 工作台：
 │   └── project.py             # 项目档案模型
 │
 ├── knowledge_base/            # 知识库
-│   ├── 开店Agent知识库.md
+│   ├── 掌柜Agent知识库.md
 │   ├── video_knowledge/       # 162 个视频课程
 │   ├── vector_store/          # Faiss 向量索引
 │   └── qa_pairs.json          # QA 对

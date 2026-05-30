@@ -369,4 +369,36 @@ def build_graph() -> StateGraph:
     wf.add_edge("decision_sprint", "decision_gate")
     wf.add_edge("decision_gate", END)
 
-    return wf.compile(checkpointer=MemorySaver())
+    return wf.compile(
+        checkpointer=MemorySaver(),
+        interrupt_before=["candidate_stack", "decision_gate"],
+    )
+
+
+def resume_after_interrupt(user_input: str, thread_id: str = "default"):
+    """HITL: 用户确认后恢复工作流"""
+    from langchain_core.messages import HumanMessage
+    config = {"configurable": {"thread_id": thread_id}}
+    graph = build_graph()
+    result = graph.invoke(
+        {"messages": [HumanMessage(content=user_input)]},
+        config,
+    )
+    return result
+
+
+def get_interrupt_state(thread_id: str = "default"):
+    """检查是否有中断等待用户输入"""
+    config = {"configurable": {"thread_id": thread_id}}
+    graph = build_graph()
+    try:
+        state = graph.get_state(config)
+        if state and state.next:
+            return {
+                "interrupted": True,
+                "next_node": state.next,
+                "values": state.values,
+            }
+        return {"interrupted": False}
+    except Exception:
+        return {"interrupted": False}

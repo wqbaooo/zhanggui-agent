@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""FastAPI 应用入口 — 开店 Agent 产品化后端。"""
+"""FastAPI 应用入口 — 掌柜Agent 产品化后端。"""
 
 from __future__ import annotations
 
@@ -24,13 +24,13 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("开店 Agent 后端启动")
+    logger.info("掌柜Agent 后端启动")
     yield
-    logger.info("开店 Agent 后端关闭")
+    logger.info("掌柜Agent 后端关闭")
 
 
 app = FastAPI(
-    title="开店 Agent API",
+    title="掌柜Agent API",
     description="餐饮开店智能顾问 — LangGraph/ReAct 后端服务",
     version="0.1.0",
     lifespan=lifespan,
@@ -55,12 +55,14 @@ app.include_router(finance.router, prefix="/api")
 app.include_router(projects.router, prefix="/api")
 if _v2_available:
     app.include_router(v2_router)
+    from v2.routes import alpha_router
+    app.include_router(alpha_router)
 
 
 @app.get("/")
 async def root():
     return {
-        "service": "开店 Agent API",
+        "service": "掌柜Agent API",
         "status": "ok",
         "message": "这是后端 API 服务，不是前端页面。请打开前端地址 http://127.0.0.1:3001/",
         "frontend_url": "http://127.0.0.1:3001/",

@@ -7,7 +7,7 @@ from core.readiness import (
     detect_readiness_case,
     merge_readiness_overlay,
 )
-from main import _build_enhanced_message, 开店Agent
+from main import _build_enhanced_message, 掌柜Agent
 
 
 USER_CASE = (
@@ -80,7 +80,7 @@ def test_structured_response_merges_readiness_without_llm(monkeypatch):
         "memory_updates": {},
     })
 
-    response = 开店Agent().get_structured_response(USER_CASE)
+    response = 掌柜Agent().get_structured_response(USER_CASE)
 
     assert response["decision"] == "needs_more_data"
     assert response["memory_updates"]["品牌"] == "大口章鱼烧"

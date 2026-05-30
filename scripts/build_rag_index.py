@@ -150,7 +150,7 @@ def add_videos(index: RagIndex, video_dir: Path):
 
 def build_index(output: Path = DEFAULT_INDEX_PATH) -> RagIndex:
     index = RagIndex()
-    add_markdown(index, PROJECT_ROOT / "knowledge_base" / "开店Agent知识库.md")
+    add_markdown(index, PROJECT_ROOT / "knowledge_base" / "掌柜Agent知识库.md")
     add_documents(index, PROJECT_ROOT / "knowledge_base" / "document_knowledge")
     add_videos(index, PROJECT_ROOT / "knowledge_base" / "video_knowledge")
     index.save(output)

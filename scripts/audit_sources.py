@@ -11,11 +11,11 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from 开店Agent import 开店Agent  # noqa: E402
+from 掌柜Agent import 掌柜Agent  # noqa: E402
 
 
 def main():
-    agent = 开店Agent()
+    agent = 掌柜Agent()
     print(json.dumps(agent.audit_sources(), ensure_ascii=False, indent=2))
 
 

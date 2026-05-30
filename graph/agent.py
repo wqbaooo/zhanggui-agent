@@ -550,7 +550,7 @@ def run_cli():
     from graph.state import GraphState, get_state, clear_state
 
     print("=" * 60)
-    print("开店Agent v3.0 — 真正的餐饮开店Agent")
+    print("掌柜Agent v3.0 — 真正的餐饮掌柜Agent")
     print("吕哥餐饮顾问 · 苏格拉底辩证式对话")
     print("=" * 60)
     print()

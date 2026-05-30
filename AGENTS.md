@@ -1,4 +1,4 @@
-# 开店Agent 重构蓝图 v3.0
+# 掌柜Agent 重构蓝图 v3.0
 
 ## 当前进度状态（2026-05-28 更新）
 
@@ -73,7 +73,7 @@
 
 ---
 
-## 重构目标：真正的餐饮开店Agent（已实现）
+## 重构目标：真正的餐饮掌柜Agent（已实现）
 
 ### Agent定义（ReAct + Planning + Reflection）
 ```
@@ -101,7 +101,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    餐饮开店Agent 全生命周期                     │
+│                    餐饮掌柜Agent 全生命周期                     │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
 │  【阶段1: 想法验证】                                          │
@@ -376,7 +376,7 @@ class FranchiseCrawler:
 ### System Prompt 核心要素
 
 ```
-你是「勇哥餐饮开店Agent」，一位拥有15年经验的独立餐饮创业顾问。
+你是「勇哥餐饮掌柜Agent」，一位拥有15年经验的独立餐饮创业顾问。
 
 ## 核心能力
 - 餐饮品类分析与选品决策
@@ -519,9 +519,9 @@ duckduckgo-search>=6.0,<7.0
 ## 当前项目结构
 
 ```
-开店Agent/
+掌柜Agent/
 ├── main.py                  # 统一入口（LangGraph 优先 + 降级）
-├── 开店Agent.py             # 兼容入口（委托给 main.py）
+├── 掌柜Agent.py             # 兼容入口（委托给 main.py）
 ├── agent_v3.py              # v3.0 Agent 类
 ├── requirements.txt         # 依赖清单
 ├── .env.example             # 环境变量模板
@@ -554,7 +554,7 @@ duckduckgo-search>=6.0,<7.0
 │   └── project.py           # 项目档案模型
 │
 ├── knowledge_base/          # 知识库
-│   ├── 开店Agent知识库.md    # 核心 Markdown 知识
+│   ├── 掌柜Agent知识库.md    # 核心 Markdown 知识
 │   ├── document_knowledge/  # PDF/文档抽取
 │   ├── video_knowledge/     # 视频课程（162个）
 │   ├── vector_store/        # 向量数据库

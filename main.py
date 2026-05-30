@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""开店Agent - 新入口（LangGraph v3.0）。
+"""掌柜Agent - 新入口（LangGraph v3.0）。
 
 支持三种使用方式：
 1. CLI 交互式对话
@@ -58,7 +58,7 @@ def handle_assistant_request(request_data: Dict[str, Any]) -> Dict[str, Any]:
     使 Agent 无需追问已有信息即可直接进入分析。
     """
     request = AssistantRequest.from_dict(request_data)
-    agent = 开店Agent(project_id=request.project_id)
+    agent = 掌柜Agent(project_id=request.project_id)
 
     # 构建增强消息：注入 context + task_type 引导
     enhanced_message = _build_enhanced_message(
@@ -131,10 +131,10 @@ def _infer_decision(text: str) -> str:
 
 
 # ============================================================
-# 统一的 开店Agent 类（LangGraph 优先 + 旧架构降级）
+# 统一的 掌柜Agent 类（LangGraph 优先 + 旧架构降级）
 # ============================================================
 
-class 开店Agent:
+class 掌柜Agent:
     """统一入口：优先使用 LangGraph/ReAct，无 API key 时降级到旧状态机。"""
 
     def __init__(
@@ -277,7 +277,7 @@ class 开店Agent:
 # ============================================================
 
 def main():
-    agent = 开店Agent()
+    agent = 掌柜Agent()
 
     # --audit 模式
     if "--audit" in sys.argv:
@@ -310,7 +310,7 @@ def main():
         return
 
     # 交互式对话模式
-    print("开店做生意 Agent (v2 - 状态机架构)")
+    print("掌柜Agent (v3 - LangGraph/ReAct)")
     print("输入问题，输入 '退出' 结束，输入 '重置' 清空对话。")
     print("可先说：我想在某城市/商圈，用多少预算，做什么品类，帮我规划。")
     print("-" * 50)

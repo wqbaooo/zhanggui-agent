@@ -271,7 +271,6 @@ class EvidenceEngine:
         for key, evs in by_claim.items():
             if len(evs) < 2:
                 continue
-            # 检查是否有冲突（一个支持一个反对）
             highs = [e for e in evs if e.reliability > 0.6]
             if len(highs) < 2:
                 continue
@@ -282,6 +281,26 @@ class EvidenceEngine:
                     "sources": [f"{e.source_name}({e.source_type})" for e in highs],
                     "note": "不同来源对同一主张有差异，需要进一步验证",
                 })
+        return contradictions
+
+    @staticmethod
+    def detect_franchise_contradictions(
+        hq_claims: Dict[str, str],
+        franchisee_data: Dict[str, str],
+    ) -> List[Dict[str, str]]:
+        """加盟专用：对比总部说法 vs 加盟商数据"""
+        contradictions = []
+        for key in hq_claims:
+            if key in franchisee_data:
+                hq_val = hq_claims[key]
+                fr_val = franchisee_data[key]
+                if hq_val != fr_val:
+                    contradictions.append({
+                        "field": key,
+                        "hq_says": hq_val,
+                        "franchisee_says": fr_val,
+                        "note": f"总部说'{hq_val}'，加盟商说'{fr_val}'。可能原因：城市不同、商圈不同、店型不同、时间不同。",
+                    })
         return contradictions
 
     @staticmethod

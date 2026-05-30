@@ -1,4 +1,4 @@
-# 开店 Agent v3.0 - 依赖包
+# 掌柜Agent v3.0 - 依赖包
 
 # === Agent框架（核心） ===
 langgraph>=1.1.0

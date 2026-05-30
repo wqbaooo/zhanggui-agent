@@ -3,14 +3,14 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.backends._legacy:_Backend"
 
 [project]
-name = "kaidian-agent"
+name = "zhanggui-agent"
 version = "0.1.0"
-description = "勇哥餐饮开店Agent — 餐饮创业智能顾问，基于 LangGraph/ReAct"
+description = "掌柜Agent — 餐饮创业智能顾问，基于 LangGraph/ReAct"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [
-    { name = "Kaidian Team" }
+    { name = "Zhangui Team" }
 ]
 dependencies = [
     "langgraph>=1.1.0",

@@ -36,7 +36,7 @@ export function ExploreWizard({ onBack }: { onBack: () => void }) {
       setReport(data.response);
       setStep("report");
     } catch {
-      setReport("⚠️ 无法连接后端服务。请先启动后端：\n\n```bash\ncd 开店Agent\npython3 -m uvicorn server.main:app --port 8000\n```\n\n然后重试。");
+      setReport("⚠️ 无法连接后端服务。请先启动后端：\n\n```bash\ncd 掌柜Agent\npython3 -m uvicorn server.main:app --port 8000\n```\n\n然后重试。");
       setStep("report");
     } finally {
       setLoading(false);

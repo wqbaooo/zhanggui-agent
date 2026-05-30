@@ -1,4 +1,4 @@
-# 开店Agent — 前端
+# 掌柜Agent — 前端
 
 Editorial Bento 风格的 Agent 工作台，基于 Halo Lab 品牌设计语言。
 

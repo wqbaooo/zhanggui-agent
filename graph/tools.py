@@ -1463,7 +1463,7 @@ def generate_feasibility_report(
     lines.append(f"3. 锁定{city}3个候选商圈并实地考察")
     lines.append(f"4. 制定详细的30天行动时间表")
     lines.append("")
-    lines.append(f"*本报告覆盖23个评估维度，由开店Agent v3.0全生命周期分析引擎生成。*")
+    lines.append(f"*本报告覆盖23个评估维度，由掌柜Agent v3.0全生命周期分析引擎生成。*")
     lines.append(f"*数据来源: 知识库（方法论）、联网搜索（市场数据）、财务模型（测算），标注假设与置信度。*")
 
     return "\n".join(lines)

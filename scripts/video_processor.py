@@ -419,8 +419,8 @@ class VideoKnowledgeExtractor:
         print(f"✅ Markdown知识库已生成: {output_path}")
         return output_path
     
-    def update_开店Agent知识库(self, master_kb: Dict, existing_kb_path: str = "./开店Agent知识库.md"):
-        """更新开店Agent知识库"""
+    def update_掌柜Agent知识库(self, master_kb: Dict, existing_kb_path: str = "./掌柜Agent知识库.md"):
+        """更新掌柜Agent知识库"""
         existing_path = Path(existing_kb_path)
         if not existing_path.exists():
             print(f"⚠️ 现有知识库不存在: {existing_kb_path}")
@@ -443,11 +443,11 @@ class VideoKnowledgeExtractor:
             update_content += f"- **标签**: {', '.join(info['tags'])}\n\n"
         
         # 写入
-        updated_path = self.output_dir / "开店Agent知识库_增强版.md"
+        updated_path = self.output_dir / "掌柜Agent知识库_增强版.md"
         with open(updated_path, "w", encoding="utf-8") as f:
             f.write(existing_content + update_content)
         
-        print(f"✅ 已更新开店Agent知识库: {updated_path}")
+        print(f"✅ 已更新掌柜Agent知识库: {updated_path}")
         return updated_path
 
 def main():
@@ -503,7 +503,7 @@ def main():
         all_results = extractor.load_all_saved_results()
         master_kb = extractor.compile_master_knowledge_base(all_results)
         extractor.generate_markdown_knowledge_base(master_kb)
-        extractor.update_开店Agent知识库(master_kb, str(project_root / "knowledge_base" / "开店Agent知识库.md"))
+        extractor.update_掌柜Agent知识库(master_kb, str(project_root / "knowledge_base" / "掌柜Agent知识库.md"))
         print(json.dumps({"rebuilt": True, "videos": len(all_results)}, ensure_ascii=False, indent=2))
         return
     
@@ -517,8 +517,8 @@ def main():
     # 生成Markdown
     extractor.generate_markdown_knowledge_base(master_kb)
     
-    # 更新开店Agent知识库
-    extractor.update_开店Agent知识库(master_kb, str(project_root / "knowledge_base" / "开店Agent知识库.md"))
+    # 更新掌柜Agent知识库
+    extractor.update_掌柜Agent知识库(master_kb, str(project_root / "knowledge_base" / "掌柜Agent知识库.md"))
     
     print(f"\n{'='*60}")
     print("✅ 处理完成!")

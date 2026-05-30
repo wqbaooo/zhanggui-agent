@@ -14,7 +14,7 @@
 import json, os, sys, time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from main import 开店Agent
+from main import 掌柜Agent
 
 # ===== 测试用例 =====
 CASES = [
@@ -247,10 +247,10 @@ def run_case(agent, case):
 
 def main():
     print("=" * 65)
-    print("开店Agent Harness v2 — 垂直评估 (60 cases)")
+    print("掌柜Agent Harness v2 — 垂直评估 (60 cases)")
     print("=" * 65)
 
-    agent = 开店Agent()
+    agent = 掌柜Agent()
     results = []
     
     for case in CASES:

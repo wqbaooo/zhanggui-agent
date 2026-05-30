@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "开店 Agent",
+  title: "掌柜Agent",
   description: "餐饮创业智能顾问 — 从想法到运营的全生命周期陪伴",
 };
 

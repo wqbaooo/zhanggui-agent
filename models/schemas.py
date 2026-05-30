@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 
 @dataclass
 class AssistantRequest:
-    """总助理调用开店Agent的输入格式。"""
+    """总助理调用掌柜Agent的输入格式。"""
     skill_name: str = "store_opening_agent"
     task_type: str = "general"  # profile|site_eval|finance|permit|marketing|risk_review
     project_id: Optional[str] = None
@@ -49,7 +49,7 @@ class AssistantRequest:
 
 @dataclass
 class AssistantResponse:
-    """开店Agent返回给总助理的标准输出格式。"""
+    """掌柜Agent返回给总助理的标准输出格式。"""
     decision: str = "needs_more_data"  # go | no_go | needs_more_data | conditional_go
     summary: str = ""
     facts: List[str] = field(default_factory=list)
