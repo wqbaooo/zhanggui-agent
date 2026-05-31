@@ -1,195 +1,201 @@
 "use client";
 
 import { useState } from "react";
-import { CircleDot, AlertCircle, TrendingUp, TrendingDown, Minus } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { useProject } from "@/lib/hooks/useProject";
 import { fmtMoney } from "@/domain/calculations";
-import { LifecycleMap } from "@/components/dashboard/LifecycleMap";
-import { SectionPanels } from "@/components/dashboard/SectionPanels";
 import { CreateProjectModal } from "@/components/dashboard/CreateProjectModal";
-import { AiConsultant } from "@/components/dashboard/AiConsultant";
 
 const PROJECT_ID = "xinyu-hengtai-dakou";
 
-function TrendBadge({ value, label }: { value: number | null; label: string }) {
-  if (value === null) return null;
-  const isPositive = value > 0;
-  return (
-    <span className={`inline-flex items-center gap-0.5 text-[10px] font-mono ${isPositive ? "text-emerald-600" : "text-red-500"}`}>
-      {isPositive ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-      {label} {Math.abs(value).toFixed(1)}%
-    </span>
-  );
-}
-
 export default function OverviewPage() {
   const [modalOpen, setModalOpen] = useState(false);
-  const { data: cockpit, isLoading, error } = useProject(PROJECT_ID);
+  const { data: cockpit, isLoading } = useProject(PROJECT_ID);
 
-  const hasProject = !!cockpit && !error;
-  const ops = cockpit?.operations;
-  const profile = cockpit?.profile;
+  if (isLoading) {
+    return <div className="flex items-center justify-center h-96 text-gray-300 text-sm font-mono">加载中...</div>;
+  }
+
   const stage = cockpit?.current_stage;
-  const dataQuality = cockpit?.data_quality;
+  const stages = cockpit?.stages ?? [];
+  const ops = cockpit?.operations;
+  const dq = cockpit?.data_quality;
+  const decision = cockpit?.decision;
+  const nextActions = cockpit?.next_actions ?? [];
+  const integrations = cockpit?.integrations ?? [];
+  const alerts = ops?.alerts ?? [];
+  const recentOps = cockpit?.recent_operations ?? [];
 
-  const avgRevenue = ops?.total_revenue && ops?.days ? ops.total_revenue / ops.days : 0;
-  const avgOrders = ops?.total_orders && ops?.days ? ops.total_orders / ops.days : 0;
+  const avgRevenue = ops?.days && ops.total_revenue ? ops.total_revenue / ops.days : 0;
+  const avgOrders = ops?.days && ops.total_orders ? ops.total_orders / ops.days : 0;
   const foodCostRate = ops?.food_cost_rate ?? 0;
   const netProfit = ops?.net_profit ?? 0;
-  const netProfitRate = ops?.total_revenue && ops.total_revenue > 0 ? (netProfit / ops.total_revenue) * 100 : 0;
+  const takeoutRatio = ops?.takeout_ratio ?? 0;
+  const hasOps = (ops?.entry_count ?? 0) > 0;
 
-  const alerts = ops?.alerts ?? [];
-  const hasAlerts = alerts.length > 0;
+  const trendData = recentOps.map((r: { date: string; revenue: number }) => ({
+    date: r.date.slice(5),
+    revenue: r.revenue,
+  }));
+
+  const missingCount = dq?.missing?.length ?? 0;
+  const pendingIntegrations = integrations.filter((i: { status: string }) => i.status === "pending_auth").length;
 
   return (
-    <div className="space-y-6 pb-24">
-      {/* Status bar */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-        <Card className={hasProject ? "md:col-span-3" : "md:col-span-3"}>
-          <CardHeader className="pb-2">
-            <div className="flex items-center gap-2">
-              <span className={`size-2 rounded-full ${hasProject ? "bg-emerald-500" : "bg-amber-500"}`} />
-              <CardTitle className="text-sm">
-                {hasProject ? String(profile?.name ?? "项目档案") : "项目档案 · 未创建"}
-              </CardTitle>
-              {stage && <span className="text-[10px] text-gray-400 font-mono ml-2">{String(stage)}</span>}
-              <span className="text-[10px] text-gray-300 font-mono ml-auto">6 工具 · LangGraph · V2</span>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <div className="text-xs text-gray-400 py-4">加载中...</div>
-            ) : hasProject ? (
-              <div className="flex items-center justify-between">
-                <div className="grid grid-cols-4 gap-6 text-xs flex-1">
-                  <div>
-                    <span className="text-gray-300">日均营收</span>
-                    <p className="text-sm font-bold text-gray-700 mt-0.5" style={{ fontFamily: "Antonio, sans-serif" }}>
-                      {avgRevenue > 0 ? fmtMoney(avgRevenue) : "—"}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="text-gray-300">日均订单</span>
-                    <p className="text-sm font-bold text-gray-700 mt-0.5" style={{ fontFamily: "Antonio, sans-serif" }}>
-                      {avgOrders > 0 ? `${Math.round(avgOrders)}单` : "—"}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="text-gray-300">食品成本率</span>
-                    <p className="text-sm font-bold text-gray-700 mt-0.5" style={{ fontFamily: "Antonio, sans-serif" }}>
-                      {foodCostRate > 0 ? `${(foodCostRate * 100).toFixed(1)}%` : "—"}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="text-gray-300">净利润率</span>
-                    <p className="text-sm font-bold text-gray-700 mt-0.5" style={{ fontFamily: "Antonio, sans-serif" }}>
-                      {netProfitRate !== 0 ? `${netProfitRate.toFixed(1)}%` : "—"}
-                    </p>
-                  </div>
-                </div>
-                <Button size="sm" onClick={() => setModalOpen(true)} className="ml-4">新项目</Button>
-              </div>
-            ) : (
-              <div className="flex items-center justify-between">
-                <div className="text-xs text-gray-400">
-                  <AlertCircle className="w-3.5 h-3.5 inline mr-1" />
-                  创建项目后，数据将自动填入
-                </div>
-                <Button size="sm" onClick={() => setModalOpen(true)}>创建项目</Button>
-              </div>
+    <div className="pb-24">
+      {/* Bento Grid */}
+      <div className="grid grid-cols-6 gap-3">
+
+        {/* Row 1: Big metrics */}
+        <div className="col-span-2 rounded-xl border border-cream-200 bg-white p-4">
+          <p className="text-[10px] text-gray-400 font-mono">日均营收</p>
+          <p className="text-2xl font-bold text-gray-800 mt-1" style={{ fontFamily: "Antonio, sans-serif" }}>
+            {hasOps ? fmtMoney(avgRevenue) : "—"}
+          </p>
+          {hasOps && <p className="text-[10px] text-gray-400 font-mono mt-1">{Math.round(avgOrders)}单/日</p>}
+        </div>
+
+        <div className="col-span-2 rounded-xl border border-cream-200 bg-white p-4">
+          <p className="text-[10px] text-gray-400 font-mono">净利润率</p>
+          <p className={`text-2xl font-bold mt-1 ${netProfit < 0 ? "text-red-500" : "text-gray-800"}`} style={{ fontFamily: "Antonio, sans-serif" }}>
+            {hasOps ? `${(netProfit / Math.max(ops!.total_revenue, 1) * 100).toFixed(1)}%` : "—"}
+          </p>
+          {hasOps && <p className="text-[10px] text-gray-400 font-mono mt-1">食品成本 {((foodCostRate) * 100).toFixed(1)}%</p>}
+        </div>
+
+        <div className="col-span-2 rounded-xl border border-cream-200 bg-white p-4">
+          <p className="text-[10px] text-gray-400 font-mono">数据质量</p>
+          <p className="text-2xl font-bold text-gray-800 mt-1" style={{ fontFamily: "Antonio, sans-serif" }}>
+            {dq?.level === "weak" ? "弱" : dq?.level === "usable" ? "可用" : "—"}
+          </p>
+          <p className="text-[10px] text-gray-400 font-mono mt-1">{missingCount} 项待补齐</p>
+        </div>
+
+        {/* Row 2: Trend chart + Decision */}
+        <div className="col-span-4 rounded-xl border border-cream-200 bg-white p-4">
+          <p className="text-[10px] text-gray-400 font-mono mb-3">7 日营收趋势</p>
+          {trendData.length > 1 ? (
+            <ResponsiveContainer width="100%" height={120}>
+              <LineChart data={trendData}>
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#9aa6a2" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 10, fill: "#9aa6a2" }} axisLine={false} tickLine={false} tickFormatter={(v: string | number) => `${(Number(v) / 1000).toFixed(0)}k`} />
+                {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                <Tooltip formatter={(v: any) => [fmtMoney(Number(v)), "营收"]} />
+                <Line type="monotone" dataKey="revenue" stroke="#1b3b32" strokeWidth={2} dot={{ fill: "#1b3b32", r: 3 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-[120px] flex items-center justify-center text-xs text-gray-300 font-mono">暂无经营数据</div>
+          )}
+        </div>
+
+        <div className="col-span-2 rounded-xl border border-cream-200 bg-white p-4 flex flex-col justify-between">
+          <div>
+            <p className="text-[10px] text-gray-400 font-mono">当前阶段</p>
+            <p className="text-lg font-bold text-hunter-800 mt-1" style={{ fontFamily: "Antonio, sans-serif" }}>{String(stage ?? "—")}</p>
+          </div>
+          <div>
+            <p className="text-[10px] text-gray-400 font-mono">决策状态</p>
+            <p className="text-sm font-bold text-gray-600 mt-0.5">{String(decision?.decision ?? "—")}</p>
+            {decision?.primary_contradiction && (
+              <p className="text-[10px] text-gray-400 mt-0.5">{decision.primary_contradiction}</p>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">系统状态</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-xs">
-            <div className="flex justify-between"><span className="text-gray-400">知识库</span><span className="text-emerald-600 font-mono">1302 chunks</span></div>
-            <div className="flex justify-between"><span className="text-gray-400">向量索引</span><span className="text-emerald-600 font-mono">在线</span></div>
-            <div className="flex justify-between"><span className="text-gray-400">高德地图</span><span className="text-emerald-600 font-mono">已接入</span></div>
-            <div className="flex justify-between"><span className="text-gray-400">联网搜索</span><span className="text-emerald-600 font-mono">已接入</span></div>
-            <div className="flex justify-between"><span className="text-gray-400">财务引擎</span><span className="text-emerald-600 font-mono">已接入</span></div>
-            <div className="flex justify-between"><span className="text-gray-400">加盟分析</span><span className="text-emerald-600 font-mono">已接入</span></div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Alerts */}
-      {hasAlerts && (
-        <Card className="border-amber-300/30 bg-amber-50/30">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-amber-800">经营预警</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-1">
-            {alerts.map((a: { level: string; message: string }, i: number) => (
-              <div key={i} className="flex items-center gap-2 text-xs">
-                <span className={`size-1.5 rounded-full ${a.level === "critical" ? "bg-red-500" : a.level === "warning" ? "bg-amber-500" : "bg-emerald-500"}`} />
-                <span className="text-gray-600">{a.message}</span>
+        {/* Row 3: Lifecycle stages */}
+        <div className="col-span-3 rounded-xl border border-cream-200 bg-white p-4">
+          <p className="text-[10px] text-gray-400 font-mono mb-3">阶段进度</p>
+          <div className="space-y-1.5">
+            {stages.map((s: { label: string; status: string }, i: number) => (
+              <div key={i} className="flex items-center gap-2">
+                <span className={`size-2 rounded-full shrink-0 ${s.status === "done" ? "bg-emerald-500" : s.status === "current" ? "bg-amber-500" : "bg-gray-200"}`} />
+                <span className={`text-xs ${s.status === "pending" ? "text-gray-300" : "text-gray-600"}`}>{s.label}</span>
+                {s.status === "current" && <span className="text-[9px] font-mono text-amber-600 ml-auto">当前</span>}
               </div>
             ))}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Baseline comparison */}
-      {hasProject && cockpit?.baseline_comparison && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <Card>
-            <CardContent className="py-3 text-center">
-              <p className="text-[10px] text-gray-400 font-mono">预测日营收</p>
-              <p className="text-lg font-bold text-gray-700" style={{ fontFamily: "Antonio, sans-serif" }}>
-                {cockpit.baseline_comparison.projected_daily_revenue
-                  ? fmtMoney(cockpit.baseline_comparison.projected_daily_revenue)
-                  : "—"}
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="py-3 text-center">
-              <p className="text-[10px] text-gray-400 font-mono">实际日营收</p>
-              <p className="text-lg font-bold text-gray-700" style={{ fontFamily: "Antonio, sans-serif" }}>
-                {cockpit.baseline_comparison.actual_daily_revenue
-                  ? fmtMoney(cockpit.baseline_comparison.actual_daily_revenue)
-                  : "—"}
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="py-3 text-center">
-              <p className="text-[10px] text-gray-400 font-mono">营收偏差</p>
-              <p className="text-lg font-bold text-gray-700" style={{ fontFamily: "Antonio, sans-serif" }}>
-                {cockpit.baseline_comparison.revenue_gap !== null
-                  ? fmtMoney(cockpit.baseline_comparison.revenue_gap)
-                  : "—"}
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="py-3 text-center">
-              <p className="text-[10px] text-gray-400 font-mono">数据质量</p>
-              <p className="text-lg font-bold text-gray-700" style={{ fontFamily: "Antonio, sans-serif" }}>
-                {dataQuality?.level === "weak" ? "弱" : dataQuality?.level === "usable" ? "可用" : "—"}
-              </p>
-            </CardContent>
-          </Card>
+          </div>
         </div>
-      )}
 
-      <LifecycleMap />
+        {/* Row 3: Next actions */}
+        <div className="col-span-3 rounded-xl border border-cream-200 bg-white p-4">
+          <p className="text-[10px] text-gray-400 font-mono mb-3">下一步操作</p>
+          <div className="space-y-2">
+            {nextActions.length > 0 ? nextActions.slice(0, 5).map((a: { title: string; priority: string; target: string }) => (
+              <div key={a.title} className="flex items-start gap-2">
+                <span className={`size-1.5 rounded-full shrink-0 mt-1.5 ${a.priority === "high" ? "bg-red-500" : a.priority === "medium" ? "bg-amber-500" : "bg-gray-300"}`} />
+                <div className="min-w-0">
+                  <p className="text-xs text-gray-600 font-medium">{a.title}</p>
+                  <p className="text-[10px] text-gray-400 font-mono">{a.target}</p>
+                </div>
+              </div>
+            )) : (
+              <p className="text-xs text-gray-300 font-mono">暂无待办</p>
+            )}
+          </div>
+        </div>
 
-      <SectionPanels onCreateProject={() => setModalOpen(true)} />
+        {/* Row 4: Integrations + Missing data */}
+        <div className="col-span-3 rounded-xl border border-cream-200 bg-white p-4">
+          <p className="text-[10px] text-gray-400 font-mono mb-3">数据源接入</p>
+          <div className="grid grid-cols-2 gap-2">
+            {integrations.slice(0, 6).map((i: { id: string; name: string; status_label: string; status: string }) => (
+              <div key={i.id} className="flex items-center gap-2">
+                <span className={`size-1.5 rounded-full shrink-0 ${i.status === "active" ? "bg-emerald-500" : i.status === "pending_auth" ? "bg-amber-500" : "bg-gray-300"}`} />
+                <span className="text-xs text-gray-600 truncate">{i.name}</span>
+                <span className="text-[9px] font-mono text-gray-400 ml-auto truncate">{i.status_label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
 
-      <AiConsultant />
+        <div className="col-span-3 rounded-xl border border-cream-200 bg-white p-4">
+          <p className="text-[10px] text-gray-400 font-mono mb-3">待补齐数据</p>
+          <div className="space-y-1.5">
+            {dq?.missing?.slice(0, 5).map((m: string, i: number) => (
+              <div key={i} className="flex items-center gap-2">
+                <span className="text-[10px] text-gray-400">•</span>
+                <span className="text-xs text-gray-500">{m}</span>
+              </div>
+            )) ?? <p className="text-xs text-gray-300 font-mono">暂无缺失</p>}
+          </div>
+        </div>
 
-      <CreateProjectModal
-        isOpen={modalOpen}
-        onClose={() => setModalOpen(false)}
-        projectId={PROJECT_ID}
-      />
+        {/* Row 5: Alerts + Summary */}
+        {alerts.length > 0 && (
+          <div className="col-span-6 rounded-xl border border-amber-300/30 bg-amber-50/30 p-4">
+            <p className="text-[10px] text-gray-400 font-mono mb-2">经营预警</p>
+            <div className="space-y-1">
+              {alerts.map((a: { level: string; message: string }, i: number) => (
+                <div key={i} className="flex items-center gap-2 text-xs">
+                  <span className={`size-1.5 rounded-full ${a.level === "critical" ? "bg-red-500" : a.level === "warning" ? "bg-amber-500" : "bg-emerald-500"}`} />
+                  <span className="text-gray-600">{a.message}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Decision summary */}
+        {decision?.summary && (
+          <div className="col-span-6 rounded-xl border border-cream-200 bg-white p-4">
+            <p className="text-[10px] text-gray-400 font-mono mb-2">系统判断</p>
+            <p className="text-xs text-gray-600">{decision.summary}</p>
+          </div>
+        )}
+      </div>
+
+      {/* Create Project Button */}
+      <div className="mt-6 flex justify-center">
+        <button
+          onClick={() => setModalOpen(true)}
+          className="text-xs text-gray-400 hover:text-hunter-800 font-mono transition-colors"
+        >
+          {cockpit ? "创建新项目" : "创建项目开始使用"}
+        </button>
+      </div>
+
+      <CreateProjectModal isOpen={modalOpen} onClose={() => setModalOpen(false)} projectId={PROJECT_ID} />
     </div>
   );
 }
