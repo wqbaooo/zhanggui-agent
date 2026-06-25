@@ -8,8 +8,8 @@ import type { InvestmentModel, InvestmentResult, Scenario } from "./types";
 export function calculateInvestment(model: InvestmentModel): InvestmentResult {
   // 初始投资总额
   const totalInvestment =
-    model.franchiseFee +
-    model.deposit +
+    0 + // removed franchiseFee
+    0 + // removed deposit
     model.transferFee +
     model.rentDeposit +
     model.firstMonthRent +
@@ -272,4 +272,88 @@ export function fmtPct(value: number): string {
 export function safeDiv(a: number, b: number): number {
   if (b === 0) return 0;
   return a / b;
+}
+
+/* ─── 专业餐饮指标 ─── */
+export function calcRevenuePerSqm(monthlyRevenue: number, areaSqm: number) { const value = safeDiv(monthlyRevenue, areaSqm); const status = value >= 5000 ? "healthy" : value >= 2000 ? "warning" : "critical"; return { value, status, label: `${Math.round(value)}元/㎡/月` }; }
+export function calcRevenuePerStaff(monthlyRevenue: number, staffCount: number) { const value = safeDiv(monthlyRevenue, staffCount); const status = value >= 30000 ? "healthy" : value >= 20000 ? "warning" : "critical"; return { value, status, label: `${fmtMoney(value)}/人/月` }; }
+export function calcFoodCostRate(materialCost: number, revenue: number) { const value = safeDiv(materialCost, revenue); const status = value <= 0.35 ? "healthy" : value <= 0.40 ? "warning" : "critical"; return { value, status, label: fmtPct(value) }; }
+export function calcLaborCostRate(laborCost: number, revenue: number) { const value = safeDiv(laborCost, revenue); const status = value <= 0.25 ? "healthy" : value <= 0.30 ? "warning" : "critical"; return { value, status, label: fmtPct(value) }; }
+export function calcRentCostRate(monthlyRent: number, monthlyRevenue: number) { const value = safeDiv(monthlyRent, monthlyRevenue); const status = value <= 0.15 ? "healthy" : value <= 0.20 ? "warning" : "critical"; return { value, status, label: fmtPct(value) }; }
+export function calcThreeCostRate(foodRate: number, laborRate: number, rentRate: number) { const value = foodRate + laborRate + rentRate; const status = value <= 0.70 ? "healthy" : value <= 0.80 ? "warning" : "critical"; return { value, status, label: fmtPct(value) }; }
+export function calcDeliveryProfitPerOrder(deliveryRevenue: number, deliveryOrders: number, materialCost: number, packagingCost: number, platformCommission: number, deliverySubsidy: number, discountCost: number) { const totalCost = materialCost + packagingCost + platformCommission + deliverySubsidy + discountCost; const profit = deliveryRevenue - totalCost; const value = safeDiv(profit, deliveryOrders); const status = value >= 3 ? "healthy" : value >= 0 ? "warning" : "critical"; return { value, profit, status, label: `${value >= 0 ? "+" : ""}${value.toFixed(1)}元/单` }; }
+export function calcDeliveryRatio(deliveryRevenue: number, totalRevenue: number) { const value = safeDiv(deliveryRevenue, totalRevenue); const status = value <= 0.40 ? "healthy" : value <= 0.60 ? "warning" : "critical"; return { value, status, label: fmtPct(value) }; }
+export function calcPlatformCommissionRate(commission: number, deliveryRevenue: number) { const value = safeDiv(commission, deliveryRevenue); const status = value <= 0.20 ? "healthy" : value <= 0.25 ? "warning" : "critical"; return { value, status, label: fmtPct(value) }; }
+export function calcWasteRate(lossAmount: number, materialCost: number) { const value = safeDiv(lossAmount, materialCost + lossAmount); const status = value <= 0.03 ? "healthy" : value <= 0.05 ? "warning" : "critical"; return { value, status, label: fmtPct(value) }; }
+export function calcBadReviewRate(badReviews: number, totalOrders: number) { const value = safeDiv(badReviews, totalOrders); const status = value <= 0.03 ? "healthy" : value <= 0.05 ? "warning" : "critical"; return { value, status, label: fmtPct(value) }; }
+export function calcRepeatRate(repeatOrders: number, totalOrders: number) { const value = safeDiv(repeatOrders, totalOrders); const status = value >= 0.30 ? "healthy" : value >= 0.20 ? "warning" : "critical"; return { value, status, label: fmtPct(value) }; }
+export function calcTotalCostRate(totalCost: number, revenue: number) { const value = safeDiv(totalCost, revenue); const status = value <= 0.85 ? "healthy" : value <= 0.95 ? "warning" : "critical"; return { value, status, label: fmtPct(value) }; }
+export function calcNetProfitRate(netProfit: number, revenue: number) { const value = safeDiv(netProfit, revenue); const status = value >= 0.08 ? "healthy" : value >= 0.03 ? "warning" : "critical"; return { value, status, label: fmtPct(value) }; }
+
+export function calcDailyMetrics(record: { revenue: number; orders: number; dineInOrders: number; deliveryOrders: number; dineInRevenue: number; deliveryRevenue: number; materialCost: number; laborCost: number; rentAllocated: number; packagingCost: number; platformCommission: number; deliverySubsidy: number; discountCost: number; lossAmount: number; badReviews: number; repeatOrders: number }) {
+  const foodCostRate = calcFoodCostRate(record.materialCost, record.revenue);
+  const laborCostRate = calcLaborCostRate(record.laborCost, record.revenue);
+  const rentCostRate = calcRentCostRate(record.rentAllocated, record.revenue);
+  const threeCostRate = calcThreeCostRate(foodCostRate.value, laborCostRate.value, rentCostRate.value);
+  const primeCost = calcPrimeCost(record.materialCost, record.laborCost, record.revenue);
+  const deliveryRatio = calcDeliveryRatio(record.deliveryRevenue, record.revenue);
+  const deliveryProfit = calcDeliveryProfitPerOrder(record.deliveryRevenue, record.deliveryOrders, record.materialCost, record.packagingCost, record.platformCommission, record.deliverySubsidy, record.discountCost);
+  const commissionRate = calcPlatformCommissionRate(record.platformCommission, record.deliveryRevenue);
+  const wasteRate = calcWasteRate(record.lossAmount, record.materialCost);
+  const badReviewRate = calcBadReviewRate(record.badReviews, record.orders);
+  const repeatRate = calcRepeatRate(record.repeatOrders, record.orders);
+  const totalCost = record.materialCost + record.laborCost + record.rentAllocated + record.packagingCost + record.platformCommission + record.deliverySubsidy + record.discountCost + record.lossAmount;
+  const netProfit = record.revenue - totalCost;
+  return { foodCostRate, laborCostRate, rentCostRate, threeCostRate, primeCost, deliveryRatio, deliveryProfit, commissionRate, wasteRate, badReviewRate, repeatRate, totalCostRate: calcTotalCostRate(totalCost, record.revenue), netProfitRate: calcNetProfitRate(netProfit, record.revenue), netProfit, totalCost };
+}
+
+/* ─── 现金流预测 ─── */
+export interface CashFlowMonth { month: number; revenue: number; costs: { food: number; labor: number; rent: number; platform: number; other: number }; totalCost: number; netProfit: number; cumulativeProfit: number; cashBalance: number; isBreakeven: boolean; }
+
+export function generateCashFlowProjection(model: InvestmentModel, months = 24): CashFlowMonth[] {
+  const totalInvestment = 0 + 0 + model.transferFee + model.rentDeposit + model.firstMonthRent + model.renovationCost + model.equipmentCost + model.firstInventoryCost + model.licenseCost + model.openingMarketingCost + model.trainingCost + model.otherStartupCost;
+  let cumulativeProfit = 0; const result: CashFlowMonth[] = [];
+  for (let m = 1; m <= months; m++) {
+    const rampUp = m <= 1 ? 0.6 : m <= 2 ? 0.75 : m <= 3 ? 0.85 : m <= 6 ? 0.95 : 1.0;
+    const seasonFactor = [0.90, 0.85, 0.95, 1.00, 1.05, 1.10, 1.15, 1.10, 1.05, 1.00, 0.95, 0.90][(m - 1) % 12];
+    const growthFactor = 1 + (m - 1) * 0.005;
+    const dailyOrders = model.averageDailyOrders * rampUp * seasonFactor * growthFactor;
+    const monthlyRevenue = dailyOrders * model.averageOrderValue * model.monthlyOperatingDays;
+    const foodCost = monthlyRevenue * (1 - model.grossMarginRate);
+    const platformCost = monthlyRevenue * model.platformCommissionRate;
+    const otherVarCost = monthlyRevenue * (model.lossRate + model.discountRate);
+    const totalCost = foodCost + model.monthlyLabor + model.monthlyRent + platformCost + otherVarCost + model.monthlyUtilities + model.monthlyManagementFee + model.monthlySystemFee + model.monthlyMarketing + model.otherMonthlyFixedCost;
+    const netProfit = monthlyRevenue - totalCost; cumulativeProfit += netProfit;
+    result.push({ month: m, revenue: Math.round(monthlyRevenue), costs: { food: Math.round(foodCost), labor: Math.round(model.monthlyLabor), rent: Math.round(model.monthlyRent), platform: Math.round(platformCost), other: Math.round(model.monthlyUtilities + model.monthlyManagementFee + model.monthlySystemFee + model.monthlyMarketing + model.otherMonthlyFixedCost + otherVarCost) }, totalCost: Math.round(totalCost), netProfit: Math.round(netProfit), cumulativeProfit: Math.round(cumulativeProfit), cashBalance: Math.round(model.reserveCash + cumulativeProfit), isBreakeven: cumulativeProfit >= totalInvestment });
+  }
+  return result;
+}
+
+/* ─── 敏感性分析 ─── */
+export interface SensitivityVariable { name: string; label: string; baseValue: number; lowValue: number; highValue: number; impactOnProfit: number; impactOnPayback: number; direction: "positive" | "negative"; }
+
+export function calculateSensitivity(model: InvestmentModel): SensitivityVariable[] {
+  const baseResult = calculateInvestment(model); const baseProfit = baseResult.monthlyNetProfit;
+  const vars = [
+    { name: "dailyOrders", label: "日均订单", get: () => model.averageDailyOrders, set: (v: number) => { model.averageDailyOrders = v; }, chg: 0.20 },
+    { name: "avgOrderValue", label: "客单价", get: () => model.averageOrderValue, set: (v: number) => { model.averageOrderValue = v; }, chg: 0.15 },
+    { name: "grossMargin", label: "毛利率", get: () => model.grossMarginRate, set: (v: number) => { model.grossMarginRate = v; }, chg: 0.10 },
+    { name: "monthlyRent", label: "月租金", get: () => model.monthlyRent, set: (v: number) => { model.monthlyRent = v; }, chg: 0.20 },
+    { name: "monthlyLabor", label: "人工成本", get: () => model.monthlyLabor, set: (v: number) => { model.monthlyLabor = v; }, chg: 0.15 },
+    { name: "platformCommission", label: "平台佣金率", get: () => model.platformCommissionRate, set: (v: number) => { model.platformCommissionRate = v; }, chg: 0.10 },
+  ];
+  const results: SensitivityVariable[] = [];
+  for (const v of vars) {
+    const baseVal = v.get(); v.set(baseVal * (1 - v.chg));
+    const lowResult = calculateInvestment({ ...model }); v.set(baseVal);
+    const impactOnProfit = lowResult.monthlyNetProfit - baseProfit;
+    results.push({ name: v.name, label: v.label, baseValue: baseVal, lowValue: baseVal * (1 - v.chg), highValue: baseVal * (1 + v.chg), impactOnProfit: Math.round(impactOnProfit), impactOnPayback: 0, direction: impactOnProfit < 0 ? "negative" : "positive" });
+  }
+  results.sort((a, b) => Math.abs(b.impactOnProfit) - Math.abs(a.impactOnProfit));
+  return results;
+}
+
+export function calculateBreakevenAnalysis(model: InvestmentModel) {
+  const r = calculateInvestment(model);
+  return { dailyRevenue: r.breakevenDailyRevenue, dailyOrders: r.breakevenDailyOrders, monthlyRevenue: r.breakevenDailyRevenue * model.monthlyOperatingDays, contributionMargin: model.grossMarginRate - model.platformCommissionRate - model.lossRate - model.discountRate, safetyMargin: model.averageDailyOrders * model.averageOrderValue > r.breakevenDailyRevenue ? (model.averageDailyOrders * model.averageOrderValue - r.breakevenDailyRevenue) / (model.averageDailyOrders * model.averageOrderValue) : 0 };
 }

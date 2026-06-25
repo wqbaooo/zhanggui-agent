@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from server.routes import chat, audit, finance, projects
+from server.routes import chat, audit, documents, finance, labor, projects, capture, model_routing, reports, skus, sops, weather
 
 try:
     from v2.routes import router as v2_router
@@ -43,6 +43,10 @@ app.add_middleware(
         "http://127.0.0.1:3000",
         "http://localhost:3001",
         "http://127.0.0.1:3001",
+        "http://localhost:3005",
+        "http://127.0.0.1:3005",
+        "http://localhost:3006",
+        "http://127.0.0.1:3006",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -53,6 +57,14 @@ app.include_router(chat.router, prefix="/api")
 app.include_router(audit.router, prefix="/api")
 app.include_router(finance.router, prefix="/api")
 app.include_router(projects.router, prefix="/api")
+app.include_router(capture.router, prefix="/api")
+app.include_router(model_routing.router, prefix="/api")
+app.include_router(documents.router, prefix="/api")
+app.include_router(skus.router, prefix="/api")
+app.include_router(sops.router, prefix="/api")
+app.include_router(labor.router, prefix="/api")
+app.include_router(reports.router, prefix="/api")
+app.include_router(weather.router, prefix="")
 if _v2_available:
     app.include_router(v2_router)
     from v2.routes import alpha_router

@@ -2,7 +2,6 @@
 
 export type ProjectPhase =
   | "idea"           // 想法期
-  | "franchise_talk"  // 加盟洽谈期
   | "location_selection" // 选址期
   | "renovation"     // 装修期
   | "trial_operation" // 试营业
@@ -25,41 +24,9 @@ export interface Project {
   updatedAt: string;
 }
 
-// ─── 加盟分析 ───
-export interface FranchiseAnalysis {
-  brandName: string;
-  category: string;
-  // 费用
-  franchiseFee: number;
-  deposit: number;
-  equipmentFee: number;
-  firstInventoryFee: number;
-  renovationRequirement: number;
-  managementFeeMonthly: number;
-  royaltyRate: number;
-  contractYears: number;
-  // 条款
-  hasFilingRecord: boolean | null;
-  directStoreCount: number | null;
-  franchiseStoreCount: number | null;
-  providesDisclosure: boolean;
-  providesRealStoreData: boolean;
-  allowsExistingFranchiseeContact: boolean;
-  hasTerritoryProtection: boolean;
-  hasExitMechanism: boolean;
-  forcesProcurement: boolean;
-  providesPurchasePriceList: boolean;
-  promisesPaybackPeriod: boolean;
-  promisedPaybackMonths: number | null;
-  // 话术
-  salesPitch: string[];
-}
-
 // ─── 投资模型 ───
 export interface InvestmentModel {
   // 初始投资
-  franchiseFee: number;
-  deposit: number;
   transferFee: number;
   rentDeposit: number;
   firstMonthRent: number;
@@ -219,55 +186,30 @@ export interface OperationDiagnosis {
   risksToRegister: RiskItem[];
 }
 
-// ─── 加盟经营权限矩阵 ───
+// ─── 经营权限矩阵 ───
 export type PermissionStatus = "hq_control" | "hq_approval" | "store_autonomous" | "unclear";
 
 export interface PermissionItem {
   key: string;
   label: string;
   status: PermissionStatus;
-  note: string;  // 合同依据或备注
+  note: string;
 }
 
-export interface FranchisePermissionMatrix {
-  menu: PermissionItem;         // 菜单调整
-  pricing: PermissionItem;      // 定价
-  promotion: PermissionItem;    // 促销
-  procurement: PermissionItem;  // 采购
-  delivery: PermissionItem;     // 外卖运营
-  membership: PermissionItem;   // 会员体系
-  marketing: PermissionItem;    // 本地营销
-  hours: PermissionItem;        // 营业时间
-  renovation: PermissionItem;   // 装修调整
-  newProduct: PermissionItem;   // 新品引入
+export interface PermissionMatrix {
+  menu: PermissionItem;
+  pricing: PermissionItem;
+  promotion: PermissionItem;
+  procurement: PermissionItem;
+  delivery: PermissionItem;
+  membership: PermissionItem;
+  marketing: PermissionItem;
+  hours: PermissionItem;
+  renovation: PermissionItem;
+  newProduct: PermissionItem;
 }
 
-// ─── 总部支持兑现度 ───
-export type FulfillmentStatus = "fulfilled" | "partial" | "not_fulfilled" | "not_agreed" | "pending";
-
-export interface FulfillmentItem {
-  key: string;
-  label: string;
-  status: FulfillmentStatus;
-  promised: string;   // 招商时怎么说的
-  reality: string;    // 实际情况
-  impact: string;     // 对经营的影响
-}
-
-export interface HQFulfillmentTracker {
-  siteSupport: FulfillmentItem;       // 选址支持
-  renovationGuide: FulfillmentItem;   // 装修指导
-  training: FulfillmentItem;          // 培训
-  openingSupervision: FulfillmentItem; // 开业督导
-  marketingSupport: FulfillmentItem;  // 营销支持
-  deliveryOperation: FulfillmentItem; // 外卖代运营
-  newProductTraining: FulfillmentItem; // 新品培训
-  supplyChain: FulfillmentItem;       // 供应链稳定
-  responseTime: FulfillmentItem;      // 问题响应
-  regionProtection: FulfillmentItem;  // 区域保护
-}
-
-// ─── 运营动作（增强版） ───
+// ─── 运营动作 ───
 export interface OperationAction {
   title: string;
   reason: string;
@@ -276,5 +218,110 @@ export interface OperationAction {
   requiredPermission: "store_owner" | "brand_approval" | "hq_only" | "unclear";
   contractConstraint: string;
   nextStep: string;
-  alternativeAction: string;  // 如果权限不允许，替代方案
+  alternativeAction: string;
+}
+
+// ─── 经营项兑现追踪 ───
+export type FulfillmentStatus = "fulfilled" | "partial" | "not_fulfilled" | "not_agreed" | "pending" | "na";
+
+export interface FulfillmentItem {
+  key: string;
+  label: string;
+  status: FulfillmentStatus;
+  promised: string;
+  reality: string;
+  impact: string;
+}
+
+export interface FulfillmentTracker {
+  siteSupport: FulfillmentItem;
+  renovationGuide: FulfillmentItem;
+  training: FulfillmentItem;
+  openingSupervision: FulfillmentItem;
+  marketingSupport: FulfillmentItem;
+  deliveryOperation: FulfillmentItem;
+  newProductTraining: FulfillmentItem;
+  supplyChain: FulfillmentItem;
+  responseTime: FulfillmentItem;
+  regionProtection: FulfillmentItem;
+}
+
+/* ─── 多平台运营数据 ─── */
+
+export type PlatformType = "meituan" | "taobao_flash" | "douyin" | "jd";
+
+export interface PlatformMetrics {
+  platform: PlatformType;
+  platformName: string;        // 美团外卖 / 淘宝闪购 / 抖音本地生活 / 京东秒送
+  
+  // 营收
+  revenue: number;             // 平台营收
+  orders: number;              // 订单数
+  avgOrderValue: number;       // 客单价
+  
+  // 漏斗
+  impressions: number;         // 曝光量
+  storeVisits: number;         // 进店量
+  visitRate: number;           // 进店率 (进店/曝光)
+  orderRate: number;           // 下单率 (下单/进店)
+  overallConversion: number;   // 整体转化率 (下单/曝光)
+  
+  // 评分
+  rating: number;              // 商家评分
+  ratingTrend: "up" | "down" | "stable";
+  
+  // 成本
+  commissionRate: number;      // 平台佣金率
+  commissionAmount: number;    // 佣金金额
+  deliveryFee: number;         // 配送费
+  packagingCost: number;       // 包装成本
+  discountAmount: number;      // 满减/折扣金额
+  
+  // 利润
+  grossProfit: number;         // 平台毛利
+  grossMargin: number;         // 平台毛利率
+  profitPerOrder: number;      // 单均利润
+  
+  // 用户
+  repeatRate: number;          // 复购率
+  newCustomerRate: number;     // 新客占比
+  badReviewRate: number;       // 差评率
+  
+  // 状态
+  status: "active" | "paused" | "pending";
+  lastUpdated: string;
+}
+
+export interface DeliveryFunnel {
+  platform: PlatformType;
+  platformName: string;
+  data: {
+    impressions: number;       // 曝光
+    storeVisits: number;       // 进店
+    orders: number;            // 下单
+    repeatOrders: number;      // 复购
+  };
+  rates: {
+    visitRate: number;         // 进店率
+    orderRate: number;         // 下单率
+    repeatRate: number;        // 复购率
+    overallRate: number;       // 整体转化率
+  };
+  benchmarks: {
+    visitRate: { good: number; avg: number; poor: number };
+    orderRate: { good: number; avg: number; poor: number };
+    repeatRate: { good: number; avg: number; poor: number };
+  };
+}
+
+export interface PlatformComparison {
+  platforms: PlatformMetrics[];
+  totals: {
+    revenue: number;
+    orders: number;
+    avgOrderValue: number;
+    totalCommission: number;
+    overallMargin: number;
+  };
+  insights: string[];          // 对比洞察
 }

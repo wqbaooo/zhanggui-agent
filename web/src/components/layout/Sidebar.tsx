@@ -2,63 +2,69 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Calculator, FileWarning, HomeIcon, MapPin, MessageSquareWarning, ShieldAlert } from "lucide-react";
+import { Home, TrendingUp, AlertTriangle, MessageSquare, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const TABS = [
-  { key: "/overview", label: "总览", icon: HomeIcon },
-  { key: "/franchise", label: "加盟分析", icon: ShieldAlert },
-  { key: "/investment", label: "投资测算", icon: Calculator },
-  { key: "/location", label: "选址判断", icon: MapPin },
-  { key: "/operations", label: "运营", icon: BarChart3 },
-  { key: "/risks", label: "风险清单", icon: FileWarning },
-  { key: "/feedback", label: "反馈", icon: MessageSquareWarning },
+const navItems = [
+  { href: "/", label: "工作台", icon: Home },
+  { href: "/operations", label: "运营", icon: TrendingUp },
+  { href: "/investment", label: "投资", icon: TrendingUp },
+  { href: "/risks", label: "风险", icon: AlertTriangle },
+  { href: "/feedback", label: "反馈", icon: MessageSquare },
+  { href: "/settings", label: "设置", icon: Settings },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <>
-      <nav className="hidden w-[148px] shrink-0 border-r border-cream-200 px-3 py-4 lg:flex lg:flex-col gap-0.5">
-        {TABS.map((t) => {
-          const active = pathname.startsWith(t.key) || (t.key === "/overview" && pathname === "/");
+    <aside className="w-64 h-screen bg-surface border-r border-muted-border/20 flex flex-col">
+      {/* Logo */}
+      <div className="p-6 border-b border-muted-border/20">
+        <h1 className="text-lg font-semibold text-on-background">掌柜Agent</h1>
+        <p className="mt-1 text-[11px] text-on-surface-variant">餐饮经营教练</p>
+      </div>
+
+      {/* Navigation */}
+      <nav className="flex-1 p-4 space-y-1">
+        {navItems.map((item, idx) => {
+          const Icon = item.icon;
+          const isActive = pathname === item.href;
+
           return (
             <Link
-              key={t.key}
-              href={t.key}
+              key={item.href}
+              href={item.href}
               className={cn(
-                "flex items-center gap-2 rounded-lg px-3 py-2 text-[11px] font-medium transition-colors",
-                active
-                  ? "bg-hunter-800/6 text-hunter-800"
-                  : "text-gray-400 hover:text-hunter-800 hover:bg-cream-100"
+                "flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all duration-300",
+                "hover:scale-[1.02] hover:shadow-sm",
+                isActive
+                  ? "bg-primary/10 text-primary border border-primary/20"
+                  : "text-on-surface-variant hover:bg-surface-container-high/50 hover:text-on-background"
               )}
+              style={{
+                animation: `fade-in-scale 0.4s ease-out ${idx * 50}ms both`,
+              }}
             >
-              <t.icon className="size-3.5" />
-              {t.label}
+              <Icon className={cn("w-5 h-5", isActive && "animate-glow-pulse")} />
+              <span>{item.label}</span>
+              {isActive && (
+                <div className="ml-auto w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+              )}
             </Link>
           );
         })}
       </nav>
 
-      <div className="fixed bottom-0 left-0 right-0 z-30 flex border-t border-cream-200 bg-cream-50/95 backdrop-blur-sm px-2 py-1.5 lg:hidden overflow-x-auto">
-        {TABS.map((t) => {
-          const active = pathname.startsWith(t.key);
-          return (
-            <Link
-              key={t.key}
-              href={t.key}
-              className={cn(
-                "flex flex-1 shrink-0 flex-col items-center gap-0.5 rounded-lg py-1.5 text-[9px]",
-                active ? "text-hunter-800 font-semibold" : "text-gray-400"
-              )}
-            >
-              <t.icon className="size-3.5" />
-              <span className="font-mono text-[8px]">{t.label}</span>
-            </Link>
-          );
-        })}
+      {/* Footer */}
+      <div className="p-4 border-t border-muted-border/20">
+        <div className="glass-card rounded-lg p-3">
+          <p className="text-xs text-on-surface-variant">经营教练模式</p>
+          <p className="text-[10px] text-on-surface-variant/60 mt-1">
+            持续学习你的经营数据
+          </p>
+        </div>
       </div>
-    </>
+    </aside>
   );
 }

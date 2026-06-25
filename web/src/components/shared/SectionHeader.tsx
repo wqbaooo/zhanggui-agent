@@ -1,8 +1,8 @@
 export function SectionHeader({ title, subtitle }: { title: string; subtitle: string }) {
   return (
     <div>
-      <h2 className="text-xl font-bold text-gray-800" style={{ fontFamily: "Antonio, sans-serif" }}>{title}</h2>
-      <p className="text-[10px] text-gray-400 font-medium mt-0.5">{subtitle}</p>
+      <h2 className="text-lg font-semibold text-on-background">{title}</h2>
+      <p className="mt-1 text-[11px] font-medium text-on-surface-variant">{subtitle}</p>
     </div>
   );
 }

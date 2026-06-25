@@ -4,7 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "掌柜Agent",
-  description: "餐饮创业智能顾问 — 从想法到运营的全生命周期陪伴",
+  description: "掌柜 Agent — 新余恒太城大口章鱼烧的 AI 单店经营工作台",
 };
 
 export default function RootLayout({
@@ -14,7 +14,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-CN">
-      <body>
+      <body className="antialiased min-h-screen flex flex-col relative">
         <QueryProvider>{children}</QueryProvider>
       </body>
     </html>

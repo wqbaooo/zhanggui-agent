@@ -6,6 +6,7 @@ export function useProject(projectId: string) {
     queryKey: ["project", projectId],
     queryFn: () => apiGet<ProjectCockpit>(`/api/projects/${projectId}/cockpit?days=7`),
     enabled: !!projectId,
+    retry: false,
   });
 }
 

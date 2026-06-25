@@ -31,6 +31,7 @@ def test_project_profile_and_operation_lifecycle(tmp_path, monkeypatch):
         "date": "2026-05-27",
         "revenue": 1000,
         "orders": 40,
+        "bad_reviews": 2,
         "food_cost": 380,
         "labor": 200,
         "rent_allocated": 150,
@@ -47,6 +48,13 @@ def test_project_profile_and_operation_lifecycle(tmp_path, monkeypatch):
     assert summary["entry_count"] == 1
     assert summary["net_profit"] == 70
     assert summary["food_cost_rate"] == 0.38
+    assert summary["labor_cost_rate"] == 0.2
+    assert summary["prime_cost"] == 580
+    assert summary["prime_cost_rate"] == 0.58
+    assert summary["platform_fee_rate"] == 0.09
+    assert summary["total_bad_reviews"] == 2
+    assert summary["bad_review_rate"] == 0.05
+    assert any("差评率" in alert["message"] for alert in summary["alerts"])
 
     list_res = client.get(f"/api/projects/{project_id}/operations?days=7")
     assert list_res.status_code == 200
@@ -94,7 +102,7 @@ def test_project_profile_and_operation_lifecycle(tmp_path, monkeypatch):
     integrations_res = client.get(f"/api/projects/{project_id}/integrations")
     assert integrations_res.status_code == 200
     integrations = integrations_res.json()["integrations"]
-    assert {item["id"] for item in integrations} >= {"meituan", "eleme", "douyin", "pos"}
+    assert {item["id"] for item in integrations} >= {"meituan", "taobao_flash", "douyin", "pos"}
     assert next(item for item in integrations if item["id"] == "meituan")["status"] == "pending_auth"
 
     update_integration_res = client.patch(f"/api/projects/{project_id}/integrations/meituan", json={

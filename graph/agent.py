@@ -23,9 +23,10 @@ from typing import Any, Dict, List, Literal, Optional
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
 
-from config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
+from config import DEEPSEEK_API_KEY
 from graph.prompts import SYSTEM_PROMPT, RESEARCH_SYSTEM_PROMPT
 from graph.tools import get_all_tools
+from server.model_routing import chat_route
 
 logger = logging.getLogger(__name__)
 
@@ -46,26 +47,20 @@ def _create_llm():
     tools = get_all_tools()
 
     try:
-        if DEEPSEEK_API_KEY:
-            _llm_instance = ChatOpenAI(
-                model=DEEPSEEK_MODEL,
-                base_url=DEEPSEEK_BASE_URL,
-                api_key=DEEPSEEK_API_KEY,
-                temperature=0.3,
-                max_tokens=2000,
-            )
+        route = chat_route()
+        if route.configured:
+            kwargs = {
+                "model": route.model,
+                "temperature": 0.3,
+                "max_tokens": 2000,
+            }
+            if route.provider == "deepseek":
+                kwargs["base_url"] = route.base_url
+                kwargs["api_key"] = DEEPSEEK_API_KEY
+            _llm_instance = ChatOpenAI(**kwargs)
         else:
-            import os
-            openai_key = os.environ.get("OPENAI_API_KEY", "")
-            if openai_key:
-                _llm_instance = ChatOpenAI(
-                    model="gpt-4o-mini",
-                    temperature=0.3,
-                    max_tokens=2000,
-                )
-            else:
-                logger.error("无LLM API key配置（DeepSeek或OpenAI），Agent将无法工作")
-                return None
+            logger.error("无文本 LLM API key 配置，Agent 将无法工作")
+            return None
 
         _llm_with_tools = _llm_instance.bind_tools(tools)
         return _llm_with_tools

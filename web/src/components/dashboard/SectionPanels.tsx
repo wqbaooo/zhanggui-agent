@@ -43,16 +43,16 @@ export const SectionPanels: React.FC<PanelProps> = ({ onCreateProject }) => {
         <Card key={mod.title} className="cursor-pointer" onClick={onCreateProject}>
           <CardContent className="py-4">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-xs font-bold text-gray-600">{mod.title}</h3>
-              <span className="text-[9px] font-mono text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">待录入数据</span>
+              <h3 className="text-xs font-semibold text-on-background">{mod.title}</h3>
+              <span className="text-[9px] font-mono text-amber-700 bg-amber-500/10 px-1.5 py-0.5 rounded">待录入数据</span>
             </div>
             <div className="grid grid-cols-4 gap-2">
               {mod.metrics.map((m) => (
                 <div key={m.label} className="text-center">
-                  <p className={cn("text-lg font-bold", m.status === "pending" ? "text-gray-300" : "text-gray-700")} style={{ fontFamily: "Antonio, sans-serif" }}>
+                  <p className={cn("text-2xl font-semibold tabular-nums tracking-tight", m.status === "pending" ? "text-on-surface-variant/40" : "text-on-background")}>
                     {m.value}
                   </p>
-                  <p className="text-[9px] text-gray-400 font-mono mt-0.5">{m.label}</p>
+                  <p className="mt-0.5 text-[9px] font-mono text-on-surface-variant">{m.label}</p>
                 </div>
               ))}
             </div>

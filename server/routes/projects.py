@@ -11,6 +11,7 @@ from server.schemas import (
     ActionTaskCreate,
     ActionTaskUpdate,
     DailyOperationEntry,
+    DeliveryImportCreate,
     FranchiseConstraintsUpdate,
     IntegrationUpdate,
     OperationListResponse,
@@ -101,6 +102,20 @@ async def update_integration(project_id: str, integration_id: str, req: Integrat
     payload = req.model_dump(exclude_unset=True) if hasattr(req, "model_dump") else req.dict(exclude_unset=True)
     integration = memory.update_integration(integration_id, payload)
     return {"success": True, "integration": integration, "integrations": memory.integration_status()}
+
+
+@router.get("/{project_id}/delivery-imports")
+async def list_delivery_imports(project_id: str):
+    memory = _get_or_create_project(project_id)
+    return {"imports": memory.delivery_imports[-30:]}
+
+
+@router.post("/{project_id}/delivery-imports")
+async def create_delivery_import(project_id: str, req: DeliveryImportCreate):
+    memory = _get_or_create_project(project_id)
+    payload = req.model_dump() if hasattr(req, "model_dump") else req.dict()
+    entry = memory.add_delivery_import(payload)
+    return {"success": True, "import": entry, "imports": memory.delivery_imports[-30:]}
 
 
 @router.get("/{project_id}/operations", response_model=OperationListResponse)

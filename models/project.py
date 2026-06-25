@@ -31,6 +31,7 @@ class ProjectMemory:
     experiment_log: List[Dict[str, Any]] = field(default_factory=list)
     review_reports: List[Dict[str, Any]] = field(default_factory=list)
     integrations: List[Dict[str, Any]] = field(default_factory=list)
+    delivery_imports: List[Dict[str, Any]] = field(default_factory=list)
     decisions_log: List[Dict[str, Any]] = field(default_factory=list)
     artifacts: List[Dict[str, str]] = field(default_factory=list)
 
@@ -148,6 +149,8 @@ class ProjectMemory:
         total_marketing = sum(float(e.get("marketing_cost", 0) or 0) for e in entries)
         total_platform = sum(float(e.get("platform_fee", 0) or 0) for e in entries)
         total_loss = sum(float(e.get("inventory_loss", 0) or 0) for e in entries)
+        total_bad_reviews = sum(int(e.get("bad_reviews", 0) or 0) for e in entries)
+        prime_cost = total_food_cost + total_labor
         total_cost = (
             total_food_cost + total_labor + total_rent + total_utility +
             total_other + total_marketing + total_platform + total_loss
@@ -155,6 +158,10 @@ class ProjectMemory:
         net_profit = total_revenue - total_cost
         avg_order_value = total_revenue / total_orders if total_orders else 0
         food_cost_rate = total_food_cost / total_revenue if total_revenue else 0
+        labor_cost_rate = total_labor / total_revenue if total_revenue else 0
+        prime_cost_rate = prime_cost / total_revenue if total_revenue else 0
+        platform_fee_rate = total_platform / total_revenue if total_revenue else 0
+        bad_review_rate = total_bad_reviews / total_orders if total_orders else 0
         takeout_ratio = total_takeout / total_orders if total_orders else 0
 
         alerts: List[Dict[str, str]] = []
@@ -167,6 +174,16 @@ class ProjectMemory:
             alerts.append({
                 "level": "medium",
                 "message": "食材成本率超过 40%，需要核对总部供货价、损耗和套餐毛利。",
+            })
+        if prime_cost_rate > 0.65:
+            alerts.append({
+                "level": "medium",
+                "message": "Prime Cost 超过 65%，食材和人工合计已经压缩利润空间。",
+            })
+        if bad_review_rate > 0.03:
+            alerts.append({
+                "level": "medium",
+                "message": "差评率超过 3%，需要拆解出餐、包装、口味和配送原因。",
             })
         if takeout_ratio > 0.5 and total_platform + total_marketing > total_revenue * 0.12:
             alerts.append({
@@ -183,6 +200,12 @@ class ProjectMemory:
             "total_cost": round(total_cost, 2),
             "net_profit": round(net_profit, 2),
             "food_cost_rate": round(food_cost_rate, 4),
+            "labor_cost_rate": round(labor_cost_rate, 4),
+            "prime_cost": round(prime_cost, 2),
+            "prime_cost_rate": round(prime_cost_rate, 4),
+            "platform_fee_rate": round(platform_fee_rate, 4),
+            "total_bad_reviews": total_bad_reviews,
+            "bad_review_rate": round(bad_review_rate, 4),
             "takeout_ratio": round(takeout_ratio, 4),
             "latest_entry": entries[-1] if entries else None,
             "alerts": alerts,
@@ -263,6 +286,20 @@ class ProjectMemory:
         self.integrations.append(created)
         self.save()
         return created
+
+    def add_delivery_import(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """记录外卖平台笨办法导入，保留原始文本和解析摘要。"""
+        now = time.time()
+        entry = {
+            "id": payload.get("id") or f"delivery-import-{int(now * 1000)}",
+            "source": payload.get("source", "manual"),
+            "raw_text": payload.get("raw_text", ""),
+            "parsed": payload.get("parsed", {}),
+            "created_at": now,
+        }
+        self.delivery_imports.append(entry)
+        self.save()
+        return entry
 
 
 def _lifecycle_stages(current_stage: str) -> List[Dict[str, Any]]:
@@ -470,8 +507,8 @@ def _default_integrations() -> List[Dict[str, Any]]:
             "available_paths": ["manual", "csv_export", "screenshot_ocr", "official_api_later"],
         },
         {
-            "id": "eleme",
-            "name": "饿了么",
+            "id": "taobao_flash",
+            "name": "淘宝闪购",
             "scope": "外卖订单/平台费",
             "status": "pending_auth",
             "status_label": "待授权接入",
