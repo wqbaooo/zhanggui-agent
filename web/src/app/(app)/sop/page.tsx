@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, BookOpen, CheckCircle2, Clock, FileText, Plus, Search } from "lucide-react";
+import { BookOpen, Clock, Plus } from "lucide-react";
 import { ModulePage, getModule } from "@/components/agent-os/ModulePage";
 import { DEFAULT_PROJECT_ID, getSops, createSop, type SopDocument } from "@/lib/api";
 import { sopGroups } from "@/data/agent-store-os";
@@ -10,10 +10,10 @@ export default function SopPage() {
   const [documents, setDocuments] = useState<SopDocument[]>([]);
   const [summary, setSummary] = useState<{ total: number; by_category: Record<string, number>; by_status: Record<string, number>; stale: number } | null>(null);
   const [activeCat, setActiveCat] = useState<string>("全部");
-  const [activeStatus, setActiveStatus] = useState<string>("全部");
+  const [activeStatus] = useState<string>("全部");
   const [selected, setSelected] = useState<SopDocument | null>(null);
   const [staleOnly, setStaleOnly] = useState(false);
-  const [keyword, setKeyword] = useState("");
+  const [keyword] = useState("");
   const [showAdd, setShowAdd] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newCat, setNewCat] = useState("产品制作");

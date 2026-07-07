@@ -2,10 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import dynamic from "next/dynamic";
 import {
-  AlertTriangle, ArrowRight, Boxes, DollarSign,
-  ShoppingCart, TrendingDown, TrendingUp, Truck, Users,
+  ArrowRight, Boxes, DollarSign, Truck,
 } from "lucide-react";
 import { Area, AreaChart, Pie, PieChart, Cell, ResponsiveContainer } from "recharts";
 import { ModulePage, getModule } from "@/components/agent-os/ModulePage";
@@ -15,26 +13,17 @@ import {
   type ForecastItem,
 } from "@/lib/api";
 
-const NumberFlow = dynamic(() => import("@number-flow/react"), { ssr: false });
-
-// ── 模拟数据（后端不可用时兜底） ──
-const MOCK_KPI = {
-  total_revenue: 9820, net_profit: 2100, entry_count: 5, total_orders: 580,
-  food_cost_rate: 0.36, labor_cost_rate: 0.24, takeout_ratio: 0.44,
-};
-const MOCK_TREND = [
-  { date: "05-22", 营收: 2100 }, { date: "05-23", 营收: 1850 },
-  { date: "05-24", 营收: 2300 }, { date: "05-25", 营收: 2450 },
-  { date: "05-26", 营收: 1920 }, { date: "05-27", 营收: 1780 },
-  { date: "05-28", 营收: 2050 },
-];
+import CountUp from "react-countup";
 
 export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
-  const [kpi, setKpi] = useState(MOCK_KPI);
-  const [trend, setTrend] = useState(MOCK_TREND);
+  const [kpi, setKpi] = useState({
+    total_revenue: 0, net_profit: 0, entry_count: 0, total_orders: 0,
+    food_cost_rate: 0, labor_cost_rate: 0, takeout_ratio: 0, profit_ready: false,
+  });
+  const [trend, setTrend] = useState<Array<{ date: string; 营收: number }>>([]);
   const [forecast, setForecast] = useState<ForecastItem[]>([]);
-  const [staffCount, setStaffCount] = useState(2);
+  const [staffCount, setStaffCount] = useState(0);
   const [offline, setOffline] = useState(false);
 
   const fetchAll = useCallback(async () => {
@@ -46,22 +35,28 @@ export default function DashboardPage() {
         getOperations(DEFAULT_PROJECT_ID, 7),
       ]);
       setKpi({
-        total_revenue: ops.total_revenue || MOCK_KPI.total_revenue,
-        net_profit: ops.net_profit ?? MOCK_KPI.net_profit,
-        entry_count: ops.entry_count || MOCK_KPI.entry_count,
-        total_orders: ops.total_orders || MOCK_KPI.total_orders,
-        food_cost_rate: ops.food_cost_rate ?? MOCK_KPI.food_cost_rate,
-        labor_cost_rate: ((ops as unknown as Record<string, number>).labor_cost_rate as number) ?? MOCK_KPI.labor_cost_rate,
-        takeout_ratio: ops.takeout_ratio ?? MOCK_KPI.takeout_ratio,
+        total_revenue: ops.total_revenue,
+        net_profit: ops.net_profit,
+        entry_count: ops.entry_count,
+        total_orders: ops.total_orders,
+        food_cost_rate: ops.food_cost_rate,
+        labor_cost_rate: ops.labor_cost_rate,
+        takeout_ratio: ops.takeout_ratio,
+        profit_ready: ops.profit_ready,
       });
       setForecast(fRes.forecast.filter((f) => f.action === "urgent").slice(0, 4));
-      setStaffCount(staffRes.staff?.length || 2);
+      setStaffCount(staffRes.staff?.length || 0);
       const entries = opsList.entries?.slice(-7) || [];
-      if (entries.length > 0) {
-        setTrend(entries.map((e: { date: string; revenue: number }) => ({ date: e.date.slice(5), 营收: e.revenue })));
-      }
+      setTrend(entries.map((e: { date: string; revenue: number }) => ({ date: e.date.slice(5), 营收: e.revenue })));
       setOffline(false);
     } catch {
+      setKpi({
+        total_revenue: 0, net_profit: 0, entry_count: 0, total_orders: 0,
+        food_cost_rate: 0, labor_cost_rate: 0, takeout_ratio: 0, profit_ready: false,
+      });
+      setTrend([]);
+      setForecast([]);
+      setStaffCount(0);
       setOffline(true);
     }
     setLoading(false);
@@ -76,16 +71,16 @@ export default function DashboardPage() {
     { name: "外卖", value: kpi.takeout_ratio, color: "#c85f19" },
   ];
 
-  const module = getModule("/dashboard");
+  const currentModule = getModule("/dashboard");
 
   return (
-    <ModulePage module={module}>
+    <ModulePage module={currentModule}>
       <div className="space-y-4">
 
         {/* 离线提示 */}
         {offline && (
           <div className="rounded-2xl border border-amber-200 bg-amber-50/80 p-3 text-center">
-            <p className="text-xs text-amber-700">后端未连接，展示模拟数据</p>
+            <p className="text-xs text-amber-700">后端未连接，经营数据暂不可用；系统不会用模拟数字代替。</p>
           </div>
         )}
 
@@ -97,9 +92,10 @@ export default function DashboardPage() {
             tone="good" loading={loading}
           />
           <KpiCard
-            label="净利" value={kpi.net_profit} prefix="¥"
-            sub={`利润率 ${profitRate.toFixed(1)}%`}
-            tone={kpi.net_profit > 0 ? "good" : "risk"} loading={loading}
+            label="净利" value={kpi.profit_ready ? kpi.net_profit : 0} prefix={kpi.profit_ready ? "¥" : ""}
+            valueText={kpi.profit_ready ? undefined : "待核算"}
+            sub={kpi.profit_ready ? `利润率 ${profitRate.toFixed(1)}%` : "成本未补齐"}
+            tone={kpi.profit_ready ? (kpi.net_profit > 0 ? "good" : "risk") : "info"} loading={loading}
           />
           <KpiCard
             label="库存预警" value={forecast.length} suffix="项"
@@ -125,7 +121,7 @@ export default function DashboardPage() {
             </div>
             {loading ? (
               <div className="mt-3 h-48 flex items-center justify-center"><LoadingSpinner /></div>
-            ) : (
+            ) : trend.length > 0 ? (
               <div className="mt-3 h-48">
                 <ResponsiveContainer>
                   <AreaChart data={trend}>
@@ -138,6 +134,10 @@ export default function DashboardPage() {
                     <Area type="monotone" dataKey="营收" stroke="#c85f19" strokeWidth={2} fill="url(#revGrad)" dot={{ fill: "#c85f19", r: 3 }} />
                   </AreaChart>
                 </ResponsiveContainer>
+              </div>
+            ) : (
+              <div className="mt-3 flex h-48 items-center justify-center rounded-xl border border-dashed border-stone-200 text-xs text-stone-500">
+                还没有真实营业记录，请先去资料录入
               </div>
             )}
           </div>
@@ -247,9 +247,9 @@ export default function DashboardPage() {
 }
 
 function KpiCard({
-  label, value, prefix = "", suffix = "", sub, tone, loading,
+  label, value, valueText, prefix = "", suffix = "", sub, tone, loading,
 }: {
-  label: string; value: number; prefix?: string; suffix?: string; sub: string; tone: "good" | "risk" | "watch" | "info"; loading: boolean;
+  label: string; value: number; valueText?: string; prefix?: string; suffix?: string; sub: string; tone: "good" | "risk" | "watch" | "info"; loading: boolean;
 }) {
   const dotClass = tone === "good" ? "bg-emerald-400" : tone === "risk" ? "bg-red-400" : tone === "watch" ? "bg-amber-400" : "bg-sky-400";
   return (
@@ -259,7 +259,7 @@ function KpiCard({
         <Skeleton className="mt-1 h-7 w-24" />
       ) : (
         <p className="mt-1 text-xl font-bold text-on-background tabular-nums">
-          <NumberFlow value={value} format={{ style: "decimal", minimumFractionDigits: 0 }} prefix={prefix} suffix={suffix} />
+          {valueText ?? <CountUp end={value} prefix={prefix} suffix={suffix} separator="," duration={0.8} />}
         </p>
       )}
       <div className="mt-1 flex items-center gap-1.5">

@@ -4,13 +4,13 @@
 
 from __future__ import annotations
 
-import json
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from config import PROJECT_DATA_DIR
+from models.json_store import atomic_write_json, load_json
 
 
 @dataclass
@@ -24,6 +24,9 @@ class StaffMember:
     skills: List[str] = field(default_factory=list)
     hourly_wage: float = 0.0
     monthly_base: float = 0.0
+    pay_type: str = "auto"
+    standard_monthly_work_days: int = 26
+    overtime_multiplier: float = 1.5
     hire_date: str = ""
     status: str = "在岗"
     notes: str = ""
@@ -38,7 +41,9 @@ class StaffMember:
         defaults = {
             "id": "", "name": "", "role": "员工", "phone": "",
             "health_cert_expiry": "", "skills": [], "hourly_wage": 0.0,
-            "monthly_base": 0.0, "hire_date": "", "status": "在岗",
+            "monthly_base": 0.0, "pay_type": "auto",
+            "standard_monthly_work_days": 26, "overtime_multiplier": 1.5,
+            "hire_date": "", "status": "在岗",
             "notes": "", "created_at": 0.0, "updated_at": 0.0,
         }
         return cls(**{key: data.get(key, default) for key, default in defaults.items()})
@@ -84,21 +89,15 @@ class LaborTracking:
     def save(self):
         self.updated_at = time.time()
         self.data_file.parent.mkdir(parents=True, exist_ok=True)
-        self.data_file.write_text(
-            json.dumps(asdict(self), ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        atomic_write_json(self.data_file, asdict(self))
 
     @classmethod
     def load(cls, project_id: str) -> Optional["LaborTracking"]:
         path = PROJECT_DATA_DIR / project_id / "labor.json"
         if not path.exists():
             return None
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            return cls(**data)
-        except Exception:
-            return None
+        data = load_json(path)
+        return cls(**data) if data is not None else None
 
     @classmethod
     def create(cls, project_id: str) -> "LaborTracking":
@@ -187,14 +186,32 @@ class LaborTracking:
         total_overtime = sum(float(r.get("overtime_hours", 0)) for r in records)
         hourly_wage = float(member.get("hourly_wage", 0))
         monthly_base = float(member.get("monthly_base", 0))
+        pay_type = member.get("pay_type", "auto")
+        if pay_type == "auto":
+            pay_type = "monthly" if monthly_base > 0 else "hourly"
+        standard_days = max(int(member.get("standard_monthly_work_days", 26) or 26), 1)
+        overtime_multiplier = max(float(member.get("overtime_multiplier", 1.5) or 1.5), 1)
         work_days = len(records)
 
-        hourly_pay = hourly_wage * (total_hours + total_overtime * 1.5)
-        total_wage = monthly_base if monthly_base > 0 else hourly_pay
+        attendance_ratio = min(work_days / standard_days, 1.0)
+        effective_hourly_wage = hourly_wage
+        if effective_hourly_wage <= 0 and monthly_base > 0:
+            effective_hourly_wage = monthly_base / (standard_days * 8)
 
-        if monthly_base > 0 and hourly_wage > 0:
-            overtime_pay = total_overtime * hourly_wage * 1.5
-            total_wage = monthly_base + overtime_pay
+        regular_pay = 0.0
+        base_pay = 0.0
+        cost_basis = "attendance"
+        if pay_type == "owner":
+            base_pay = monthly_base
+            attendance_ratio = 1.0
+            cost_basis = "owner_opportunity_cost"
+        elif pay_type == "monthly":
+            base_pay = monthly_base * attendance_ratio
+        else:
+            regular_pay = hourly_wage * total_hours
+
+        overtime_pay = total_overtime * effective_hourly_wage * overtime_multiplier
+        total_wage = base_pay + regular_pay + overtime_pay
 
         return {
             "staff_id": staff_id,
@@ -205,6 +222,13 @@ class LaborTracking:
             "total_overtime": round(total_overtime, 1),
             "hourly_wage": round(hourly_wage, 2),
             "monthly_base": round(monthly_base, 2),
+            "pay_type": pay_type,
+            "standard_monthly_work_days": standard_days,
+            "attendance_ratio": round(attendance_ratio, 4),
+            "regular_pay": round(regular_pay, 2),
+            "base_pay": round(base_pay, 2),
+            "overtime_pay": round(overtime_pay, 2),
+            "cost_basis": cost_basis,
             "total_wage": round(total_wage, 2),
             "records": records,
         }
@@ -227,6 +251,30 @@ class LaborTracking:
             "staff_count": len(staff_wages),
             "total_wage": round(total, 2),
             "breakdown": staff_wages,
+        }
+
+    def efficiency(self, total_revenue: float, total_orders: int) -> Dict[str, Any]:
+        """人工效率指标：人效、单均人工、人工率。"""
+        staff_count = sum(1 for s in self.staff if s.get("status") == "在岗")
+        if staff_count == 0:
+            return {"staff_count": 0, "revenue_per_staff": 0, "labor_per_order": 0, "labor_cost_rate": 0}
+        revenue_per_staff = round(total_revenue / staff_count, 2)
+        labor_per_order = round(
+            sum(float(s.get("monthly_base", 0) or s.get("hourly_wage", 0) * 8 * 26)
+                for s in self.staff if s.get("status") == "在岗")
+            / max(total_orders, 1), 2
+        )
+        total_labor = sum(
+            float(s.get("monthly_base", 0) or s.get("hourly_wage", 0) * 8 * 26)
+            for s in self.staff if s.get("status") == "在岗"
+        )
+        labor_cost_rate = round(total_labor / max(total_revenue, 1), 4)
+        return {
+            "staff_count": staff_count,
+            "revenue_per_staff": revenue_per_staff,
+            "labor_per_order": labor_per_order,
+            "labor_cost_rate": labor_cost_rate,
+            "total_labor_estimate": round(total_labor, 2),
         }
 
     def health_cert_alerts(self, days: int = 30) -> List[Dict[str, Any]]:

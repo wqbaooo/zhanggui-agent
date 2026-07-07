@@ -1,5 +1,5 @@
 import {
-  Boxes, CloudSun, ClipboardCheck, GraduationCap,
+  Boxes, CloudSun, ClipboardCheck,
   LucideIcon, Truck, Utensils, WalletCards,
 } from "lucide-react";
 

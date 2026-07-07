@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, ArrowRight, CalendarDays, CheckCircle2, ChevronRight, Info, Lightbulb, Loader2, RefreshCw, Sparkles, TrendingDown } from "lucide-react";
+import { AlertTriangle, ArrowRight, CalendarDays, CheckCircle2, ChevronRight, Download, Info, Lightbulb, Loader2, Sparkles, TrendingDown } from "lucide-react";
 import { ModulePage, getModule } from "@/components/agent-os/ModulePage";
-import { DEFAULT_PROJECT_ID, getReports, generateReport, getOperationSummary, type Report, type ReportFinding } from "@/lib/api";
+import { DEFAULT_PROJECT_ID, getReports, generateReport, getOperationSummary, type Report } from "@/lib/api";
 
 const findingIcon: Record<string, typeof AlertTriangle> = {
   good: CheckCircle2, risk: AlertTriangle, watch: TrendingDown, info: Info,
@@ -25,9 +25,11 @@ export default function ReportsPage() {
   const [generating, setGenerating] = useState(false);
   const [dataDays, setDataDays] = useState(0);
   const [initialized, setInitialized] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // 打开页面自动拉最新数据
   const loadLatest = useCallback(async () => {
+    setLoadError(null);
     try {
       const [rRes, ops] = await Promise.all([
         getReports(DEFAULT_PROJECT_ID, undefined, 5),
@@ -39,7 +41,9 @@ export default function ReportsPage() {
       if (rRes.reports.length > 0) {
         setReport(rRes.reports[0]);
       }
-    } catch { /* */ }
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "经营报告加载失败，请检查后端服务");
+    }
     setInitialized(true);
   }, []);
 
@@ -47,11 +51,14 @@ export default function ReportsPage() {
 
   const handleGenerate = useCallback(async (type: "weekly" | "monthly") => {
     setGenerating(true);
+    setLoadError(null);
     try {
       const res = await generateReport(DEFAULT_PROJECT_ID, type);
       setReport(res.report);
       await loadLatest();
-    } catch { /* */ }
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "经营报告生成失败，请稍后重试");
+    }
     setGenerating(false);
   }, [loadLatest]);
 
@@ -61,6 +68,11 @@ export default function ReportsPage() {
     <ModulePage module={getModule("/reports")}>
         <div className="space-y-4">
           {!initialized && <div className="h-0.5 w-full animate-pulse rounded-full bg-primary/30" />}
+          {loadError && (
+            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+              {loadError}。系统没有使用模拟报告替代。
+            </div>
+          )}
 
           {/* 复盘入口 */}
           <div className="flex items-center gap-3 rounded-2xl border border-white/45 bg-white/42 p-3">
@@ -107,6 +119,20 @@ export default function ReportsPage() {
                       覆盖 {report.total_days} 天 · 日均 {report.total_orders > 0 ? `${Math.round(report.total_orders / Math.max(report.total_days, 1))} 单` : "无数据"}
                     </p>
                   </div>
+                  <button
+                    onClick={() => {
+                      const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement("a");
+                      a.href = url;
+                      a.download = `report-${report.report_type}-${report.period_start}-${report.period_end}.json`;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    }}
+                    className="inline-flex items-center gap-1 rounded-full border border-white/50 bg-white/55 px-3 py-1.5 text-xs font-medium text-on-surface-variant hover:bg-white/80 shrink-0"
+                  >
+                    <Download className="h-3.5 w-3.5" />导出
+                  </button>
                 </div>
 
                 <div className="mt-4 grid grid-cols-5 gap-2">
@@ -122,6 +148,17 @@ export default function ReportsPage() {
                     tone={report.takeout_ratio > 0.45 ? "watch" : undefined} />
                 </div>
               </div>
+
+              {/* 叙事摘要 */}
+              {report.narrative && (
+                <div className="rounded-2xl border border-white/45 bg-white/42 p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Sparkles className="h-4 w-4 text-primary" />
+                    <p className="text-sm font-semibold text-on-background">AI 经营摘要</p>
+                  </div>
+                  <p className="text-sm leading-relaxed text-on-surface-variant whitespace-pre-line">{report.narrative}</p>
+                </div>
+              )}
 
               {/* 发现问题 */}
               {report.findings.length > 0 && (

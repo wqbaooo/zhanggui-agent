@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Check, Store } from "lucide-react";
+import { Check } from "lucide-react";
 import { ModulePage, getModule } from "@/components/agent-os/ModulePage";
-import { DEFAULT_PROJECT_ID, getStaff, getSkus, type StaffMember, type SkuItem } from "@/lib/api";
+import { DEFAULT_PROJECT_ID, getStaff, getSkus, type StaffMember } from "@/lib/api";
 
 const defaultCostParams = [
   { key: "rent_monthly", label: "月租金", value: "¥6,000", hint: "含商场管理费" },

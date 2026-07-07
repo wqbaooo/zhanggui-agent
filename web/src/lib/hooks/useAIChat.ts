@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { API_BASE, DEFAULT_PROJECT_ID } from "@/lib/api";
 
 export interface ChatMessage {
@@ -9,27 +9,168 @@ export interface ChatMessage {
   content: string;
   timestamp: string;
   toolCalls?: Array<{ name: string; status: "running" | "done"; output?: string }>;
+  run?: ChatRunMetadata;
 }
 
-export interface AIInsight {
+export interface ChatRunMetadata {
+  status: "answered" | "needs_input" | "conflict";
+  domains: string[];
+  consulted_modules: string[];
+  gaps: string[];
+  conflict_count: number;
+  model_provider?: string;
+  model?: string;
+  guardrail_applied?: boolean;
+}
+
+export interface ChatSession {
   id: string;
-  type: "health" | "warning" | "opportunity" | "action";
   title: string;
-  description: string;
-  metric?: string;
-  value?: string;
-  target?: string;
-  priority: "high" | "medium" | "low";
+  messages: ChatMessage[];
+  createdAt: string;
+  updatedAt: string;
+  projectId: string;
+}
+
+const STORAGE_KEY = "store-agent-chat-sessions";
+const ACTIVE_KEY = "store-agent-chat-active-session";
+
+function loadSessions(): ChatSession[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw) as ChatSession[];
+  } catch {
+    return [];
+  }
+}
+
+function saveSessions(sessions: ChatSession[]) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
+  } catch {
+    // ignore
+  }
+}
+
+function loadActiveSessionId(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(ACTIVE_KEY);
+}
+
+function saveActiveSessionId(id: string | null) {
+  if (typeof window === "undefined") return;
+  if (id) {
+    localStorage.setItem(ACTIVE_KEY, id);
+  } else {
+    localStorage.removeItem(ACTIVE_KEY);
+  }
+}
+
+function generateSessionTitle(firstMessage: string): string {
+  const trimmed = firstMessage.trim();
+  if (!trimmed) return "新对话";
+  return trimmed.length > 20 ? trimmed.slice(0, 20) + "…" : trimmed;
 }
 
 export function useAIChat() {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
+  const initializedRef = useRef(false);
+
+  useEffect(() => {
+    if (initializedRef.current) return;
+    initializedRef.current = true;
+    const loaded = loadSessions();
+    setSessions(loaded);
+    const activeId = loadActiveSessionId();
+    if (activeId && loaded.some((s) => s.id === activeId)) {
+      setActiveSessionId(activeId);
+    } else if (loaded.length > 0) {
+      setActiveSessionId(loaded[0].id);
+    }
+  }, []);
+
+  const activeSession = sessions.find((s) => s.id === activeSessionId) || null;
+  const messages = activeSession?.messages || [];
+
+  const persistSessions = useCallback((updated: ChatSession[]) => {
+    setSessions(updated);
+    saveSessions(updated);
+  }, []);
+
+  const setActiveSession = useCallback((id: string | null) => {
+    setActiveSessionId(id);
+    saveActiveSessionId(id);
+  }, []);
+
+  const createNewSession = useCallback(() => {
+    const newSession: ChatSession = {
+      id: `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      title: "新对话",
+      messages: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      projectId: DEFAULT_PROJECT_ID,
+    };
+    const updated = [newSession, ...sessions];
+    persistSessions(updated);
+    setActiveSession(newSession.id);
+    setError(null);
+    return newSession;
+  }, [sessions, persistSessions, setActiveSession]);
+
+  const deleteSession = useCallback((id: string) => {
+    const updated = sessions.filter((s) => s.id !== id);
+    persistSessions(updated);
+    if (activeSessionId === id) {
+      if (updated.length > 0) {
+        setActiveSession(updated[0].id);
+      } else {
+        setActiveSession(null);
+      }
+    }
+  }, [sessions, activeSessionId, persistSessions, setActiveSession]);
+
+  const updateSessionMessages = useCallback((sessionId: string, updater: (prev: ChatMessage[]) => ChatMessage[], titleUpdate?: string) => {
+    const updated = sessions.map((s) => {
+      if (s.id !== sessionId) return s;
+      const newMessages = updater(s.messages);
+      return {
+        ...s,
+        messages: newMessages,
+        title: titleUpdate || s.title,
+        updatedAt: new Date().toISOString(),
+      };
+    });
+    persistSessions(updated);
+  }, [sessions, persistSessions]);
 
   const sendMessage = useCallback(async (content: string) => {
     if (!content.trim() || isStreaming) return;
+
+    let sessionId = activeSessionId;
+    let workingSessions = sessions;
+    const isNewSession = !sessionId || messages.length === 0;
+
+    if (isNewSession) {
+      const newSession: ChatSession = {
+        id: `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        title: generateSessionTitle(content),
+        messages: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        projectId: DEFAULT_PROJECT_ID,
+      };
+      sessionId = newSession.id;
+      workingSessions = [newSession, ...sessions];
+      setActiveSession(sessionId);
+    }
+
     const userMsg: ChatMessage = {
       id: `user-${Date.now()}`,
       role: "user",
@@ -45,47 +186,91 @@ export function useAIChat() {
       toolCalls: [],
     };
 
-    setMessages((prev) => [...prev, userMsg, assistantMsg]);
+    const appendMessages = (prev: ChatSession[]): ChatSession[] =>
+      prev.map((s) => {
+        if (s.id !== sessionId) return s;
+        return {
+          ...s,
+          messages: [...s.messages, userMsg, assistantMsg],
+          title: isNewSession ? generateSessionTitle(content) : s.title,
+          updatedAt: new Date().toISOString(),
+        };
+      });
+
+    workingSessions = appendMessages(workingSessions);
+    persistSessions(workingSessions);
+
     setIsStreaming(true);
     setError(null);
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 60_000);
 
     try {
       const res = await fetch(`${API_BASE}/api/chat/sync`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: content.trim(), project_id: DEFAULT_PROJECT_ID }),
+        body: JSON.stringify({
+          message: content.trim(),
+          project_id: DEFAULT_PROJECT_ID,
+          session_id: sessionId,
+        }),
+        signal: controller.signal,
       });
-      if (!res.ok) throw new Error(`API ${res.status}`);
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null);
+        throw new Error(payload?.detail || `服务返回 ${res.status}`);
+      }
       const data = await res.json();
-      const response = data.response || "";
-      setMessages((prev) => {
-        const updated = [...prev];
-        const last = updated[updated.length - 1];
-        if (last.role === "assistant") {
-          last.content = response;
-        }
-        return updated;
-      });
+      const response = String(data.response || "").trim();
+      if (!response) throw new Error("Agent 没有返回内容");
+
+      const updateAssistant = (prev: ChatSession[]): ChatSession[] =>
+        prev.map((s) => {
+          if (s.id !== sessionId) return s;
+          return {
+            ...s,
+            messages: s.messages.map((m) =>
+              m.id === assistantMsg.id
+                ? { ...m, content: response, run: data.meta as ChatRunMetadata | undefined }
+                : m
+            ),
+            updatedAt: new Date().toISOString(),
+          };
+        });
+
+      persistSessions(updateAssistant(workingSessions));
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : "请求失败";
+      const errorMsg = err instanceof DOMException && err.name === "AbortError"
+        ? "处理超过 60 秒，已停止等待。你可以重新发送，已输入的内容不会丢失。"
+        : err instanceof Error ? err.message : "请求失败";
       setError(errorMsg);
-      setMessages((prev) => {
-        const updated = [...prev];
-        const last = updated[updated.length - 1];
-        if (last.role === "assistant") {
-          last.content = `抱歉，出现了错误：${errorMsg}`;
-        }
-        return updated;
-      });
+
+      const updateError = (prev: ChatSession[]): ChatSession[] =>
+        prev.map((s) => {
+          if (s.id !== sessionId) return s;
+          return {
+            ...s,
+            messages: s.messages.map((m) =>
+              m.id === assistantMsg.id
+                ? { ...m, content: `这次没有处理完成：${errorMsg}` }
+                : m
+            ),
+            updatedAt: new Date().toISOString(),
+          };
+        });
+
+      persistSessions(updateError(workingSessions));
     } finally {
+      window.clearTimeout(timeout);
       setIsStreaming(false);
     }
-  }, [isStreaming]);
+  }, [isStreaming, activeSessionId, sessions, messages.length, persistSessions, setActiveSession]);
 
   const clearMessages = useCallback(() => {
-    setMessages([]);
+    if (!activeSessionId) return;
+    updateSessionMessages(activeSessionId, () => [], "新对话");
     setError(null);
-  }, []);
+  }, [activeSessionId, updateSessionMessages]);
 
   return {
     messages,
@@ -93,131 +278,11 @@ export function useAIChat() {
     error,
     sendMessage,
     clearMessages,
+    sessions,
+    activeSessionId,
+    setActiveSession,
+    createNewSession,
+    deleteSession,
+    activeSession,
   };
-}
-
-/**
- * 生成 AI 每日洞察（基于项目数据的静态分析）
- */
-export function generateDailyInsights(data: {
-  avgRevenue: number;
-  breakevenRevenue?: number | null;
-  foodCostRate?: number | null;
-  laborCostRate?: number | null;
-  deliveryRatio?: number | null;
-  badReviewRate?: number | null;
-  repeatRate?: number | null;
-  primeCost?: number | null;
-}): AIInsight[] {
-  const insights: AIInsight[] = [];
-
-  // 营收健康度
-  if (data.avgRevenue > 0 && data.breakevenRevenue != null && data.breakevenRevenue > 0) {
-    const safetyMargin = (data.avgRevenue - data.breakevenRevenue) / data.breakevenRevenue;
-    if (safetyMargin < 0.2) {
-      insights.push({
-        id: "revenue-warning",
-        type: "warning",
-        title: "营收接近保本线",
-        description: `日均营收距保本线仅${(safetyMargin * 100).toFixed(0)}%的安全边际，需关注客流变化`,
-        metric: "安全边际",
-        value: `${(safetyMargin * 100).toFixed(0)}%`,
-        target: ">20%",
-        priority: "high",
-      });
-    } else if (safetyMargin > 0.5) {
-      insights.push({
-        id: "revenue-healthy",
-        type: "health",
-        title: "营收健康",
-        description: `日均营收超过保本线${(safetyMargin * 100).toFixed(0)}%，经营状况良好`,
-        metric: "安全边际",
-        value: `${(safetyMargin * 100).toFixed(0)}%`,
-        priority: "low",
-      });
-    }
-  }
-
-  // Prime Cost
-  if (data.primeCost != null && data.primeCost > 0.65) {
-    insights.push({
-      id: "prime-cost-warning",
-      type: "warning",
-      title: "Prime Cost 偏高",
-      description: `食材+人工成本率${(data.primeCost * 100).toFixed(1)}%，超过65%警戒线，利润空间被压缩`,
-      metric: "Prime Cost",
-      value: `${(data.primeCost * 100).toFixed(1)}%`,
-      target: "<65%",
-      priority: "high",
-    });
-  }
-
-  // 外卖占比
-  if (data.deliveryRatio != null && data.deliveryRatio > 0.6) {
-    insights.push({
-      id: "delivery-warning",
-      type: "warning",
-      title: "外卖依赖度过高",
-      description: `外卖占比${(data.deliveryRatio * 100).toFixed(0)}%，平台佣金侵蚀利润，建议提升堂食比例`,
-      metric: "外卖占比",
-      value: `${(data.deliveryRatio * 100).toFixed(0)}%`,
-      target: "<40%",
-      priority: "medium",
-    });
-  }
-
-  // 差评率
-  if (data.badReviewRate != null && data.badReviewRate > 0.03) {
-    insights.push({
-      id: "review-warning",
-      type: "warning",
-      title: "差评率偏高",
-      description: `差评率${(data.badReviewRate * 100).toFixed(1)}%，超过3%警戒线，影响店铺评分和流量`,
-      metric: "差评率",
-      value: `${(data.badReviewRate * 100).toFixed(1)}%`,
-      target: "<3%",
-      priority: "high",
-    });
-  }
-
-  // 复购率
-  if (data.repeatRate != null && data.repeatRate < 0.20) {
-    insights.push({
-      id: "repeat-opportunity",
-      type: "opportunity",
-      title: "复购率有提升空间",
-      description: `复购率${(data.repeatRate * 100).toFixed(0)}%，低于20%，建议推出会员体系或复购券`,
-      metric: "复购率",
-      value: `${(data.repeatRate * 100).toFixed(0)}%`,
-      target: ">30%",
-      priority: "medium",
-    });
-  }
-
-  // 食材成本率
-  if (data.foodCostRate != null && data.foodCostRate > 0.40) {
-    insights.push({
-      id: "food-cost-warning",
-      type: "warning",
-      title: "食材成本率过高",
-      description: `食材成本率${(data.foodCostRate * 100).toFixed(1)}%，超过40%警戒线，需检查采购价格和损耗`,
-      metric: "食材成本率",
-      value: `${(data.foodCostRate * 100).toFixed(1)}%`,
-      target: "30-35%",
-      priority: "high",
-    });
-  }
-
-  // 如果没有预警，给出正面反馈
-  if (insights.length === 0) {
-    insights.push({
-      id: "all-good",
-      type: "health",
-      title: "经营状况良好",
-      description: "各项指标均在健康范围内，继续保持",
-      priority: "low",
-    });
-  }
-
-  return insights;
 }

@@ -14,21 +14,98 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 # 确保项目根目录在 sys.path 中
 PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from config import DEEPSEEK_API_KEY
+from core.domain_intelligence import (
+    build_domain_context,
+    context_for_client,
+    context_for_prompt,
+    render_grounded_fallback,
+    validate_grounded_answer,
+)
 from core.readiness import build_readiness_structured, merge_readiness_overlay
+from models.project import ProjectMemory
 from models.schemas import AssistantRequest, AssistantResponse
 
 logger = logging.getLogger(__name__)
+DEFAULT_PROJECT_ID = "xinyu-hengtai-dakou"
+
+
+def build_store_context(project_id: Optional[str]) -> Dict[str, Any]:
+    """Load a compact, current store snapshot for every conversation turn."""
+    if not project_id:
+        return {}
+    memory = ProjectMemory.load(project_id)
+    if memory is None:
+        return {
+            "project_id": project_id,
+            "store_name": "新余恒太城五楼大口章鱼烧",
+            "data_status": "门店档案尚未建立",
+        }
+
+    summary = memory.operation_summary(days=7)
+    open_tasks = [
+        task.get("title", "")
+        for task in memory.action_tasks
+        if task.get("status") not in {"done", "completed"}
+    ][:3]
+    latest_operations = [
+        {
+            key: entry.get(key)
+            for key in (
+                "date",
+                "revenue",
+                "orders",
+                "food_cost",
+                "labor",
+                "platform_fee",
+                "bad_reviews",
+                "notes",
+            )
+            if entry.get(key) not in (None, "")
+        }
+        for entry in memory.daily_operations[-3:]
+    ]
+    return {
+        "project_id": project_id,
+        "store_name": "新余恒太城五楼大口章鱼烧",
+        "store_status": memory.profile.get("stage") or memory.profile.get("店铺状态") or "operating",
+        "profile": {
+            key: memory.profile.get(key)
+            for key in (
+                "category",
+                "city",
+                "location",
+                "monthly_rent",
+                "monthly_labor",
+                "current_staff_count",
+            )
+            if memory.profile.get(key) not in (None, "")
+        },
+        "last_7_days": {
+            key: summary.get(key)
+            for key in (
+                "entry_count",
+                "total_revenue",
+                "total_orders",
+                "net_profit",
+                "food_cost_rate",
+                "labor_cost_rate",
+                "takeout_ratio",
+                "bad_review_rate",
+            )
+        },
+        "latest_operations": latest_operations,
+        "open_tasks": open_tasks,
+        "context_rule": "这是已开业且正在经营的真实门店。回答任何问题前先结合以上门店事实；没有数据时明确指出缺口，不得臆测为未开业。",
+    }
 
 
 # ============================================================
@@ -37,11 +114,9 @@ logger = logging.getLogger(__name__)
 
 def _langgraph_available() -> bool:
     """检测 LangGraph 是否可用（需要 LLM API key）。"""
-    if DEEPSEEK_API_KEY:
-        return True
-    if os.environ.get("OPENAI_API_KEY", ""):
-        return True
-    return False
+    from server.model_routing import chat_route, local_text_route
+
+    return chat_route().configured or local_text_route().configured
 
 
 # ============================================================
@@ -146,7 +221,9 @@ class 掌柜Agent:
         project_id: Optional[str] = None,
     ):
         self._use_langgraph = _langgraph_available()
-        self._project_id = project_id
+        self._project_id = project_id or DEFAULT_PROJECT_ID
+        self._last_domain_context: Dict[str, Any] = {}
+        self._last_answer_guardrail: List[str] = []
 
         if self._use_langgraph:
             try:
@@ -155,7 +232,7 @@ class 掌柜Agent:
                 from graph.state import clear_state, get_state
 
                 self._graph = build_agent()
-                prefix = f"{project_id}_" if project_id else ""
+                prefix = f"{self._project_id}_"
                 self._session_id = f"{prefix}session_{uuid.uuid4().hex[:8]}"
                 self._config = {"configurable": {"thread_id": self._session_id}}
                 self._get_state = get_state
@@ -168,16 +245,46 @@ class 掌柜Agent:
         if not self._use_langgraph:
             from core.session import Session
 
-            self._session = Session()
+            self._session = Session(project_id=self._project_id)
             logger.info("旧状态机模式已激活")
 
     def get_response(self, user_input: str) -> str:
         """获取回复（纯文本）。"""
+        previous_context = self._last_domain_context
+        self._last_domain_context = build_domain_context(
+            self._project_id,
+            user_input,
+            previous_context=previous_context,
+        )
         if self._use_langgraph:
             text = self._langgraph_get_response(user_input)
         else:
             text = self._session.get_response(user_input)
+        self._last_answer_guardrail = validate_grounded_answer(
+            text,
+            self._last_domain_context,
+        )
+        if self._last_answer_guardrail:
+            logger.warning(
+                "回答触发事实守卫，改用结构化可信回复: %s",
+                "；".join(self._last_answer_guardrail),
+            )
+            text = render_grounded_fallback(
+                user_input,
+                context_for_prompt(self._last_domain_context),
+            )
         return merge_readiness_overlay(user_input, text)
+
+    def get_run_metadata(self) -> Dict[str, Any]:
+        """Return the latest structured routing/evidence summary for the UI."""
+        from server.model_routing import chat_route
+
+        metadata = context_for_client(self._last_domain_context)
+        route = chat_route()
+        metadata["model_provider"] = route.provider if route.configured else "grounded_local_fallback"
+        metadata["model"] = route.model if route.configured else "deterministic_domain_report"
+        metadata["guardrail_applied"] = bool(self._last_answer_guardrail)
+        return metadata
 
     def _langgraph_get_response(self, user_input: str) -> str:
         """使用 LangGraph 获取回复。
@@ -188,6 +295,12 @@ class 掌柜Agent:
         from langchain_core.messages import AIMessage, HumanMessage
 
         state = self._get_state(self._session_id)
+        store_context = build_store_context(self._project_id)
+        if store_context and not self._last_domain_context:
+            state.profile["__store_context__"] = store_context
+        if self._last_domain_context:
+            state.profile.pop("__store_context__", None)
+            state.profile["__domain_context__"] = context_for_prompt(self._last_domain_context)
 
         try:
             # 只传入新消息 + 当前画像；MemorySaver 负责恢复历史

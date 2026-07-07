@@ -57,7 +57,11 @@ async def chat_sync(req: ChatRequest):
             asyncio.to_thread(agent.get_response, req.message),
             timeout=90
         )
-        return {"response": response, "session_id": req.session_id or "sync"}
+        return {
+            "response": response,
+            "session_id": req.session_id or "sync",
+            "meta": agent.get_run_metadata(),
+        }
     except asyncio.TimeoutError:
         logger.warning("同步对话超时")
         raise HTTPException(status_code=504, detail="请求处理超时，请简化问题或稍后重试")

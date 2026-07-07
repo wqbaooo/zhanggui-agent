@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""财务测算路由 — POST /api/finance。"""
+"""财务测算路由 — POST /api/finance。
+
+⚠️ 已废弃：此端点为筹备期口径（投资回本测算），与当前单店经营 Agent 口径冲突。
+当前产品定位为"AI 单店经营 Agent"（参见 AGENTS.md），不应再使用此端点。
+保留路由仅为向后兼容，新功能请使用 /api/analyze 或 /api/reports 端点。
+"""
 
 from __future__ import annotations
 
@@ -23,9 +28,13 @@ class FinanceRequest(BaseModel):
     other_monthly: str = Field("1000", description="月其他费用（元）")
 
 
-@router.post("/finance")
+@router.post("/finance", deprecated=True)
 async def finance_endpoint(req: FinanceRequest):
-    """财务测算端点 — 返回结构化 JSON。"""
+    """财务测算端点 — 返回结构化 JSON。
+
+    ⚠️ 已废弃：筹备期投资回本测算口径，请使用 /api/analyze 或 /api/reports。
+    """
+    logger.warning("POST /api/finance is deprecated (筹备期口径残留). Use /api/analyze or /api/reports instead.")
     try:
         invest = float(req.investment.replace("万", "")) * 10000 if "万" in req.investment else float(req.investment)
         rev = float(req.daily_revenue)

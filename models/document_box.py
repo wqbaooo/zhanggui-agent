@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from config import PROJECT_DATA_DIR
+from models.json_store import atomic_write_json, load_json
 
 DOCUMENT_TYPES = [
     "租赁合同",
@@ -82,21 +83,15 @@ class DocumentBox:
     def save(self):
         self.updated_at = time.time()
         self.data_file.parent.mkdir(parents=True, exist_ok=True)
-        self.data_file.write_text(
-            json.dumps(asdict(self), ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        atomic_write_json(self.data_file, asdict(self))
 
     @classmethod
     def load(cls, project_id: str) -> Optional["DocumentBox"]:
         path = PROJECT_DATA_DIR / project_id / "documents.json"
         if not path.exists():
             return None
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            return cls(**data)
-        except Exception:
-            return None
+        data = load_json(path)
+        return cls(**data) if data is not None else None
 
     @classmethod
     def create(cls, project_id: str) -> "DocumentBox":

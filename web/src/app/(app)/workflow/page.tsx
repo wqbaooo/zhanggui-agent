@@ -3,7 +3,7 @@
 import { useCallback, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  AlertTriangle, ArrowLeft, ArrowRight, CheckCircle2,
+  AlertTriangle, ArrowRight, CheckCircle2,
   ClipboardList, Package, PenLine, Timer, XCircle,
 } from "lucide-react";
 import { ModulePage, getModule } from "@/components/agent-os/ModulePage";
@@ -80,10 +80,10 @@ export default function WorkflowPage() {
     setExceptions((prev) => prev.filter((e) => e.id !== id));
   }, []);
 
-  const module = getModule("/workflow");
+  const currentModule = getModule("/workflow");
 
   return (
-    <ModulePage module={module}>
+    <ModulePage module={currentModule}>
       <div className="space-y-4">
 
         {/* ── 动线导览 ── */}
@@ -97,7 +97,6 @@ export default function WorkflowPage() {
             <AnimatePresence mode="popLayout">
               {steps.map((step, i) => {
                 const isException = i === 5;
-                const prevStep = i > 0 ? steps[i - 1] : null;
                 const nextStep = i < 5 ? steps[i + 1] : null;
 
                 return (

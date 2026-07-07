@@ -12,16 +12,18 @@ import {
   FileCheck2,
   FileText,
   GraduationCap,
+  Home,
   LineChart,
+  MessageSquare,
   Package,
   ReceiptText,
   Repeat2,
   ScanSearch,
-  ShieldCheck,
   Store,
   Truck,
   Utensils,
   WalletCards,
+  Wallet,
   Workflow,
   type LucideIcon,
 } from "lucide-react";
@@ -100,7 +102,8 @@ export interface OperatingLoopStep {
 }
 
 export const storeIdentity = {
-  name: "新余恒太城大口章鱼烧",
+  name: "大口章鱼烧",
+  storeType: "加盟店",
   location: "江西新余 · 恒太城五楼美食城",
   category: "章鱼小丸子 / 商场小吃档口",
   ownerMode: "老板亲自守店 + 1 名员工",
@@ -413,6 +416,18 @@ export const storeModules: AgentModule[] = [
     evidence: ["费用单", "工资", "平台费率"],
   },
   {
+    href: "/monthly",
+    title: "月度营收",
+    eyebrow: "Monthly",
+    description: "按月度对比今年 vs 去年营收，看同比变化、累计 YTD、月环比和利润率趋势。",
+    icon: CalendarDays,
+    primaryMetric: "今年 vs 去年",
+    secondaryMetric: "同比/环比/累计",
+    status: "watch",
+    tasks: ["月度营收对比", "YTD 累计追踪", "月环比变化", "利润率波动"],
+    evidence: ["月度营业款汇总", "去年利润记录", "成本结构"],
+  },
+  {
     href: "/channels",
     title: "渠道外卖",
     eyebrow: "Meituan / 淘宝闪购 / Douyin",
@@ -440,7 +455,7 @@ export const storeModules: AgentModule[] = [
     href: "/inventory",
     title: "进货库存",
     eyebrow: "Batch Stock",
-    description: "按半月进货批次、消耗速度、安全库存判断章鱼粉、盒子、章鱼粒什么时候补。",
+    description: "用门店与仓库双库存、每日开包和周期实盘，持续判断明天带什么、何时进货。",
     icon: Boxes,
     primaryMetric: "批次法",
     secondaryMetric: "不逐克称重",
@@ -559,60 +574,77 @@ export const sopGroups = [
   "异常处理",
 ];
 
-export const captureSources = [
-  "客如云日报",
-  "商品销量排行",
-  "美团经营分析",
-  "淘宝闪购后台",
-  "抖音团购核销",
-  "进货单",
-  "合同/转让协议",
-  "水电单",
-  "库存照片",
-  "总部/SOP资料",
-  "异常小票",
+export type DataSourceType = "screenshot" | "document" | "photo" | "manual" | "computed";
+export type DataConfidence = "high" | "medium" | "low";
+
+export interface DataSource {
+  id: string;
+  label: string;
+  type: DataSourceType;
+  emoji: string;
+  confidence: DataConfidence;
+  writeTarget: string;
+}
+
+export const dataSources: DataSource[] = [
+  { id: "keyun", label: "客如云日报", type: "screenshot", emoji: "📊", confidence: "high", writeTarget: "经营总览" },
+  { id: "keyun_rank", label: "商品销量排行", type: "screenshot", emoji: "📈", confidence: "high", writeTarget: "渠道外卖" },
+  { id: "meituan", label: "美团经营分析", type: "screenshot", emoji: "🛵", confidence: "high", writeTarget: "渠道外卖" },
+  { id: "taobao", label: "淘宝闪购后台", type: "screenshot", emoji: "⚡", confidence: "high", writeTarget: "渠道外卖" },
+  { id: "douyin", label: "抖音团购核销", type: "screenshot", emoji: "🎵", confidence: "high", writeTarget: "渠道外卖" },
+  { id: "purchase", label: "进货单", type: "document", emoji: "📄", confidence: "high", writeTarget: "库存耗材" },
+  { id: "utility", label: "水电单", type: "document", emoji: "💡", confidence: "high", writeTarget: "库存耗材" },
+  { id: "stock_photo", label: "库存照片", type: "photo", emoji: "📷", confidence: "medium", writeTarget: "库存耗材" },
+  { id: "contract", label: "合同/转让协议", type: "document", emoji: "📜", confidence: "high", writeTarget: "资料档案" },
+  { id: "hq_sop", label: "总部/SOP资料", type: "document", emoji: "📚", confidence: "high", writeTarget: "SOP作业" },
+  { id: "manual", label: "手工录入", type: "manual", emoji: "✍️", confidence: "medium", writeTarget: "经营总览" },
+  { id: "agent_calc", label: "Agent计算", type: "computed", emoji: "🤖", confidence: "medium", writeTarget: "经营总览" },
 ];
+
+export const captureSources = dataSources.map((s) => s.label);
 
 export const navGroups = [
   {
-    label: "Agent",
+    label: "每日闭环",
     items: [
-      { href: "/overview", label: "今日工作台", icon: ShieldCheck },
+      { href: "/overview", label: "掌柜台", icon: Home },
+      { href: "/capture", label: "今日待确认", icon: ScanSearch },
+      { href: "/profit", label: "钱账", icon: Wallet },
+      { href: "/inventory", label: "库存", icon: Boxes },
     ],
   },
   {
-    label: "情报与复盘",
+    label: "经营复盘",
     items: [
-      { href: "/calendar", label: "天气商圈", icon: CalendarDays },
-      { href: "/alerts", label: "异常预警", icon: AlertTriangle },
-      { href: "/reports", label: "经营复盘", icon: ReceiptText },
-    ],
-  },
-  {
-    label: "档案",
-    items: [
-      { href: "/capture", label: "资料入库", icon: FileText },
-      { href: "/documents", label: "资料档案", icon: Archive },
-    ],
-  },
-  {
-    label: "经营",
-    items: [
-      { href: "/dashboard", label: "驾驶舱", icon: BarChart3 },
+      { href: "/dashboard", label: "经营总览", icon: BarChart3 },
       { href: "/sales", label: "营业走势", icon: LineChart },
-      { href: "/profit", label: "利润保本", icon: WalletCards },
       { href: "/channels", label: "渠道外卖", icon: Truck },
-      { href: "/products", label: "商品菜单", icon: Utensils },
-      { href: "/inventory", label: "进货库存", icon: Boxes },
-      { href: "/consumables", label: "水电耗材", icon: Package },
+      { href: "/monthly", label: "月度经营", icon: CalendarDays },
+      { href: "/reports", label: "周报月报", icon: ReceiptText },
+      { href: "/alerts", label: "预警中心", icon: AlertTriangle },
     ],
   },
   {
-    label: "作业",
+    label: "货品备料",
     items: [
-      { href: "/sop", label: "SOP作业库", icon: ClipboardCheck },
-      { href: "/training", label: "员工训练", icon: GraduationCap },
+      { href: "/consumables", label: "水电耗材", icon: Package },
+      { href: "/products", label: "总部商品", icon: Utensils },
+    ],
+  },
+  {
+    label: "门店作业",
+    items: [
+      { href: "/sop", label: "SOP 作业库", icon: ClipboardCheck },
+      { href: "/training", label: "员工与工资", icon: GraduationCap },
       { href: "/workflow", label: "店铺动线", icon: Workflow },
+      { href: "/calendar", label: "天气商圈", icon: CloudSun },
+    ],
+  },
+  {
+    label: "经营记忆",
+    items: [
+      { href: "/chat", label: "掌柜对话", icon: MessageSquare },
+      { href: "/documents", label: "证据档案", icon: Archive },
     ],
   },
 ];

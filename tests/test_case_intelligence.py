@@ -51,8 +51,8 @@ def test_owner_operator_split_required_for_staffing_cases():
 
 
 def test_prompt_contract_internalizes_theory_and_cases():
-    assert "不要默认把方法论名词讲给用户听" in RESEARCH_SYSTEM_PROMPT
-    assert "内化为你的判断力" in SYSTEM_PROMPT
-    assert "超级加盟商视角" in SYSTEM_PROMPT
-    assert "老板亲自守店模型" in SYSTEM_PROMPT
-    assert "请人经营模型" in SYSTEM_PROMPT
+    assert "不是当前门店事实" in RESEARCH_SYSTEM_PROMPT
+    assert "检查项、数据缺口、风险阈值和下一步动作" in RESEARCH_SYSTEM_PROMPT
+    assert "新余恒太城五楼大口章鱼烧" in SYSTEM_PROMPT
+    assert "真实经营资料持续入库" in SYSTEM_PROMPT
+    assert "不推荐加盟品牌" in SYSTEM_PROMPT

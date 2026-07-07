@@ -1,270 +1,185 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, Area, AreaChart } from "recharts";
-import { calculateInvestment, fmtMoney, generateCashFlowProjection, calculateSensitivity, calculateBreakevenAnalysis } from "@/domain/calculations";
-import { assessInvestmentRisks } from "@/domain/riskRules";
+import { AlertTriangle, ArrowRight, Banknote, Boxes, CalendarClock, CheckCircle2, ReceiptText } from "lucide-react";
+import { DEFAULT_PROJECT_ID, getPurchases, type PurchaseRecord } from "@/lib/api";
 import { useProjectData } from "@/lib/hooks/useProjectData";
-import { MetricCard, AnimateIn, StaggerList } from "@/components/shared";
-import { Row } from "@/components/shared/DataDisplay";
-import { RiskList } from "@/components/shared/RiskList";
-import { TrendingUp, PieChart, Calculator, AlertTriangle, Activity, Target } from "lucide-react";
 
 const TABS = [
-  { key: "overview", label: "总览", icon: Calculator },
-  { key: "cashflow", label: "现金流", icon: Activity },
-  { key: "sensitivity", label: "敏感性", icon: Target },
-  { key: "scenarios", label: "情景", icon: TrendingUp },
-  { key: "breakdown", label: "明细", icon: PieChart },
-  { key: "risks", label: "风险", icon: AlertTriangle },
+  { key: "overview", label: "资金总览" },
+  { key: "cashflow", label: "现金流" },
+  { key: "sensitivity", label: "成本基准" },
+  { key: "scenarios", label: "盈利条件" },
+  { key: "breakdown", label: "会计分类" },
+  { key: "risks", label: "缺口与风险" },
 ] as const;
 
 type TabKey = (typeof TABS)[number]["key"];
 
+function money(value: number) {
+  return `¥${value.toLocaleString("zh-CN", { minimumFractionDigits: value % 1 ? 2 : 0, maximumFractionDigits: 2 })}`;
+}
+
+function numberValue(profile: Record<string, unknown>, key: string) {
+  const value = Number(profile[key]);
+  return Number.isFinite(value) ? value : 0;
+}
+
 export function InvestmentView({ initialTab = "overview" }: { initialTab?: TabKey }) {
-  const { investment: mockInvestment } = useProjectData();
-  const result = useMemo(() => calculateInvestment(mockInvestment), [mockInvestment]);
-  const risks = useMemo(() => assessInvestmentRisks(mockInvestment), [mockInvestment]);
-  const cashflow = useMemo(() => generateCashFlowProjection(mockInvestment, 24), [mockInvestment]);
-  const sensitivity = useMemo(() => calculateSensitivity(mockInvestment), [mockInvestment]);
-  const breakeven = useMemo(() => calculateBreakevenAnalysis(mockInvestment), [mockInvestment]);
+  const { cockpit, isLoading } = useProjectData();
+  const [purchases, setPurchases] = useState<PurchaseRecord[]>([]);
   const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
-  const [chartsReady, setChartsReady] = useState(false);
+  const profile = cockpit?.profile || {};
 
   useEffect(() => {
-    const frame = requestAnimationFrame(() => setChartsReady(true));
-    return () => cancelAnimationFrame(frame);
+    getPurchases(DEFAULT_PROJECT_ID, 30)
+      .then((response) => setPurchases(response.purchases || []))
+      .catch(() => setPurchases([]));
   }, []);
 
-  const scenarioData = [
-    { name: "保守", profit: result.scenario.conservative.monthlyProfit, months: result.scenario.conservative.paybackMonths },
-    { name: "中性", profit: result.scenario.neutral.monthlyProfit, months: result.scenario.neutral.paybackMonths },
-    { name: "乐观", profit: result.scenario.optimistic.monthlyProfit, months: result.scenario.optimistic.paybackMonths },
-  ];
+  const transferFee = numberValue(profile, "transfer_fee");
+  const rent = numberValue(profile, "monthly_rent");
+  const garbageFee = numberValue(profile, "monthly_garbage_fee");
+  const labor = numberValue(profile, "monthly_labor");
+  const rentStart = String(profile.monthly_rent_start_date || "");
+  const paidPurchases = useMemo(
+    () => purchases.filter((purchase) => purchase.payment_status.includes("已付")).reduce((sum, purchase) => sum + (purchase.paid_amount || purchase.total_cost), 0),
+    [purchases],
+  );
+  const pendingInventory = useMemo(
+    () => purchases.filter((purchase) => purchase.fulfillment_status === "ordered").reduce((sum, purchase) => sum + (purchase.paid_amount || purchase.total_cost), 0),
+    [purchases],
+  );
+  const startupCashOut = transferFee + paidPurchases;
+  const knownMonthlyFixedFromAugust = rent + garbageFee + labor;
 
-  const costBreakdown = [
-    { name: "装修", value: mockInvestment.renovationCost },
-    { name: "设备", value: mockInvestment.equipmentCost },
-    { name: "首批物料", value: mockInvestment.firstInventoryCost },
-    { name: "证照", value: mockInvestment.licenseCost },
-    { name: "开业营销", value: mockInvestment.openingMarketingCost },
-    { name: "培训", value: mockInvestment.trainingCost },
-    { name: "预备现金", value: mockInvestment.reserveCash },
-    { name: "其他", value: mockInvestment.otherStartupCost },
-  ];
-
-  // 现金流图表数据
-  const cashflowChartData = cashflow.map((m) => ({
-    month: `${m.month}月`,
-    revenue: m.revenue,
-    profit: m.netProfit,
-    cumulative: m.cumulativeProfit,
-    balance: m.cashBalance,
-    isBreakeven: m.isBreakeven,
-  }));
-
-  // 找到回本月
-  const breakevenMonth = cashflow.find((m) => m.isBreakeven)?.month;
-
-  // 敏感性数据 (龙卷风图)
-  const tooltipStyle = {
-    contentStyle: { background: "rgba(255,255,255,0.98)", border: "1px solid rgba(24,35,29,0.14)", borderRadius: 8, color: "#18231d", boxShadow: "0 12px 28px rgba(24,35,29,0.12)" },
-  };
+  if (isLoading && !cockpit) {
+    return <div className="h-1 w-full animate-pulse rounded-full bg-orange-300" />;
+  }
 
   return (
-    <div className="h-full flex flex-col gap-3">
-      <StaggerList staggerDelay={80} className="grid grid-cols-2 gap-3 md:grid-cols-5 shrink-0">
-        <MetricCard label="初始投资" value={fmtMoney(result.totalInvestment)} />
-        <MetricCard label="月固定成本" value={fmtMoney(result.monthlyFixedCost)} />
-        <MetricCard label="月净利润" value={fmtMoney(result.monthlyNetProfit)} trend={result.monthlyNetProfit > 0 ? "up" : "down"} negative={result.monthlyNetProfit < 0} />
-        <MetricCard label="回本周期" value={result.paybackMonths === Infinity ? "无法回本" : `${result.paybackMonths.toFixed(1)}月`} negative={result.paybackMonths > 18} />
-        <MetricCard label="安全边际" value={`${(breakeven.safetyMargin * 100).toFixed(0)}%`} negative={breakeven.safetyMargin < 0.2} />
-      </StaggerList>
-
-      <AnimateIn delay={400} direction="up" className="flex-1 glass-card rounded-xl p-4 interactive-card flex flex-col min-h-0">
-        <div className="flex gap-1 mb-3 shrink-0 relative z-10 overflow-x-auto">
-          {TABS.map((tab) => {
-            const Icon = tab.icon;
-            return (
-              <button key={tab.key} onClick={() => setActiveTab(tab.key)} className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-mono whitespace-nowrap transition-all ${activeTab === tab.key ? "bg-agent-gold/20 text-agent-gold border border-agent-gold/30" : "text-on-surface-variant hover:text-on-background hover:bg-surface-container-high/40"}`}>
-                <Icon className="w-3 h-3" />
-                {tab.label}
-              </button>
-            );
-          })}
+    <div className="space-y-4">
+      <section className="rounded-3xl border border-stone-200 bg-white/90 p-5 shadow-sm">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-stone-500">真实资金与成本</p>
+            <h1 className="mt-2 text-2xl font-bold text-stone-950">钱花到哪里，不等于当期亏了多少</h1>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-stone-600">
+              现金流、资产和经营损益分开记录。采购付款会减少现金，但收货后先形成库存，只有被实际消耗的部分才进入商品成本。
+            </p>
+          </div>
+          <span className="w-fit rounded-full bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-800">利润模型尚未完整</span>
         </div>
-
-        <div className="flex-1 overflow-y-auto relative z-10 min-h-0 pr-1">
-          {/* 总览 */}
-          {activeTab === "overview" && (
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1 text-xs">
-                  <Row label="日均保本额" value={fmtMoney(result.breakevenDailyRevenue)} />
-                  <Row label="日均保本单数" value={result.breakevenDailyOrders === Infinity ? "∞" : `${Math.round(result.breakevenDailyOrders)}单`} />
-                  <Row label="贡献毛利率" value={`${(breakeven.contributionMargin * 100).toFixed(1)}%`} />
-                  <Row label="变动成本率" value={`${(result.monthlyVariableCostRate * 100).toFixed(1)}%`} />
-                  <Row label="月营业额" value={fmtMoney(result.monthlyRevenue)} />
-                  <Row label="月净利润" value={fmtMoney(result.monthlyNetProfit)} />
-                </div>
-                <div className="flex items-center justify-center">
-                  <div className="text-center">
-                    <p className="text-[10px] text-on-surface-variant/50 font-mono">能否回本</p>
-                    <p className={`text-2xl font-bold mt-1 ${result.canRecover ? "text-emerald-700" : "text-error"}`}>{result.canRecover ? "可以" : "困难"}</p>
-                    {result.paybackMonths !== Infinity && <p className="text-[10px] text-on-surface-variant/50 mt-1">{result.paybackMonths.toFixed(1)} 个月</p>}
-                    {breakevenMonth && <p className="text-[9px] text-emerald-700/70 mt-0.5">第{breakevenMonth}月回本</p>}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* 现金流预测 */}
-          {activeTab === "cashflow" && (
-            <div className="space-y-3">
-              <div className="flex items-center gap-3 text-[10px] text-on-surface-variant/50">
-                <span>24个月现金流预测</span>
-                {breakevenMonth && <span className="text-emerald-700">回本月: 第{breakevenMonth}月</span>}
-              </div>
-              <div className="h-48">
-                {chartsReady ? (
-                  <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
-                    <AreaChart data={cashflowChartData}>
-                      <defs>
-                        <linearGradient id="profitGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#166534" stopOpacity={0.2} />
-                          <stop offset="95%" stopColor="#166534" stopOpacity={0} />
-                        </linearGradient>
-                        <linearGradient id="balanceGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#2563eb" stopOpacity={0.18} />
-                          <stop offset="95%" stopColor="#2563eb" stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <XAxis dataKey="month" tick={{ fontSize: 9, fill: "#657267" }} axisLine={false} tickLine={false} interval={2} />
-                      <YAxis tick={{ fontSize: 9, fill: "#657267" }} axisLine={false} tickLine={false} tickFormatter={(v) => `${(v / 10000).toFixed(0)}万`} width={35} />
-                      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                      <Tooltip {...tooltipStyle} formatter={(v: any) => [fmtMoney(Number(v)), "金额"]} />
-                      <Area type="monotone" dataKey="profit" stroke="#166534" fill="url(#profitGrad)" strokeWidth={1.5} name="profit" />
-                      <Area type="monotone" dataKey="balance" stroke="#2563eb" fill="url(#balanceGrad)" strokeWidth={1.5} name="balance" />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="h-full rounded-lg bg-surface-container-high/20" />
-                )}
-              </div>
-              <div className="grid grid-cols-6 gap-1">
-                {cashflow.filter((_, i) => i % 4 === 3 || i === 0).map((m) => (
-                  <div key={m.month} className={`text-center p-1.5 rounded ${m.isBreakeven ? "bg-emerald-500/10 border border-emerald-500/20" : "bg-surface-container-high/30"}`}>
-                    <p className="text-[8px] text-on-surface-variant/50">{m.month}月</p>
-                    <p className={`text-[10px] font-bold ${m.netProfit < 0 ? "text-error" : "text-on-background"}`}>{fmtMoney(m.netProfit)}</p>
-                    <p className="text-[7px] text-on-surface-variant/30">余额{fmtMoney(m.cashBalance)}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* 敏感性分析 */}
-          {activeTab === "sensitivity" && (
-            <div className="space-y-3">
-              <p className="text-[10px] text-on-surface-variant/50">各变量变动±20%对月利润的影响</p>
-              <div className="space-y-2">
-                {sensitivity.map((s) => {
-                  const maxImpact = Math.max(...sensitivity.map((x) => Math.abs(x.impactOnProfit)));
-                  const barWidth = (Math.abs(s.impactOnProfit) / maxImpact) * 100;
-                  return (
-                    <div key={s.name} className="flex items-center gap-2">
-                      <span className="text-[10px] text-on-surface-variant w-16 shrink-0 text-right">{s.label}</span>
-                      <div className="flex-1 flex items-center gap-1">
-                        <div className="flex-1 h-3 bg-surface-container-high/30 rounded-full overflow-hidden flex justify-end">
-                          <div className={`h-full rounded-l-full ${s.impactOnProfit < 0 ? "bg-error/60" : "bg-emerald-500/60"}`} style={{ width: `${barWidth}%` }} />
-                        </div>
-                        <span className={`text-[9px] font-mono w-14 text-right ${s.impactOnProfit < 0 ? "text-error" : "text-emerald-700"}`}>
-                          {s.impactOnProfit > 0 ? "+" : ""}{fmtMoney(s.impactOnProfit)}
-                        </span>
-                      </div>
-                      <span className="text-[8px] text-on-surface-variant/30 w-12">
-                        {s.impactOnPayback > 0 ? `+${s.impactOnPayback}月` : s.impactOnPayback < 0 ? `${s.impactOnPayback}月` : ""}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="p-2.5 rounded-lg bg-surface-container-high/30">
-                <p className="font-label-caps text-on-surface-variant text-[9px] mb-1">解读</p>
-                <p className="text-[10px] text-on-surface-variant">
-                  {sensitivity[0]?.label}对利润影响最大，变动±20%会导致月利润变化{fmtMoney(Math.abs(sensitivity[0]?.impactOnProfit || 0))}。
-                  {sensitivity[0]?.impactOnPayback ? `回本周期变化${Math.abs(sensitivity[0].impactOnPayback)}个月。` : ""}
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* 情景分析 */}
-          {activeTab === "scenarios" && (
-            <div className="h-full flex flex-col">
-              <div className="h-52 min-h-0">
-                {chartsReady ? (
-                  <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
-                    <BarChart data={scenarioData}>
-                      <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#657267" }} axisLine={false} tickLine={false} />
-                      <YAxis tick={{ fontSize: 10, fill: "#657267" }} axisLine={false} tickLine={false} tickFormatter={(v) => `${(v / 10000).toFixed(1)}万`} />
-                      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                      <Tooltip {...tooltipStyle} formatter={(v: any) => [fmtMoney(Number(v)), "月利润"]} />
-                      <Bar dataKey="profit" radius={[6, 6, 0, 0]}>
-                        {scenarioData.map((entry, i) => <Cell key={i} fill={entry.profit < 0 ? "#dc2626" : entry.profit > 5000 ? "#166534" : "#f59e0b"} />)}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="h-full rounded-lg bg-surface-container-high/20" />
-                )}
-              </div>
-              <div className="grid grid-cols-3 gap-2 mt-2 shrink-0">
-                {scenarioData.map((s) => (
-                  <div key={s.name} className="text-center p-2 rounded-lg bg-surface-container-high/30">
-                    <p className="text-[10px] text-on-surface-variant/50">{s.name}</p>
-                    <p className={`text-sm font-bold ${s.profit < 0 ? "text-error" : "text-on-background"}`}>{fmtMoney(s.profit)}</p>
-                    <p className="text-[9px] text-on-surface-variant/40">{s.months > 0 ? `${s.months}月` : "无法回本"}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* 成本明细 */}
-          {activeTab === "breakdown" && (
-            <div className="h-full flex flex-col">
-              <div className="h-52 min-h-0">
-                {chartsReady ? (
-                  <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
-                    <BarChart data={costBreakdown} layout="vertical">
-                      <XAxis type="number" tick={{ fontSize: 10, fill: "#657267" }} axisLine={false} tickLine={false} tickFormatter={(v) => `${(v / 10000).toFixed(1)}万`} />
-                      <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: "#657267" }} axisLine={false} tickLine={false} width={50} />
-                      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                      <Tooltip {...tooltipStyle} formatter={(v: any) => [fmtMoney(Number(v)), "金额"]} />
-                      <Bar dataKey="value" fill="#166534" radius={[0, 4, 4, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="h-full rounded-lg bg-surface-container-high/20" />
-                )}
-              </div>
-              <div className="grid grid-cols-3 gap-2 mt-2 shrink-0">
-                {costBreakdown.map((c) => (
-                  <div key={c.name} className="text-center p-1.5 rounded bg-surface-container-high/30">
-                    <p className="text-[9px] text-on-surface-variant/50">{c.name}</p>
-                    <p className="text-xs font-bold text-on-background">{fmtMoney(c.value)}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* 风险 */}
-          {activeTab === "risks" && <RiskList risks={risks} />}
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <Metric label="接店投入" value={money(transferFee)} hint="长期投入/回本基数" icon={<ReceiptText className="h-5 w-5" />} />
+          <Metric label="已付采购" value={money(paidPurchases)} hint={`${money(pendingInventory)} 仍在途`} icon={<Boxes className="h-5 w-5" />} />
+          <Metric label="已知现金流出" value={money(startupCashOut)} hint="不等于当期费用" icon={<Banknote className="h-5 w-5" />} />
+          <Metric label="8月起已知月固定" value={money(knownMonthlyFixedFromAugust)} hint="人工+房租+垃圾费，未含水电" icon={<CalendarClock className="h-5 w-5" />} />
         </div>
-      </AnimateIn>
+      </section>
+
+      <nav className="flex gap-1 overflow-x-auto rounded-xl border border-stone-200 bg-white/75 p-1" aria-label="资金分析视图">
+        {TABS.map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            onClick={() => setActiveTab(tab.key)}
+            className={`min-h-10 flex-1 whitespace-nowrap rounded-lg px-3 text-sm font-medium ${activeTab === tab.key ? "bg-stone-900 text-white" : "text-stone-600 hover:bg-stone-100"}`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </nav>
+
+      {activeTab === "overview" && (
+        <div className="grid gap-4 lg:grid-cols-3">
+          <ClassificationCard title="接店投入" amount={transferFee} status="已确认" lines={["转租店面 ¥40,000", "进入回本基数", "不应一次性混入7月日经营成本"]} />
+          <ClassificationCard title="采购存货" amount={paidPurchases} status={pendingInventory ? "待收货" : "已收货"} lines={["付款时：现金减少", "收货时：形成库存资产", "领用/销售时：按实际消耗进入成本"]} />
+          <ClassificationCard title="月度经营费用" amount={knownMonthlyFixedFromAugust} status="部分确认" lines={["7月房租：本店不承担", `8月起房租：${money(rent)}/月`, `垃圾费：${money(garbageFee)}/月 · 水电待确认`]} />
+        </div>
+      )}
+
+      {activeTab === "cashflow" && (
+        <section className="rounded-2xl border border-stone-200 bg-white/85 p-5">
+          <h2 className="text-base font-bold text-stone-950">当前现金流事实</h2>
+          <div className="mt-4 space-y-3">
+            <FlowRow from="银行卡/现金" action="支付接店转租款" to="长期投入" amount={transferFee} />
+            <FlowRow from="银行卡" action="支付供应链订单" to={pendingInventory ? "预付/在途采购" : "库存资产"} amount={paidPurchases} />
+            <FlowRow from="8月经营收入" action="按月承担" to="房租与垃圾费" amount={rent + garbageFee} />
+          </div>
+        </section>
+      )}
+
+      {activeTab === "sensitivity" && (
+        <section className="rounded-2xl border border-stone-200 bg-white/85 p-5">
+          <h2 className="text-base font-bold text-stone-950">已确认成本基准</h2>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <Fact label="7月房租" value="¥0" note={`合同成本从 ${rentStart || "2026-08-01"} 开始`} />
+            <Fact label="8月起房租" value={money(rent)} note="按月计入经营费用，日分析再按当月天数摊销" />
+            <Fact label="垃圾费" value={money(garbageFee)} note="每月固定费用" />
+            <Fact label="水电费" value="待确认" note="不能用 ¥0 或猜测区间代替真实账单" warning />
+          </div>
+        </section>
+      )}
+
+      {activeTab === "scenarios" && (
+        <section className="rounded-2xl border border-amber-200 bg-amber-50/65 p-5">
+          <h2 className="text-base font-bold text-stone-950">现在不能保证盈利，但可以定义盈利成立条件</h2>
+          <p className="mt-2 text-sm leading-6 text-stone-600">必须先补齐实际物料消耗、包装、人工、水电和平台结算，系统才计算贡献毛利、日保本额和回本周期。</p>
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <Condition title="收入基准" body="客如云营业收入、退款、优惠和渠道服务费每日对账" />
+            <Condition title="变动成本" body="商品销量 × BOM，与开包、生产批次、盘点差异互相核验" />
+            <Condition title="固定成本" body="人工、8月起房租、垃圾费、水电按真实发生期摊销" />
+          </div>
+        </section>
+      )}
+
+      {activeTab === "breakdown" && (
+        <section className="overflow-hidden rounded-2xl border border-stone-200 bg-white/85">
+          <LedgerRow name="转租费" amount={transferFee} category="接店投入" profitImpact="不直接进入每日利润" />
+          <LedgerRow name="供应链采购" amount={paidPurchases} category={pendingInventory ? "预付/在途资产" : "库存资产"} profitImpact="随实际消耗结转" />
+          <LedgerRow name="7月房租" amount={0} category="本月费用" profitImpact="本店不承担" />
+          <LedgerRow name="8月起房租" amount={rent} category="月固定费用" profitImpact="从8月开始" />
+          <LedgerRow name="垃圾费" amount={garbageFee} category="月固定费用" profitImpact="每月计入" />
+          <LedgerRow name="水电" amount={0} category="待确认" profitImpact="未录入前禁止确认净利" unknown />
+        </section>
+      )}
+
+      {activeTab === "risks" && (
+        <section className="rounded-2xl border border-red-200 bg-red-50/60 p-5">
+          <div className="flex items-center gap-2 text-red-800"><AlertTriangle className="h-5 w-5" /><h2 className="font-bold">当前财务缺口</h2></div>
+          <ul className="mt-4 space-y-2 text-sm leading-6 text-stone-700">
+            <li>• 水电账单未确认，真实净利润和保本额不能出最终结论。</li>
+            <li>• ¥13,791 采购仍待到货清点，不能提前增加库存。</li>
+            <li>• 商品 BOM 与包装规格未完整，商品贡献利润仍是待计算状态。</li>
+            <li>• 前老板代收团购券款需持续对账，避免“有销售、钱未到账”被忽略。</li>
+          </ul>
+        </section>
+      )}
     </div>
   );
+}
+
+function Metric({ label, value, hint, icon }: { label: string; value: string; hint: string; icon: React.ReactNode }) {
+  return <div className="rounded-xl border border-stone-200 bg-stone-50/80 p-4"><div className="flex items-center justify-between text-stone-500"><span className="text-xs font-medium">{label}</span>{icon}</div><p className="mt-2 text-xl font-bold tabular-nums text-stone-950">{value}</p><p className="mt-1 text-[11px] text-stone-500">{hint}</p></div>;
+}
+
+function ClassificationCard({ title, amount, status, lines }: { title: string; amount: number; status: string; lines: string[] }) {
+  return <section className="rounded-2xl border border-stone-200 bg-white/85 p-5"><div className="flex items-center justify-between"><h2 className="font-bold text-stone-950">{title}</h2><span className="rounded-full bg-stone-100 px-2 py-1 text-[10px] text-stone-600">{status}</span></div><p className="mt-3 text-2xl font-bold tabular-nums text-stone-950">{money(amount)}</p><ul className="mt-4 space-y-2">{lines.map((line) => <li key={line} className="flex gap-2 text-xs leading-5 text-stone-600"><CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />{line}</li>)}</ul></section>;
+}
+
+function FlowRow({ from, action, to, amount }: { from: string; action: string; to: string; amount: number }) {
+  return <div className="grid gap-2 rounded-xl border border-stone-200 p-3 sm:grid-cols-[1fr_auto_1fr_auto] sm:items-center"><span className="text-sm font-medium text-stone-900">{from}</span><span className="inline-flex items-center gap-1 text-xs text-stone-500">{action}<ArrowRight className="h-3.5 w-3.5" /></span><span className="text-sm font-medium text-stone-900">{to}</span><strong className="text-right tabular-nums text-stone-950">{money(amount)}</strong></div>;
+}
+
+function Fact({ label, value, note, warning = false }: { label: string; value: string; note: string; warning?: boolean }) {
+  return <div className={`rounded-xl border p-4 ${warning ? "border-amber-200 bg-amber-50" : "border-stone-200 bg-stone-50"}`}><p className="text-xs text-stone-500">{label}</p><p className="mt-2 text-xl font-bold text-stone-950">{value}</p><p className="mt-1 text-xs leading-5 text-stone-500">{note}</p></div>;
+}
+
+function Condition({ title, body }: { title: string; body: string }) {
+  return <div className="rounded-xl border border-amber-200 bg-white/80 p-4"><p className="text-sm font-bold text-stone-950">{title}</p><p className="mt-2 text-xs leading-5 text-stone-600">{body}</p></div>;
+}
+
+function LedgerRow({ name, amount, category, profitImpact, unknown = false }: { name: string; amount: number; category: string; profitImpact: string; unknown?: boolean }) {
+  return <div className="grid gap-2 border-b border-stone-100 px-5 py-4 last:border-0 md:grid-cols-[1fr_140px_180px_1.4fr] md:items-center"><strong className="text-sm text-stone-950">{name}</strong><span className="text-sm tabular-nums text-stone-900">{unknown ? "待确认" : money(amount)}</span><span className="text-xs text-stone-500">{category}</span><span className="text-xs text-stone-500">{profitImpact}</span></div>;
 }

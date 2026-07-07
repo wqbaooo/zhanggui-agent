@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, ArrowRight, Boxes, CalendarClock, CreditCard, DollarSign, ShieldAlert, TrendingDown, Utensils } from "lucide-react";
+import { AlertTriangle, ArrowRight, Boxes, DollarSign, ShieldAlert, TrendingDown, Utensils } from "lucide-react";
 import { ModulePage, getModule } from "@/components/agent-os/ModulePage";
-import { DEFAULT_PROJECT_ID, getOperationSummary, getForecast, getStaff, type ForecastItem, type HealthCertAlert } from "@/lib/api";
+import { DEFAULT_PROJECT_ID, getOperationSummary, getForecast, getStaff, type ForecastItem } from "@/lib/api";
 
 type Alert = {
   id: string;
@@ -44,8 +44,10 @@ export default function AlertsPage() {
       }
 
       // 亏损
-      if (ops.entry_count >= 3 && ops.net_profit < 0) {
+      if (ops.profit_ready && ops.entry_count >= 3 && ops.net_profit < 0) {
         items.push({ id: `loss-${items.length}`, level: "high", title: "当期亏损", body: `近${ops.entry_count}天净利 ¥${ops.net_profit.toFixed(0)}，优先检查食材、人工和平台活动。`, icon: TrendingDown, link: "/profit" });
+      } else if (ops.entry_count >= 3 && !ops.profit_ready) {
+        items.push({ id: `cost-gap-${items.length}`, level: "medium", title: "利润等待成本补齐", body: "三天营业收入已确认，食材、包装、人工、房租和水电尚未完整录入。", icon: TrendingDown, link: "/profit" });
       }
 
       // 数据不足

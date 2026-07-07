@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import json
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
@@ -11,7 +10,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from config import PROJECT_DATA_DIR
-from models.analytics import StoreAnalytics
+from models.analytics import StoreAnalytics, detect_monthly_anomalies
+from models.json_store import atomic_write_json, load_json
 
 
 @dataclass
@@ -43,6 +43,7 @@ class Report:
     findings: List[Dict[str, Any]] = field(default_factory=list)
     sections: Dict[str, Any] = field(default_factory=dict)
     actions: List[Dict[str, str]] = field(default_factory=list)
+    narrative: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -61,17 +62,15 @@ class ReportArchive:
     def save(self):
         self.updated_at = time.time()
         self.data_file.parent.mkdir(parents=True, exist_ok=True)
-        self.data_file.write_text(json.dumps(asdict(self), ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_json(self.data_file, asdict(self))
 
     @classmethod
     def load(cls, pid: str) -> Optional["ReportArchive"]:
         p = PROJECT_DATA_DIR / pid / "reports.json"
         if not p.exists():
             return None
-        try:
-            return cls(**json.loads(p.read_text(encoding="utf-8")))
-        except Exception:
-            return None
+        data = load_json(p)
+        return cls(**data) if data is not None else None
 
     @classmethod
     def create(cls, pid: str) -> "ReportArchive":
@@ -123,6 +122,13 @@ class ReportArchive:
 
         # 异常检测
         findings = ana.find_anomalies(start, end)
+
+        # 月度异常检测
+        if project_memory and project_memory.monthly_revenue and report_type == "monthly":
+            monthly_findings = detect_monthly_anomalies(
+                project_memory.monthly_revenue, project_memory.profile
+            )
+            findings.extend(monthly_findings)
 
         # SKU 库存
         sku_alerts = []
@@ -237,6 +243,7 @@ class ReportArchive:
             findings=findings,
             sections=sections,
             actions=actions,
+            narrative=_build_narrative(findings, total_rev, net, rev_change, profit_change, days),
         )
         self.reports.append(report.to_dict())
         self.save()
@@ -248,10 +255,10 @@ class ReportArchive:
             r = [x for x in r if x.get("report_type") == rt]
         return sorted(r, key=lambda x: x.get("generated_at", ""), reverse=True)[0] if r else None
 
-    def list_reports(self, rt: Optional[str] = None, limit: int = 12) -> List[Dict[str, Any]]:
+    def list_reports(self, report_type: Optional[str] = None, limit: int = 12) -> List[Dict[str, Any]]:
         r = self.reports
-        if rt:
-            r = [x for x in r if x.get("report_type") == rt]
+        if report_type:
+            r = [x for x in r if x.get("report_type") == report_type]
         return sorted(r, key=lambda x: x.get("generated_at", ""), reverse=True)[:limit]
 
     def get(self, rid: str) -> Optional[Dict[str, Any]]:
@@ -259,3 +266,35 @@ class ReportArchive:
             if r.get("id") == rid:
                 return r
         return None
+
+
+def _build_narrative(findings: List[Dict[str, Any]], total_rev: float, net: float,
+                     rev_change: float, profit_change: float, days: int) -> str:
+    """从 findings 生成老板可读的叙事段落。"""
+    parts: List[str] = []
+
+    # 营收概述
+    direction = "增长" if rev_change > 0 else "下降"
+    parts.append(
+        f"本期{days}天总营收 ¥{total_rev:,.0f}，较上期{direction}{abs(rev_change):.1f}%。"
+        f"净利润 ¥{net:,.0f}，{'盈利' if net >= 0 else '亏损'}{abs(profit_change):.1f}%。"
+    )
+
+    # 高优发现
+    risks = [f for f in findings if f.get("level") == "risk"]
+    watches = [f for f in findings if f.get("level") == "watch"]
+
+    if risks:
+        parts.append("⚠️ 需要关注：")
+        for f in risks[:3]:
+            parts.append(f"  • {f['title']}：{f['body']}")
+
+    if watches:
+        parts.append("📋 建议核查：")
+        for f in watches[:3]:
+            parts.append(f"  • {f['title']}：{f['body']}")
+
+    if not risks and not watches:
+        parts.append("本期经营正常，未发现明显异常。")
+
+    return "\n".join(parts)

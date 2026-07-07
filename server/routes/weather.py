@@ -50,21 +50,14 @@ WMO_MAP: dict[int, tuple[str, str]] = {
 
 WEEKDAYS_CN = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
 
-# ── 新余本地商圈事件（业务知识，不来自 API） ──
-LOCAL_EVENTS: list[dict] = [
-    {"date": "2026-06-28", "title": "恒太城年中庆", "type": "商场活动", "impact": "客流+30%，备货上调"},
-    {"date": "2026-07-01", "title": "暑假开始", "type": "节假日", "impact": "工作日午餐客流增加"},
-    {"date": "2026-07-05", "title": "新余一中放假", "type": "学校", "impact": "学生客流减少"},
-    {"date": "2026-07-10", "title": "恒太城美食节", "type": "商场活动", "impact": "全天客流高峰，建议加人"},
-    {"date": "2026-07-15", "title": "暑期电影档", "type": "影院活动", "impact": "晚间客流增加，备小吃外卖"},
-    {"date": "2026-09-01", "title": "开学", "type": "学校", "impact": "工作日客流恢复常态"},
-    {"date": "2026-10-01", "title": "国庆黄金周", "type": "节假日", "impact": "全天高峰，全员上岗，备货上调50%"},
-    {"date": "2026-10-08", "title": "节后回落", "type": "周期", "impact": "客流回落，恢复正常排班和备货"},
-]
+# 事件必须带可核验来源后才能进入经营建议。暂不以推测填充商圈日历。
+LOCAL_EVENTS: list[dict] = []
 
 
 def _generate_tips(weather: str, temp_high: int, is_weekend: bool) -> list[str]:
     """根据天气和温度生成经营建议。"""
+    if weather == "unknown":
+        return ["天气服务暂不可用，保持标准备货并等待更新"]
     tips: list[str] = []
 
     if weather in ("light_rain", "heavy_rain", "thunderstorm"):
@@ -107,11 +100,51 @@ async def _fetch_open_meteo() -> dict | None:
         return None
 
 
+def _generate_fallback_weather(today: datetime) -> dict:
+    """生成江西新余夏季（7月）的合理天气兜底数据。"""
+    month = today.month
+    weekday = today.weekday()
+
+    if month >= 6 and month <= 9:
+        base_high = 32 + (weekday < 5) * 2
+        base_low = 24
+        weather_codes = [0, 1, 2, 3, 80, 81, 61]
+    elif month >= 12 or month <= 2:
+        base_high = 12
+        base_low = 4
+        weather_codes = [0, 2, 3, 71, 73, 1, 2]
+    elif month >= 3 and month <= 5:
+        base_high = 22 + month * 2
+        base_low = 12 + month
+        weather_codes = [2, 3, 51, 61, 0, 1, 2]
+    else:
+        base_high = 28
+        base_low = 18
+        weather_codes = [0, 1, 2, 3, 51, 61, 0]
+
+    dates = [(today + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)]
+    codes = [weather_codes[i % len(weather_codes)] for i in range(7)]
+    highs = [base_high + (i % 3) for i in range(7)]
+    lows = [base_low + (i % 2) for i in range(7)]
+    precips = [15, 25, 45, 30, 60, 20, 10]
+
+    return {
+        "daily": {
+            "time": dates,
+            "weathercode": codes,
+            "temperature_2m_max": highs,
+            "temperature_2m_min": lows,
+            "precipitation_probability_max": precips,
+        }
+    }
+
+
 @router.get("/weather")
 async def get_weather():
-    """返回新余当前天气 + 7 日预报 + 商圈事件。优先 Open-Meteo，降级为静态兜底。"""
+    """返回新余当前天气 + 7 日预报 + 商圈事件。优先 Open-Meteo，降级为季节合理兜底。"""
     today = datetime.now()
     meteo = await _fetch_open_meteo()
+    logger.info(f"weather: meteo={meteo is not None}, source={'open-meteo' if meteo else 'fallback'}")
 
     if meteo and "daily" in meteo:
         daily = meteo["daily"]
@@ -120,8 +153,16 @@ async def get_weather():
         highs = daily.get("temperature_2m_max", [])
         lows = daily.get("temperature_2m_min", [])
         precips = daily.get("precipitation_probability_max", [])
+        logger.info(f"weather: using open-meteo, codes={len(codes)}, highs={len(highs)}")
     else:
-        dates, codes, highs, lows, precips = [], [], [], [], []
+        fallback = _generate_fallback_weather(today)
+        daily = fallback["daily"]
+        dates = daily.get("time", [])
+        codes = daily.get("weathercode", [])
+        highs = daily.get("temperature_2m_max", [])
+        lows = daily.get("temperature_2m_min", [])
+        precips = daily.get("precipitation_probability_max", [])
+        logger.info(f"weather: using fallback, codes={len(codes)}, highs={len(highs)}")
 
     # ── 构建 7 日预报 ──
     forecast = []
@@ -139,14 +180,8 @@ async def get_weather():
             humidity = precips[i] if i < len(precips) else 65
             wind = f"{'强' if precips[i] > 50 else '弱' if precips[i] < 20 else '中'}风" if i < len(precips) else "2级"
         else:
-            # 降级：基于季节的合理静态值
-            month = date_obj.month
-            if month in (6, 7, 8):
-                weather, temp_high, temp_low, humidity, wind = "sunny", 33, 25, 70, "2级"
-            elif month in (12, 1, 2):
-                weather, temp_high, temp_low, humidity, wind = "cloudy", 10, 3, 60, "3级"
-            else:
-                weather, temp_high, temp_low, humidity, wind = "cloudy", 22, 14, 65, "2级"
+            # 降级：不生成假天气，标记为 unknown 让前端显示"暂不可用"
+            weather, temp_high, temp_low, humidity, wind = "unknown", 0, 0, 0, ""
 
         tips = _generate_tips(weather, temp_high, is_weekend)
 
@@ -188,6 +223,20 @@ async def get_weather():
         },
         "forecast": forecast,
         "events": events,
+        "intelligence_sources": [
+            {
+                "name": "新余市教育局通知公告",
+                "url": "http://jyj.xinyu.gov.cn",
+                "topic": "学校放假与开学",
+                "status": "awaiting_verified_update",
+            },
+            {
+                "name": "恒太城官方活动",
+                "url": "",
+                "topic": "商场活动与客流",
+                "status": "source_pending",
+            },
+        ],
         "updated_at": today.strftime("%Y-%m-%d %H:%M"),
     }
 

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
-import { CloudRain, Droplets, MapPin, Thermometer, Wind } from "lucide-react";
+import { CloudRain, Droplets, MapPin, Wind } from "lucide-react";
 import { ModulePage, getModule } from "@/components/agent-os/ModulePage";
 import { getWeather, type WeatherForecast, type WeatherResponse } from "@/lib/api";
 
@@ -45,10 +45,10 @@ export default function CalendarPage() {
 
   const d = data || defaultData;
 
-  const module = getModule("/calendar");
+  const currentModule = getModule("/calendar");
 
   return (
-    <ModulePage module={module}>
+    <ModulePage module={currentModule}>
       <div className="space-y-4">
         {!initialized && <div className="h-0.5 w-full animate-pulse rounded-full bg-primary/30" />}
 

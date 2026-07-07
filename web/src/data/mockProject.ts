@@ -1,4 +1,4 @@
-/* ─── Mock 数据 — 示例门店 ─── */
+/* ─── Mock 数据 — 新余恒太城大口章鱼烧兜底数据 ─── */
 
 import type {
   Project, InvestmentModel,
@@ -9,10 +9,10 @@ import type {
 } from "../domain/types";
 
 export const mockProject: Project = {
-  id: "demo-project",
-  name: "示例门店",
-  category: "餐饮",
-  city: "示例城市",
+  id: "xinyu-hengtai-dakou",
+  name: "新余恒太城大口章鱼烧",
+  category: "章鱼小丸子/商场小吃档口",
+  city: "新余",
   stage: "trial_operation",
   budget: 300000,
   availableCash: 150000,
@@ -49,10 +49,10 @@ export const mockInvestment: InvestmentModel = {
 };
 
 export const mockLocation: LocationAssessment = {
-  city: "示例城市",
-  district: "示例区域",
-  businessAreaType: "community",
-  areaSqm: 35,
+  city: "新余",
+  district: "渝水区",
+  businessAreaType: "mall_food_court",
+  areaSqm: 10,
   monthlyRent: 8500,
   transferFee: 0,
   weekdayFootTraffic: 1500,

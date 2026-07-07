@@ -4,13 +4,13 @@
 
 from __future__ import annotations
 
-import json
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from config import PROJECT_DATA_DIR
+from models.json_store import atomic_write_json, load_json
 
 
 @dataclass
@@ -33,7 +33,144 @@ class ProjectMemory:
     integrations: List[Dict[str, Any]] = field(default_factory=list)
     delivery_imports: List[Dict[str, Any]] = field(default_factory=list)
     decisions_log: List[Dict[str, Any]] = field(default_factory=list)
+    monthly_revenue: List[Dict[str, Any]] = field(default_factory=list)
     artifacts: List[Dict[str, str]] = field(default_factory=list)
+    capture_audit_log: List[Dict[str, Any]] = field(default_factory=list)
+
+    def monthly_summary(self) -> Dict[str, Any]:
+        """月度经营汇总。
+
+        营业额与净利润是不同指标，只允许各自与上年同指标比较。
+        """
+        entries = sorted(
+            self.monthly_revenue,
+            key=lambda item: (int(item.get("year", 0)), int(item.get("month", 0))),
+        )
+        rent = self.profile.get("monthly_rent", 0)
+        wage_per_person = self.profile.get("wage_per_person", 0)
+        current_staff_count = self.profile.get("current_staff_count", 0)
+        previous_staff_count = self.profile.get("previous_staff_count", 0)
+        labor = self.profile.get("monthly_labor", wage_per_person * current_staff_count)
+        utility_avg = (
+            (self.profile.get("monthly_utility_min", 0) + self.profile.get("monthly_utility_max", 0)) / 2
+        )
+        estimated_monthly_cost = rent + labor + utility_avg
+
+        years = sorted({int(e["year"]) for e in entries if e.get("year") is not None})
+        revenue_years = sorted({
+            int(e["year"]) for e in entries
+            if e.get("year") is not None and e.get("revenue") is not None
+        })
+        current_year = revenue_years[-1] if revenue_years else (years[-1] if years else None)
+        baseline_years = sorted({
+            int(e["year"]) for e in entries
+            if e.get("year") is not None
+            and e.get("net_profit") is not None
+            and (current_year is None or int(e["year"]) < current_year)
+        })
+        baseline_year = baseline_years[-1] if baseline_years else (
+            current_year - 1 if current_year is not None else None
+        )
+
+        by_period = {
+            (int(e.get("year", 0)), int(e.get("month", 0))): e
+            for e in entries
+            if e.get("year") is not None and e.get("month") is not None
+        }
+        months = []
+        ytd_revenue = 0
+        ytd_last_profit = 0
+
+        for month in range(1, 13) if entries else []:
+            current = by_period.get((current_year, month), {}) if current_year is not None else {}
+            baseline = by_period.get((baseline_year, month), {}) if baseline_year is not None else {}
+            revenue = current.get("revenue")
+            current_net_profit = current.get("net_profit")
+            last_profit = baseline.get("net_profit")
+            if last_profit is None:
+                # 兼容旧结构：去年利润曾与今年营业额混存在同一条记录中。
+                last_profit = current.get("last_year_profit")
+            if revenue is not None:
+                ytd_revenue += revenue
+            if last_profit is not None:
+                ytd_last_profit += last_profit
+
+            days_in_month = _days_in_month(current_year or 2026, month)
+            daily_avg = round(revenue / days_in_month, 0) if revenue else None
+            last_daily_avg = round(last_profit / days_in_month, 0) if last_profit else 0
+            profit_yoy_pct = None
+            if current_net_profit is not None and last_profit not in (None, 0):
+                profit_yoy_pct = round((current_net_profit - last_profit) / last_profit * 100, 1)
+
+            months.append({
+                "year": current_year,
+                "month": month,
+                "revenue": revenue,
+                "net_profit": current_net_profit,
+                "last_year_profit": last_profit or 0,
+                "daily_avg": daily_avg,
+                "last_daily_avg": last_daily_avg,
+                "estimated_profit": current_net_profit,
+                "yoy_pct": profit_yoy_pct,
+                "profit_yoy_pct": profit_yoy_pct,
+                "days_in_month": days_in_month,
+                "revenue_review_status": current.get("review_status"),
+                "profit_review_status": baseline.get("review_status"),
+            })
+
+        months_with_revenue = [m for m in months if m["revenue"] is not None]
+        total_revenue = sum(m["revenue"] for m in months_with_revenue)
+        total_last = sum(m["last_year_profit"] for m in months)
+        avg_monthly_revenue = round(total_revenue / len(months_with_revenue), 0) if months_with_revenue else 0
+        avg_monthly_last = round(total_last / len(months), 0) if months else 0
+
+        return {
+            "months": months,
+            "entry_count": len(months),
+            "months_with_revenue": len(months_with_revenue),
+            "total_revenue": total_revenue,
+            "total_last_year": total_last,
+            "avg_monthly_revenue": avg_monthly_revenue,
+            "avg_monthly_last": avg_monthly_last,
+            "estimated_monthly_cost": round(estimated_monthly_cost, 0),
+            "rent": rent,
+            "labor": labor,
+            "utility_avg": round(utility_avg, 0),
+            "wage_per_person": wage_per_person,
+            "current_staff_count": current_staff_count,
+            "previous_staff_count": previous_staff_count,
+            "ytd_revenue": ytd_revenue,
+            "ytd_last_profit": ytd_last_profit,
+            "current_year": current_year,
+            "baseline_year": baseline_year,
+            "records": entries,
+        }
+
+    def upsert_monthly_operating(
+        self,
+        entries: List[Dict[str, Any]],
+        cost_baseline: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """按年月幂等写入已确认的月度经营记录，并更新成本基线。"""
+        indexed = {
+            (int(item.get("year", 0)), int(item.get("month", 0))): dict(item)
+            for item in self.monthly_revenue
+            if item.get("year") is not None and item.get("month") is not None
+        }
+        for item in entries:
+            key = (int(item["year"]), int(item["month"]))
+            previous = indexed.get(key, {})
+            indexed[key] = {**previous, **item}
+        self.monthly_revenue = sorted(indexed.values(), key=lambda item: (item["year"], item["month"]))
+
+        baseline = {k: v for k, v in (cost_baseline or {}).items() if v is not None}
+        self.profile.update(baseline)
+        wage = self.profile.get("wage_per_person", 0)
+        if "current_staff_count" in self.profile and wage:
+            self.profile["monthly_labor"] = wage * self.profile["current_staff_count"]
+        if "previous_staff_count" in self.profile and wage:
+            self.profile["previous_monthly_labor"] = wage * self.profile["previous_staff_count"]
+        self.save()
 
     @property
     def data_dir(self) -> Path:
@@ -44,10 +181,7 @@ class ProjectMemory:
         self.updated_at = time.time()
         self.data_dir.mkdir(parents=True, exist_ok=True)
         path = self.data_dir / "memory.json"
-        path.write_text(
-            json.dumps(asdict(self), ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        atomic_write_json(path, asdict(self))
 
     @classmethod
     def load(cls, project_id: str) -> Optional["ProjectMemory"]:
@@ -55,11 +189,8 @@ class ProjectMemory:
         path = PROJECT_DATA_DIR / project_id / "memory.json"
         if not path.exists():
             return None
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            return cls(**data)
-        except Exception:
-            return None
+        data = load_json(path)
+        return cls(**data) if data is not None else None
 
     @classmethod
     def create(cls, project_id: str) -> "ProjectMemory":
@@ -114,6 +245,8 @@ class ProjectMemory:
             "baseline_comparison": comparison,
             "operations": operations,
             "recent_operations": self.daily_operations[-days:] if days > 0 else self.daily_operations,
+            "monthly_comparison": self._monthly_yo_y_comparison(),
+            "agent_signals": self._generate_agent_signals(operations),
             "data_quality": data_quality,
             "decision": decision,
             "next_actions": _next_actions(data_quality, decision, current_stage, self.action_tasks),
@@ -122,23 +255,316 @@ class ProjectMemory:
             "evidence": _evidence(self, operations, baseline),
         }
 
-    def add_daily_operation(self, entry: Dict[str, Any]):
-        """添加或覆盖单日经营数据。"""
+    def _monthly_yo_y_comparison(self) -> Dict[str, Any]:
+        """本月经营摘要；不同指标不计算伪同比。"""
+        from datetime import datetime
+        now = datetime.now()
+        current_month = now.month
+        rent = self.profile.get("monthly_rent", 0)
+        labor = self.profile.get("monthly_labor", 0)
+        utility_avg = (
+            (self.profile.get("monthly_utility_min", 0) + self.profile.get("monthly_utility_max", 0)) / 2
+        )
+        est_cost = round(rent + labor + utility_avg, 0)
+
+        current_entry = next(
+            (e for e in self.monthly_revenue if e.get("year") == now.year and e.get("month") == current_month),
+            None,
+        )
+        if not current_entry:
+            return {
+                "current_month": current_month,
+                "available": False,
+                "estimated_monthly_cost": est_cost,
+                "comparison_metric": "net_profit",
+            }
+
+        revenue = current_entry.get("revenue")
+        previous_entry = next(
+            (
+                e for e in self.monthly_revenue
+                if e.get("year") == now.year - 1 and e.get("month") == current_month
+            ),
+            {},
+        )
+        last_profit = previous_entry.get("net_profit", current_entry.get("last_year_profit", 0))
+        current_profit = current_entry.get("net_profit")
+        yoy_pct = None
+        if current_profit is not None and last_profit and last_profit > 0:
+            yoy_pct = round((current_profit - last_profit) / last_profit * 100, 1)
+
+        return {
+            "current_month": current_month,
+            "available": True,
+            "revenue": revenue,
+            "net_profit": current_profit,
+            "last_year_profit": last_profit,
+            "yoy_pct": yoy_pct,
+            "estimated_profit": current_profit,
+            "estimated_monthly_cost": est_cost,
+            "comparison_metric": "net_profit",
+        }
+
+    def _generate_agent_signals(self, operations: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """生成 Agent 主动信号：从经营数据 + 月度对比中提取预警。"""
+        signals: List[Dict[str, Any]] = []
+
+        # 财务 Agent 信号
+        if not operations.get("profit_ready", True):
+            signals.append({
+                "source": "财务 Agent",
+                "title": "利润等待成本补齐",
+                "body": "营业收入已确认；食材、包装、人工、房租或水电尚未完整录入。",
+                "tone": "watch",
+                "target": "/profit",
+            })
+        elif operations.get("net_profit", 0) < 0:
+            signals.append({
+                "source": "财务 Agent",
+                "title": "近7天亏损",
+                "body": f"净利 ¥{operations['net_profit']:,.0f}，先检查食材成本率和外卖佣金。",
+                "tone": "risk",
+                "target": "/profit",
+            })
+        elif operations.get("food_cost_rate", 0) > 0.38:
+            signals.append({
+                "source": "财务 Agent",
+                "title": f"食材成本率 {operations['food_cost_rate']:.0%}",
+                "body": "超过 38%，核对采购价、损耗和低毛利套餐。",
+                "tone": "watch",
+                "target": "/inventory",
+            })
+
+        # 月度同比信号
+        monthly = self._monthly_yo_y_comparison()
+        if monthly.get("available") and monthly.get("yoy_pct") is not None:
+            yoy = monthly["yoy_pct"]
+            if yoy < -20:
+                signals.append({
+                    "source": "情报 Agent",
+                    "title": f"本月营收同比暴跌 {yoy}%",
+                    "body": f"去年同月 ¥{monthly['last_year_profit']:,} → 今年 ¥{monthly['revenue']:,}。",
+                    "tone": "risk",
+                    "target": "/monthly",
+                })
+            elif yoy > 100:
+                signals.append({
+                    "source": "情报 Agent",
+                    "title": f"本月营收同比增长 {yoy}%",
+                    "body": "增速偏高，确认是否有特殊原因或数据录入问题。",
+                    "tone": "info",
+                    "target": "/monthly",
+                })
+
+        # 库存 Agent 信号
+        recent_months = [e for e in self.monthly_revenue if e.get("revenue") is not None]
+        if len(recent_months) >= 2 and recent_months[-1]["revenue"] > recent_months[-2]["revenue"] * 1.3:
+            signals.append({
+                "source": "库存 Agent",
+                "title": "月营收跃升，建议检查库存",
+                "body": "本月营收较上月增长超30%，食材和耗材可能吃紧。",
+                "tone": "watch",
+                "target": "/inventory",
+            })
+
+        # 风控信号
+        if (
+            operations.get("profit_ready", True)
+            and operations.get("takeout_ratio", 0) > 0.45
+            and operations.get("net_profit", 0) <= 0
+        ):
+            signals.append({
+                "source": "风控 Agent",
+                "title": "外卖依赖 + 亏损",
+                "body": f"外卖占比{operations['takeout_ratio']:.0%}但净利润为负，平台佣金可能侵蚀所有利润。",
+                "tone": "risk",
+                "target": "/channels",
+            })
+
+        # SOP 差评联动
+        if operations.get("bad_review_rate", 0) > 0.03:
+            total_bad = operations.get("total_bad_reviews", 0)
+            signals.append({
+                "source": "SOP Agent",
+                "title": f"差评率 {operations['bad_review_rate']:.1%}，建议复核 SOP",
+                "body": f"近7天 {total_bad} 条差评，拆解出餐速度、口味、包装原因，更新相关 SOP。",
+                "tone": "risk" if operations["bad_review_rate"] > 0.05 else "watch",
+                "target": "/sop",
+            })
+
+        return signals
+
+    def add_daily_operation(self, entry: Dict[str, Any], strategy: str = "overwrite"):
+        """添加或覆盖单日经营数据。
+
+        strategy:
+        - overwrite: 直接替换同日期旧数据（默认）
+        - merge: 保留旧数据非零字段，用新数据填充零或缺失字段，且不覆盖 source_trace
+        - skip_duplicates: 同日期已有数据则跳过
+        """
         date = entry.get("date")
         entry["created_at"] = entry.get("created_at", time.time())
         entry["updated_at"] = time.time()
-        if date:
-            self.daily_operations = [
-                old for old in self.daily_operations if old.get("date") != date
+
+        # 自动填充来源字段
+        if "source_imported_at" not in entry or not entry.get("source_imported_at"):
+            from datetime import datetime as dt
+            entry["source_imported_at"] = dt.now().isoformat()
+        if "source_type" not in entry or not entry.get("source_type"):
+            entry["source_type"] = "manual"
+        if "source_platform" not in entry or not entry.get("source_platform"):
+            entry["source_platform"] = "unknown"
+        if "source_quality_score" not in entry or not entry.get("source_quality_score"):
+            entry["source_quality_score"] = _compute_source_quality(entry)
+
+        if not date:
+            self.daily_operations.append(entry)
+            self.save()
+            return
+
+        existing = None
+        for old in self.daily_operations:
+            if old.get("date") == date:
+                existing = old
+                break
+
+        if strategy == "skip_duplicates" and existing is not None:
+            return  # 已有数据，跳过
+
+        if strategy == "merge" and existing is not None:
+            # 合并：新数据填充零/缺失字段，保留旧 source_trace
+            old_source = {
+                k: existing.get(k) for k in [
+                    "source_type", "source_platform", "source_file_name",
+                    "source_raw_text", "source_confidence", "source_imported_at",
+                    "source_quality_score",
+                ]
+            }
+            numeric_fields = [
+                "revenue", "orders", "dine_in_revenue", "dine_in_orders",
+                "delivery_revenue", "delivery_orders", "food_cost", "packaging_cost",
+                "labor", "rent_allocated", "utility", "other_cost",
+                "takeout_orders", "platform_fee", "marketing_cost", "inventory_loss",
+                "bad_reviews", "repeat_orders", "new_members",
+                "original_amount", "actual_revenue", "merchant_discount", "refund_amount",
+                "refund_orders", "service_fee", "delivery_fee", "surcharge",
+                "items_sold", "customers",
+                "avg_order_value_before_discount", "avg_order_value_after_discount",
             ]
+            for key in numeric_fields:
+                old_val = existing.get(key, 0) or 0
+                new_val = entry.get(key, 0) or 0
+                # 保留非零旧值，新数据只填充零值字段
+                if old_val > 0 and new_val <= 0:
+                    entry[key] = old_val
+                elif old_val <= 0 and new_val > 0:
+                    entry[key] = new_val
+                elif old_val > 0 and new_val > 0:
+                    # 都有值：取新高置信度源的值
+                    entry[key] = new_val if _source_priority(entry) >= _source_priority(existing) else old_val
+            # 保留旧来源信息（旧数据优先级高说明旧数据更可靠）
+            for k, v in old_source.items():
+                if v and not entry.get(k):
+                    entry[k] = v
+            # 重新计算质量分
+            entry["source_quality_score"] = _compute_source_quality(entry)
+            # 标记合并
+            entry["notes"] = (existing.get("notes", "") + " | " + entry.get("notes", "")).strip(" |")
+
+        # 删除旧条目
+        self.daily_operations = [
+            old for old in self.daily_operations if old.get("date") != date
+        ]
         self.daily_operations.append(entry)
         self.daily_operations.sort(key=lambda item: item.get("date", ""))
+        self.save()
+
+    def add_capture_audit_log(self, record: Dict[str, Any]) -> None:
+        """记录录入操作审计日志。
+
+        record 应包含：
+        - timestamp: 操作时间
+        - source_type: 来源类型（image/speech/csv/text）
+        - file_name: 文件名（图片/语音/CSV）
+        - capture_kind: 识别分类（operation/document/unknown）
+        - recognized_fields: 识别出的字段摘要
+        - human_modified_fields: 人工修改的字段（确认后回填）
+        - review_status: 状态（recognized/confirmed/written/failed）
+        - write_target: 写入目标（daily_operations/documents/sops）
+        - error_message: 错误信息（如有）
+        """
+        record["id"] = f"cap-{len(self.capture_audit_log) + 1}-{int(time.time())}"
+        record["timestamp"] = record.get("timestamp", time.time())
+        self.capture_audit_log.append(record)
+        self.capture_audit_log.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
+        if len(self.capture_audit_log) > 500:
+            self.capture_audit_log = self.capture_audit_log[:500]
         self.save()
 
     def operation_summary(self, days: int = 7) -> Dict[str, Any]:
         """汇总最近 N 条经营数据。"""
         entries = self.daily_operations[-days:] if days > 0 else self.daily_operations
-        total_revenue = sum(float(e.get("revenue", 0) or 0) for e in entries)
+        prev_entries = self.daily_operations[-(days*2):-days] if len(self.daily_operations) >= days*2 else []
+
+        required_cost_fields = [
+            "food_cost",
+            "packaging_cost",
+            "labor",
+            "rent_allocated",
+            "utility",
+        ]
+        missing_cost_fields = [
+            field
+            for field in required_cost_fields
+            if any(
+                float(entry.get("actual_revenue", 0) or entry.get("revenue", 0) or 0) > 0
+                and field not in entry
+                for entry in entries
+            )
+        ]
+        # 字段存在不代表成本已确认。估算值只能辅助观察，不能据此宣称真实净利。
+        if any(entry.get("cost_status") != "confirmed" for entry in entries):
+            missing_cost_fields = list(required_cost_fields)
+        if self.profile.get("monthly_utility_status") == "unknown" and "utility" not in missing_cost_fields:
+            missing_cost_fields.append("utility")
+        profit_ready = bool(entries) and not missing_cost_fields
+
+        def operating_cost(entry: Dict[str, Any]) -> float:
+            """Return costs not already netted from the recorded income.
+
+            客如云 actual_revenue/营业收入已经是结算后收入。服务费和商户优惠
+            保留作经营漏斗分析，但不能再从实际收入中重复扣减。
+            """
+            base = (
+                float(entry.get("food_cost", 0) or 0)
+                + float(entry.get("packaging_cost", 0) or 0)
+                + float(entry.get("labor", 0) or 0)
+                + float(entry.get("rent_allocated", 0) or 0)
+                + float(entry.get("utility", 0) or 0)
+                + float(entry.get("other_cost", 0) or 0)
+                + float(entry.get("inventory_loss", 0) or 0)
+            )
+            is_net_settlement = (
+                entry.get("revenue_basis") == "net_settlement"
+                or float(entry.get("actual_revenue", 0) or 0) > 0
+            )
+            if not is_net_settlement:
+                base += float(entry.get("platform_fee", 0) or 0)
+                base += float(entry.get("marketing_cost", 0) or 0)
+            return base
+
+        total_revenue = sum(float(e.get("actual_revenue", 0) or e.get("revenue", 0) or 0) for e in entries)
+        total_original_amount = sum(float(e.get("original_amount", 0) or 0) for e in entries)
+        total_merchant_discount = sum(float(e.get("merchant_discount", 0) or 0) for e in entries)
+        total_refund_amount = sum(float(e.get("refund_amount", 0) or 0) for e in entries)
+        total_service_fee = sum(float(e.get("service_fee", 0) or 0) for e in entries)
+        total_delivery_fee = sum(float(e.get("delivery_fee", 0) or 0) for e in entries)
+        total_surcharge = sum(float(e.get("surcharge", 0) or 0) for e in entries)
+        total_items_sold = sum(int(e.get("items_sold", 0) or 0) for e in entries)
+        total_customers = sum(int(e.get("customers", 0) or 0) for e in entries)
+        total_visitors = sum(int(e.get("visitors", 0) or 0) for e in entries)
+        total_dining_customers = sum(int(e.get("dining_customers", 0) or 0) for e in entries)
+        total_sales_transactions = sum(int(e.get("sales_transactions", 0) or 0) for e in entries)
         total_orders = sum(int(e.get("orders", 0) or 0) for e in entries)
         total_food_cost = sum(float(e.get("food_cost", 0) or 0) for e in entries)
         total_labor = sum(float(e.get("labor", 0) or 0) for e in entries)
@@ -150,32 +576,94 @@ class ProjectMemory:
         total_platform = sum(float(e.get("platform_fee", 0) or 0) for e in entries)
         total_loss = sum(float(e.get("inventory_loss", 0) or 0) for e in entries)
         total_bad_reviews = sum(int(e.get("bad_reviews", 0) or 0) for e in entries)
+        # 外卖营收
+        total_delivery_revenue = sum(float(e.get("delivery_revenue", 0) or 0) for e in entries)
+
+        settlement_totals: Dict[str, float] = {
+            "current_owner": 0.0,
+            "former_owner": 0.0,
+            "cash_on_hand": 0.0,
+        }
+        settlement_status_totals: Dict[str, float] = {}
+        product_sales_map: Dict[str, Dict[str, float]] = {}
+        former_owner_methods = {"美团外卖", "淘宝闪购餐饮", "美团团购券", "抖音团购券"}
+        for entry in entries:
+            breakdown = entry.get("settlement_breakdown") or []
+            if breakdown:
+                for item in breakdown:
+                    amount = float(item.get("amount", 0) or 0)
+                    owner = item.get("owner", "")
+                    status = item.get("status", "unknown")
+                    if owner in settlement_totals:
+                        settlement_totals[owner] += amount
+                    if status == "cash_on_hand":
+                        settlement_totals["cash_on_hand"] += amount
+                    settlement_status_totals[status] = (
+                        settlement_status_totals.get(status, 0.0) + amount
+                    )
+            else:
+                for payment in entry.get("payment_methods", []) or []:
+                    method = payment.get("method", "")
+                    amount = float(payment.get("amount", 0) or 0)
+                    if method in former_owner_methods:
+                        settlement_totals["former_owner"] += amount
+                        settlement_status_totals["pending_reconciliation"] = (
+                            settlement_status_totals.get("pending_reconciliation", 0.0)
+                            + amount
+                        )
+                    elif method == "现金":
+                        settlement_totals["current_owner"] += amount
+                        settlement_totals["cash_on_hand"] += amount
+                        settlement_status_totals["cash_on_hand"] = (
+                            settlement_status_totals.get("cash_on_hand", 0.0)
+                            + amount
+                        )
+                    else:
+                        settlement_totals["current_owner"] += amount
+                        settlement_status_totals["expected_settled_unconfirmed"] = (
+                            settlement_status_totals.get("expected_settled_unconfirmed", 0.0)
+                            + amount
+                        )
+
+            for product in entry.get("product_sales", []) or []:
+                name = str(product.get("name", "")).strip()
+                if not name:
+                    continue
+                current = product_sales_map.setdefault(name, {"quantity": 0.0, "amount": 0.0})
+                current["quantity"] += float(product.get("quantity", 0) or 0)
+                current["amount"] += float(product.get("amount", 0) or 0)
+
         prime_cost = total_food_cost + total_labor
-        total_cost = (
-            total_food_cost + total_labor + total_rent + total_utility +
-            total_other + total_marketing + total_platform + total_loss
-        )
+        total_cost = sum(operating_cost(entry) for entry in entries)
         net_profit = total_revenue - total_cost
         avg_order_value = total_revenue / total_orders if total_orders else 0
+        prev_total_revenue = sum(float(e.get("actual_revenue", 0) or e.get("revenue", 0) or 0) for e in prev_entries)
+        prev_total_original_amount = sum(float(e.get("original_amount", 0) or 0) for e in prev_entries)
+        prev_total_orders = sum(int(e.get("orders", 0) or 0) for e in prev_entries)
+        prev_total_cost = sum(operating_cost(entry) for entry in prev_entries)
+        prev_net_profit = prev_total_revenue - prev_total_cost
+        prev_avg_order_value = prev_total_revenue / prev_total_orders if prev_total_orders else 0
+
         food_cost_rate = total_food_cost / total_revenue if total_revenue else 0
         labor_cost_rate = total_labor / total_revenue if total_revenue else 0
         prime_cost_rate = prime_cost / total_revenue if total_revenue else 0
         platform_fee_rate = total_platform / total_revenue if total_revenue else 0
         bad_review_rate = total_bad_reviews / total_orders if total_orders else 0
         takeout_ratio = total_takeout / total_orders if total_orders else 0
+        delivery_rate = total_delivery_revenue / total_revenue if total_revenue else 0
 
         alerts: List[Dict[str, str]] = []
-        if entries and net_profit < 0:
+        if profit_ready and net_profit < 0:
             alerts.append({
                 "level": "high",
                 "message": "最近经营数据为亏损，先检查食材成本、人工和平台活动是否吃掉毛利。",
             })
-        if food_cost_rate > 0.4:
+        if profit_ready and food_cost_rate > 0.4:
             alerts.append({
                 "level": "medium",
                 "message": "食材成本率超过 40%，需要核对总部供货价、损耗和套餐毛利。",
             })
-        if prime_cost_rate > 0.65:
+        if profit_ready and prime_cost_rate > 0.65:
             alerts.append({
                 "level": "medium",
                 "message": "Prime Cost 超过 65%，食材和人工合计已经压缩利润空间。",
@@ -195,10 +683,57 @@ class ProjectMemory:
             "days": days,
             "entry_count": len(entries),
             "total_revenue": round(total_revenue, 2),
+            "total_original_amount": round(total_original_amount, 2),
+            "total_merchant_discount": round(total_merchant_discount, 2),
+            "total_refund_amount": round(total_refund_amount, 2),
+            "total_service_fee": round(total_service_fee, 2),
+            "total_delivery_fee": round(total_delivery_fee, 2),
+            "total_surcharge": round(total_surcharge, 2),
+            "total_items_sold": total_items_sold,
+            "total_customers": total_customers,
+            "total_visitors": total_visitors,
+            "total_dining_customers": total_dining_customers,
+            "total_sales_transactions": total_sales_transactions,
             "total_orders": total_orders,
             "avg_order_value": round(avg_order_value, 2),
+            "prev_total_revenue": round(prev_total_revenue, 2),
+            "prev_total_original_amount": round(prev_total_original_amount, 2),
+            "prev_total_orders": prev_total_orders,
+            "prev_net_profit": round(prev_net_profit, 2),
+            "prev_avg_order_value": round(prev_avg_order_value, 2),
+            "delivery_revenue": round(total_delivery_revenue, 2),
+            "delivery_rate": round(delivery_rate, 4),
+            "settlement_summary": {
+                "current_owner": round(settlement_totals["current_owner"], 2),
+                "former_owner": round(settlement_totals["former_owner"], 2),
+                "cash_on_hand": round(settlement_totals["cash_on_hand"], 2),
+                "by_status": {
+                    key: round(value, 2)
+                    for key, value in settlement_status_totals.items()
+                },
+                "method": "销售收入按支付方式归属；前老板代收不影响收入确认，但在转账核销前保留为应核对款。",
+            },
+            "product_sales": sorted(
+                [
+                    {
+                        "name": name,
+                        "quantity": round(values["quantity"], 2),
+                        "amount": round(values["amount"], 2),
+                    }
+                    for name, values in product_sales_map.items()
+                ],
+                key=lambda item: item["amount"],
+                reverse=True,
+            ),
             "total_cost": round(total_cost, 2),
             "net_profit": round(net_profit, 2),
+            "profit_ready": profit_ready,
+            "profit_status": "confirmed" if profit_ready else "missing_costs",
+            "missing_cost_fields": missing_cost_fields,
+            "cost_coverage": round(
+                (len(required_cost_fields) - len(missing_cost_fields)) / len(required_cost_fields),
+                4,
+            ),
             "food_cost_rate": round(food_cost_rate, 4),
             "labor_cost_rate": round(labor_cost_rate, 4),
             "prime_cost": round(prime_cost, 2),
@@ -390,6 +925,8 @@ def _decision_brief(operations: Dict[str, Any], baseline: Dict[str, Any], data_q
         contradiction = "缺真实经营流水，无法验证筹备期假设"
     elif operations.get("entry_count", 0) < 7:
         contradiction = "样本周期太短，先补齐 7 天流水"
+    elif not operations.get("profit_ready", True):
+        contradiction = "收入已确认但成本未补齐，暂不能判断真实利润"
     elif operations.get("net_profit", 0) < 0:
         contradiction = "经营现金流为负，优先查毛利、人工和平台成本"
     elif operations.get("food_cost_rate", 0) > 0.4:
@@ -465,6 +1002,11 @@ def _evidence(memory: ProjectMemory, operations: Dict[str, Any], baseline: Dict[
     return evidence
 
 
+def _days_in_month(year: int, month: int) -> int:
+    import calendar
+    return calendar.monthrange(year, month)[1]
+
+
 def _first_number(data: Dict[str, Any], keys: List[str]) -> Optional[float]:
     for key in keys:
         value = data.get(key)
@@ -475,6 +1017,44 @@ def _first_number(data: Dict[str, Any], keys: List[str]) -> Optional[float]:
         except ValueError:
             continue
     return None
+
+
+def _compute_source_quality(entry: Dict[str, Any]) -> str:
+    """计算数据质量评分 A/B/C/D。
+
+    A: OCR/CSV 高置信 + 核心字段完整（revenue, orders, food_cost, labor）
+    B: OCR/CSV 中置信 + 至少 revenue + orders
+    C: manual 或 estimated，或核心字段不全
+    D: 严重缺失数据
+    """
+    source_type = entry.get("source_type", "manual")
+    confidence = entry.get("source_confidence", "low")
+    revenue = entry.get("revenue", 0) or 0
+    orders = entry.get("orders", 0) or 0
+    food_cost = entry.get("food_cost", 0) or 0
+    labor = entry.get("labor", 0) or 0
+
+    core_fields_count = sum(1 for v in [revenue, orders, food_cost, labor] if v > 0)
+
+    if source_type in ("manual", "estimated"):
+        return "C" if core_fields_count >= 2 else "D"
+
+    if confidence == "high" and core_fields_count >= 4:
+        return "A"
+    if confidence in ("high", "medium") and core_fields_count >= 2:
+        return "B"
+    if core_fields_count >= 2:
+        return "C"
+    return "D"
+
+
+def _source_priority(entry: Dict[str, Any]) -> int:
+    """数据来源优先级：A > B > C > D，同级别 csv > ocr > manual > estimated。"""
+    quality = entry.get("source_quality_score", "D")
+    source_type = entry.get("source_type", "manual")
+    base = {"A": 400, "B": 300, "C": 200, "D": 100}.get(quality, 0)
+    type_bonus = {"csv": 30, "ocr": 20, "manual": 10, "estimated": 0}.get(source_type, 0)
+    return base + type_bonus
 
 
 def _action_target(missing_item: str) -> str:

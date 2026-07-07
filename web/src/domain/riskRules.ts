@@ -5,7 +5,7 @@ import type {
   OperationDailyRecord, RiskItem, RiskLevel,
   PermissionMatrix, FulfillmentTracker, FulfillmentItem,
 } from "./types";
-import { calculateInvestment, calcRentPressureIndex, calcPrimeCost } from "./calculations";
+import { calculateInvestment, calcRentPressureIndex } from "./calculations";
 
 // ─── 投资风险 ───
 export function assessInvestmentRisks(model: InvestmentModel): RiskItem[] {
@@ -211,7 +211,8 @@ export function generateScoutChecklist(): string[] {
 }
 
 // ─── 经营权限风险 ───
-export function assessPermissionRisks(_perm: PermissionMatrix): RiskItem[] {
+export function assessPermissionRisks(perm: PermissionMatrix): RiskItem[] {
+  void perm;
   // 自营店全部自主，无权限风险
   return [];
 }

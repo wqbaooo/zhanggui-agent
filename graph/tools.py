@@ -616,6 +616,16 @@ def _personality_advice(dimension: str, value: str, default_advice: str) -> str:
 
 def _archetype_detail(archetype: str, business_mode: str, category: str) -> dict:
     """获取创业者原型的详细信息。"""
+    social_category_fit = (
+        f"纯产品驱动的{category}品类可能让你觉得‘闷’，需要叠加社交场景（打卡/社群/活动）"
+        if "冰粉" in category
+        else "根据品类特性发挥社交优势"
+    )
+    analytical_category_fit = (
+        f"选择加盟一个成熟的{category}品牌可能是安全路径"
+        if "加盟" in business_mode
+        else f"{category}品类的中小规模自营也在可控范围内"
+    )
     details = {
         "实干派": {
             "description": "你倾向于\u2018先干再说\u2019——这是餐饮创业最重要的特质，但也意味着你可能跳过「想清楚再干」的步骤。",
@@ -628,14 +638,14 @@ def _archetype_detail(archetype: str, business_mode: str, category: str) -> dict
             "description": "你的人脉和社交能力是你的核心资产——但小心过度乐观，把\u2018有人来\u2019误判为\u2018能赚钱\u2019。",
             "strengths": "人脉广、会做口碑传播、客群粘性强、适合引流型品类",
             "blindspots": "容易低估运营细节（成本控制/出品一致性/人员管理）；对数字不敏感可能导致\u2018看着热闹亏着钱\u2019",
-            "category_fit": f"社交属性强的品类（奶茶/清吧/烧烤）更能发挥你的优势；{'纯产品驱动的' + category + '品类可能让你觉得\u2018闷\u2019，需要叠加社交场景（打卡/社群/活动）' if '冰粉' in category else '根据品类特性发挥社交优势'}",
+            "category_fit": f"社交属性强的品类（奶茶/清吧/烧烤）更能发挥你的优势；{social_category_fit}",
             "action_plan": "1.把\u2018人情流量\u2019转化为\u2018数据\u2019——记录每位客人的消费频次和偏好 2.找一个精算型的合伙人管账 3.每月做一次财务复盘（不只是\u2018感觉生意不错\u2019）"
         },
         "精算派": {
             "description": "你的谨慎和数字敏感度是稀缺品质——但完美主义可能导致你\u2018永远在准备，从未开始\u2019。",
             "strengths": "成本控制能力强、风险意识高、能做系统性分析、不会冲动决策",
             "blindspots": "过度分析导致行动迟缓；市场窗口可能在你\u2018算清楚\u2019之前关闭；低线城市餐饮很多时候是先占位再优化",
-            "category_fit": "标准化程度高的品类或加盟模式适合精算派——可控变量多、数据可追踪；{'选择加盟一个成熟的' + category + '品牌可能是安全路径' if '加盟' in business_mode else category + '品类的中小规模自营也在可控范围内'}",
+            "category_fit": f"标准化程度高的品类或加盟模式适合精算派——可控变量多、数据可追踪；{analytical_category_fit}",
             "action_plan": "1.设一个\u2018决策截止日\u2019——到那天无论数据是否完美，必须做决定 2.从小模型开始（先摆摊/快闪测试），降低试错成本 3.找一个实干派合伙人互补——你定策略，ta执行"
         }
     }
@@ -887,7 +897,12 @@ def generate_feasibility_report(
     lines.append(f"| 时间承诺 | {'✅ 已沟通' if am_val != '—' else '— 待评估'} | 餐饮创业要求日均10-12小时、每周7天（至少前3个月） |")
     lines.append(f"| 家庭支持 | — 待评估 | Agent将在合适时机追问：'家人对你开店的态度是什么？' |")
     lines.append(f"| 止损意识 | {'✅ 已探测' if fi_val != '—' or rk_val != '—' else '— 待评估'} | 是否有清晰的止损线（亏多少/亏多久停下来） |")
-    lines.append(f"| 面子/社交压力 | {'✅ 已观察' if sc_val != '—' else '— 待评估'} | {'评估对\u201c被人看到摆摊\u201d的态度' if '摆摊' in business_mode else '评估对\u201c在朋友圈分享开店\u201d的态度'} |")
+    social_pressure_note = (
+        "评估对“被人看到摆摊”的态度"
+        if "摆摊" in business_mode
+        else "评估对“在朋友圈分享开店”的态度"
+    )
+    lines.append(f"| 面子/社交压力 | {'✅ 已观察' if sc_val != '—' else '— 待评估'} | {social_pressure_note} |")
     lines.append(f"| 失败预案 | — 待评估 | Agent将追问：'如果这个店失败了，你失去的只是钱吗？' |")
     lines.append(f"| 情绪决策控制 | — 待评估 | 是否能在冲动情绪下不做重大决策 |")
     lines.append("")
@@ -1093,7 +1108,7 @@ def generate_feasibility_report(
     lines.append(f"| 分析维度 | 方法 | 工具 |")
     lines.append(f"|------|------|------|")
     lines.append(f"| 同品类数量 | 地图POI搜索+实地走街 | analyze_location + 实地 |")
-    lines.append(f"| 价格带分布 | 实地消费+外卖平台比价 | 美团/饿了么 |")
+    lines.append(f"| 价格带分布 | 实地消费+外卖平台比价 | 美团/淘宝闪购 |")
     lines.append(f"| 评分口碑 | 大众点评/美团评分 | 在线查询 |")
     lines.append(f"| 客流时段 | 定时计数（工作日/周末×早中晚） | 人工蹲点 |")
     lines.append(f"| 产品差异化 | 竞品菜单对比分析 | 实地拍照记录 |")
@@ -1307,7 +1322,7 @@ def generate_feasibility_report(
     lines.append(f"| 抖音同城 | 开业短视频+定位+团购券 | {budget_val*0.05:.0f}元投流 | 同城曝光3000-5000 |")
     lines.append(f"| 微信朋友圈 | 转发集赞送{category} | 物料成本 | 老带新裂变 |")
     lines.append(f"| 线下 | 开业前3天买一送一 | 食材成本 | 快速积累口碑 |")
-    lines.append(f"| 美团/饿了么 | 新店流量扶持+满减活动 | 平台佣金 | 外卖渠道启动 |")
+    lines.append(f"| 美团/淘宝闪购 | 新店流量扶持+满减活动 | 平台佣金 | 外卖渠道启动 |")
     lines.append(f"**活动时间线**:")
     lines.append(f"- D-7: 抖音预热内容发布（'即将开业'悬念视频）")
     lines.append(f"- D-3: 朋友圈/社群转发集赞活动启动")
@@ -1345,7 +1360,7 @@ def generate_feasibility_report(
     lines.append(f"**私域运营**:")
     lines.append(f"- 微信群: 到店顾客扫码入群，每日发福利/新品")
     lines.append(f"- 朋友圈: 每日1-2条真实内容（不硬广，场景化）")
-    lines.append(f"**美团/饿了么运营**:")
+    lines.append(f"**美团/淘宝闪购运营**:")
     lines.append(f"- 菜品图专业拍摄（投入500元，转化率提升30%+）")
     lines.append(f"- 活动设计: 满减+新客立减+收藏有礼")
     lines.append(f"- 评分维护: 差评24小时内回复处理")

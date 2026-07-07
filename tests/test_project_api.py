@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 import config
 import models.project as project_model
+import models.utilities as utilities_model
 from server.main import app
 
 
@@ -118,3 +119,124 @@ def test_project_profile_and_operation_lifecycle(tmp_path, monkeypatch):
     cockpit_after_integration = client.get(f"/api/projects/{project_id}/cockpit?days=7").json()
     meituan = next(item for item in cockpit_after_integration["integrations"] if item["id"] == "meituan")
     assert meituan["status_label"] == "可导入报表"
+
+
+def test_monthly_operating_history_keeps_revenue_and_profit_separate(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "PROJECT_DATA_DIR", tmp_path)
+    monkeypatch.setattr(project_model, "PROJECT_DATA_DIR", tmp_path)
+    client = TestClient(app)
+    project_id = "monthly-history-store"
+
+    response = client.put(f"/api/projects/{project_id}/monthly", json={
+        "entries": [
+            {"year": 2025, "month": 1, "net_profit": 12000, "source_file_name": "history.jpg"},
+            {"year": 2025, "month": 2, "net_profit": 22000, "source_file_name": "history.jpg"},
+            {"year": 2026, "month": 1, "revenue": 37720, "source_file_name": "history.jpg"},
+            {"year": 2026, "month": 2, "revenue": 52716, "source_file_name": "history.jpg"},
+        ],
+        "monthly_rent": 6500,
+        "monthly_utility_min": 1500,
+        "monthly_utility_max": 1700,
+        "wage_per_person": 3500,
+        "previous_staff_count": 4,
+        "current_staff_count": 1,
+        "owner_operates": True,
+    })
+
+    assert response.status_code == 200
+    summary = response.json()["summary"]
+    january = summary["months"][0]
+    assert summary["current_year"] == 2026
+    assert summary["baseline_year"] == 2025
+    assert january["revenue"] == 37720
+    assert january["last_year_profit"] == 12000
+    assert january["yoy_pct"] is None
+    assert january["estimated_profit"] is None
+    assert summary["labor"] == 3500
+    assert summary["previous_staff_count"] == 4
+    assert response.json()["cockpit"]["monthly_comparison"]["comparison_metric"] == "net_profit"
+
+    persisted = project_model.ProjectMemory.load(project_id)
+    assert persisted is not None
+    assert persisted.profile["previous_monthly_labor"] == 14000
+    assert len(persisted.monthly_revenue) == 4
+
+
+def test_monthly_operating_upsert_is_idempotent_and_validated(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "PROJECT_DATA_DIR", tmp_path)
+    monkeypatch.setattr(project_model, "PROJECT_DATA_DIR", tmp_path)
+    client = TestClient(app)
+    project_id = "monthly-upsert-store"
+    url = f"/api/projects/{project_id}/monthly"
+
+    first = client.put(url, json={
+        "entries": [{"year": 2026, "month": 1, "revenue": 10000}],
+    })
+    assert first.status_code == 200
+    second = client.put(url, json={
+        "entries": [{"year": 2026, "month": 1, "revenue": 12000}],
+    })
+    assert second.status_code == 200
+    assert second.json()["summary"]["records"] == [{
+        "year": 2026,
+        "month": 1,
+        "revenue": 12000.0,
+        "net_profit": None,
+        "review_status": "confirmed",
+        "source_type": "image_confirmed",
+        "source_file_name": "",
+        "source_raw_text": "",
+    }]
+
+    invalid_month = client.put(url, json={
+        "entries": [{"year": 2026, "month": 13, "revenue": 1}],
+    })
+    assert invalid_month.status_code == 422
+    missing_metric = client.put(url, json={
+        "entries": [{"year": 2026, "month": 1}],
+    })
+    assert missing_metric.status_code == 400
+
+
+def test_utilities_are_real_persisted_and_idempotent(tmp_path, monkeypatch):
+    monkeypatch.setattr(utilities_model, "PROJECT_DATA_DIR", tmp_path)
+    client = TestClient(app)
+    project_id = "utility-store"
+    url = f"/api/projects/{project_id}/utilities/2026-06"
+
+    first = client.put(url, json={
+        "month": "2026-06",
+        "water": 195,
+        "electricity": 1120,
+        "notes": "电费账单已确认",
+    })
+    assert first.status_code == 200
+    assert first.json()["record"]["electricity"] == 1120
+
+    second = client.put(url, json={
+        "month": "2026-06",
+        "water": 200,
+        "electricity": 1090,
+        "notes": "按最终账单修正",
+    })
+    assert second.status_code == 200
+    assert len(second.json()["records"]) == 1
+    assert second.json()["records"][0]["water"] == 200
+
+    listed = client.get(f"/api/projects/{project_id}/utilities")
+    assert listed.status_code == 200
+    assert listed.json()["records"][0]["notes"] == "按最终账单修正"
+
+    mismatch = client.put(url, json={
+        "month": "2026-07",
+        "water": 1,
+        "electricity": 1,
+    })
+    assert mismatch.status_code == 400
+
+    invalid = client.put(f"/api/projects/{project_id}/utilities/2026-13", json={
+        "month": "2026-13",
+        "water": -1,
+        "electricity": 1,
+    })
+    assert invalid.status_code == 422

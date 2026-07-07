@@ -71,7 +71,7 @@ export function calculateInvestment(model: InvestmentModel): InvestmentResult {
 
   const canRecover = monthlyNetProfit > 0 && paybackMonths < 60;
 
-  const scenario = calculateScenarios(model, totalInvestment, monthlyFixedCost, variableCostRate);
+  const scenario = calculateScenarios(model, totalInvestment, monthlyFixedCost);
 
   return {
     totalInvestment,
@@ -93,7 +93,6 @@ function calculateScenarios(
   model: InvestmentModel,
   totalInvestment: number,
   monthlyFixedCost: number,
-  baseVariableRate: number,
 ): InvestmentResult["scenario"] {
   const result = {} as InvestmentResult["scenario"];
 
@@ -207,15 +206,12 @@ export function diagnoseOperation(params: {
 } {
   const {
     revenue, breakevenRevenue, grossMargin, modelMargin,
-    orders, targetOrders, aov, targetAOV,
+    orders, targetOrders,
     laborCostRate, badReviews, previousBadReviews,
   } = params;
 
   const belowBreakeven = revenue < breakevenRevenue;
   const marginGap = grossMargin - modelMargin;
-  const orderGap = (orders - targetOrders) / targetOrders;
-  const aovGap = (aov - targetAOV) / targetAOV;
-
   let healthLevel: "green" | "yellow" | "red" = "green";
   let mainProblem = "";
   const actions: string[] = [];
@@ -272,6 +268,143 @@ export function fmtPct(value: number): string {
 export function safeDiv(a: number, b: number): number {
   if (b === 0) return 0;
   return a / b;
+}
+
+/* ─── 统一经营计算（消除 5 处重复） ─── */
+
+/** 单日总成本 */
+export function calcEntryTotalCost(e: {
+  food_cost: number; packaging_cost?: number; labor: number;
+  rent_allocated: number; utility: number; other_cost: number;
+  platform_fee: number; marketing_cost: number; inventory_loss: number;
+  revenue_basis?: "net_settlement" | "gross_sales"; actual_revenue?: number;
+}): number {
+  const coreCost = e.food_cost + (e.packaging_cost || 0) + e.labor + e.rent_allocated
+    + e.utility + e.other_cost + e.inventory_loss;
+  const isNetSettlement = e.revenue_basis === "net_settlement" || (e.actual_revenue ?? 0) > 0;
+  return coreCost + (isNetSettlement ? 0 : e.platform_fee + e.marketing_cost);
+}
+
+/** 单日净利润（优先使用 actual_revenue，兼容旧 revenue 字段） */
+export function calcEntryNetProfit(e: {
+  revenue: number; actual_revenue?: number; food_cost: number; packaging_cost?: number;
+  labor: number; rent_allocated: number; utility: number; other_cost: number;
+  platform_fee: number; marketing_cost: number; inventory_loss: number;
+  revenue_basis?: "net_settlement" | "gross_sales";
+}): number {
+  const income = e.actual_revenue ?? e.revenue;
+  return income - calcEntryTotalCost(e);
+}
+
+/** 单日堂食营收（兼容旧数据：无 dine_in_revenue 时用 revenue - delivery_revenue 或 revenue） */
+export function calcDineInRevenue(e: {
+  dine_in_revenue?: number; delivery_revenue?: number; revenue: number;
+}): number {
+  if (e.dine_in_revenue && e.dine_in_revenue > 0) return e.dine_in_revenue;
+  if (e.delivery_revenue && e.delivery_revenue > 0) return e.revenue - e.delivery_revenue;
+  return e.revenue;
+}
+
+/** 期间累计成本结构（用于饼图） */
+export function calcCostBreakdown(entries: Array<{
+  food_cost: number; packaging_cost?: number; labor: number;
+  rent_allocated: number; utility: number; other_cost: number;
+  platform_fee: number; marketing_cost: number; inventory_loss: number;
+  revenue_basis?: "net_settlement" | "gross_sales"; actual_revenue?: number;
+}>, totalRevenue: number): Array<{ name: string; value: number }> {
+  if (entries.length === 0 || totalRevenue <= 0) return [];
+  const sum = (key: string) => entries.reduce((s, e: Record<string, unknown>) => s + (Number(e[key]) || 0), 0);
+  return [
+    { name: "食材成本", value: Math.round(sum("food_cost") / totalRevenue * 100) },
+    { name: "包装成本", value: Math.round(sum("packaging_cost") / totalRevenue * 100) },
+    { name: "人工", value: Math.round(sum("labor") / totalRevenue * 100) },
+    { name: "房租", value: Math.round(sum("rent_allocated") / totalRevenue * 100) },
+    {
+      name: "平台费",
+      value: Math.round(entries.reduce((s, e) => s + (e.revenue_basis === "net_settlement" || (e.actual_revenue ?? 0) > 0 ? 0 : e.platform_fee), 0) / totalRevenue * 100),
+    },
+    {
+      name: "营销",
+      value: Math.round(entries.reduce((s, e) => s + (e.revenue_basis === "net_settlement" || (e.actual_revenue ?? 0) > 0 ? 0 : e.marketing_cost), 0) / totalRevenue * 100),
+    },
+    { name: "水电", value: Math.round(sum("utility") / totalRevenue * 100) },
+    { name: "报损+其他", value: Math.round((sum("inventory_loss") + sum("other_cost")) / totalRevenue * 100) },
+  ].filter((c) => c.value > 0);
+}
+
+/** 期间累计值 */
+export function sumEntries<T>(entries: T[], key: keyof T): number {
+  return entries.reduce((s, e) => s + (Number(e[key]) || 0), 0);
+}
+
+/** 日均保本线 = 期间日均总成本（简化为单日保本 = 日均总成本），精确版见 calcBreakEvenAnalysis */
+export function calcBreakEvenDaily(entries: Array<Parameters<typeof calcEntryTotalCost>[0]>, days: number): number {
+  if (days <= 0) return 0;
+  return Math.round(entries.reduce((s, e) => s + calcEntryTotalCost(e), 0) / days);
+}
+
+export interface BreakEvenResult {
+  days: number;
+  total_revenue: number;
+  daily_revenue: number;
+  fixed_cost: number;
+  variable_cost: number;
+  daily_fixed_cost: number;
+  monthly_fixed_cost: number;
+  variable_cost_rate: number;
+  contribution_margin_rate: number;
+  monthly_breakeven_revenue: number | null;
+  daily_breakeven_revenue: number | null;
+  is_profitable: boolean;
+  gap_to_breakeven: number | null;
+  breakeven_pct: number | null;
+}
+
+/** 保本点分析：固定/变动成本拆分 + 边际贡献率 + 日保本营收 */
+export function calcBreakEvenAnalysis(entries: Array<{
+  food_cost: number; packaging_cost?: number; labor: number;
+  rent_allocated: number; utility: number; other_cost: number;
+  platform_fee: number; marketing_cost: number; inventory_loss: number;
+  revenue: number; actual_revenue?: number; revenue_basis?: "net_settlement" | "gross_sales";
+}>, days: number): BreakEvenResult | null {
+  if (entries.length === 0 || days <= 0) return null;
+
+  const totalRevenue = entries.reduce((s, e) => s + (e.actual_revenue ?? e.revenue), 0);
+  const fixedCost = entries.reduce((s, e) => s + e.labor + e.rent_allocated + e.utility, 0);
+  const variableCost = entries.reduce((s, e) => {
+    const isNetSettlement = e.revenue_basis === "net_settlement" || (e.actual_revenue ?? 0) > 0;
+    return s + e.food_cost + (e.packaging_cost || 0) + e.inventory_loss + e.other_cost
+      + (isNetSettlement ? 0 : e.platform_fee + e.marketing_cost);
+  }, 0);
+
+  const variableCostRate = totalRevenue > 0 ? variableCost / totalRevenue : 0;
+  const contributionMarginRate = 1 - variableCostRate;
+  const dailyRevenue = totalRevenue / days;
+  const dailyFixed = fixedCost / days;
+  const monthlyFixed = dailyFixed * 30;
+
+  const monthlyBreakeven = contributionMarginRate > 0 ? monthlyFixed / contributionMarginRate : null;
+  const dailyBreakeven = monthlyBreakeven !== null ? monthlyBreakeven / 30 : null;
+  const isProfitable = dailyBreakeven !== null && dailyRevenue > dailyBreakeven;
+  const gap = dailyBreakeven !== null ? Math.round(dailyRevenue - dailyBreakeven) : null;
+  const breakevenPct = dailyBreakeven && dailyBreakeven > 0 ? dailyRevenue / dailyBreakeven : null;
+
+  return {
+    days,
+    total_revenue: Math.round(totalRevenue),
+    daily_revenue: Math.round(dailyRevenue),
+    fixed_cost: Math.round(fixedCost),
+    variable_cost: Math.round(variableCost),
+    daily_fixed_cost: Math.round(dailyFixed),
+    monthly_fixed_cost: Math.round(monthlyFixed),
+    variable_cost_rate: Math.round(variableCostRate * 10000) / 10000,
+    contribution_margin_rate: Math.round(contributionMarginRate * 10000) / 10000,
+    monthly_breakeven_revenue: monthlyBreakeven !== null ? Math.round(monthlyBreakeven) : null,
+    daily_breakeven_revenue: dailyBreakeven !== null ? Math.round(dailyBreakeven) : null,
+    is_profitable: isProfitable,
+    gap_to_breakeven: gap,
+    breakeven_pct: breakevenPct !== null ? Math.round(breakevenPct * 10000) / 10000 : null,
+  };
 }
 
 /* ─── 专业餐饮指标 ─── */

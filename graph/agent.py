@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import json
 import logging
+import urllib.error
+import urllib.request
 from typing import Any, Dict, List, Literal, Optional
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
@@ -26,7 +28,8 @@ from langchain_openai import ChatOpenAI
 from config import DEEPSEEK_API_KEY
 from graph.prompts import SYSTEM_PROMPT, RESEARCH_SYSTEM_PROMPT
 from graph.tools import get_all_tools
-from server.model_routing import chat_route
+from server.model_routing import chat_route, local_text_route
+from core.domain_intelligence import render_grounded_fallback
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +38,76 @@ logger = logging.getLogger(__name__)
 
 _llm_instance = None
 _llm_with_tools = None
+
+
+def _build_local_fallback_system_prompt(profile: Dict[str, Any]) -> str:
+    profile_summary = "；".join(
+        f"{key}={value}" for key, value in list(profile.items())[:12]
+        if not str(key).startswith("__")
+    )
+    store_context = profile.get("__store_context__")
+    store_context_text = (
+        json.dumps(store_context, ensure_ascii=False, default=str)
+        if store_context
+        else "暂无已加载门店档案"
+    )
+    domain_context = profile.get("__domain_context__")
+    domain_context_text = (
+        json.dumps(domain_context, ensure_ascii=False, default=str)
+        if domain_context
+        else "本轮没有匹配到专业模块"
+    )
+    return (
+        "你是掌柜Agent，只服务新余恒太城五楼大口章鱼烧。"
+        "你是这家店的通用经营助手，可以处理与本店有关的任何问题、分析和任务，"
+        "资料录入只是你的能力之一，不是你的全部职责。"
+        "用户是门店老板和经营决策者。你不能扮演顾客、店员或门店，不能使用模拟经营游戏口吻。"
+        "先直接回答老板的问题，再说明本店已知数据、硬性规则和仍需确认的信息。"
+        "专业模块只向你提供结构化报告，由你统一与老板交流。"
+        "只基于用户提供或已确认的数据回答；任何写入动作都必须先让用户确认。"
+        "用简短老板话回答，不承诺盈利，不虚构数据。"
+        f"当前门店资料：{profile_summary or '尚未补齐'}。"
+        f"当前门店实时上下文：{store_context_text}。"
+        f"本轮领域报告：{domain_context_text}"
+    )
+
+
+def _invoke_local_text_fallback(user_message: str, profile: Dict[str, Any]) -> Optional[AIMessage]:
+    """使用精简上下文调用本地模型，避免复制云端 Agent 的重型上下文。"""
+    route = local_text_route()
+    if not route.configured:
+        return None
+    domain_context = profile.get("__domain_context__")
+    if domain_context:
+        return AIMessage(content=render_grounded_fallback(user_message, domain_context))
+    payload = {
+        "model": route.model,
+        "messages": [
+            {
+                "role": "system",
+                "content": _build_local_fallback_system_prompt(profile),
+            },
+            {"role": "user", "content": user_message},
+        ],
+        "stream": False,
+        "think": False,
+        "keep_alive": "10m",
+        "options": {"temperature": 0.2, "num_predict": 100},
+    }
+    request = urllib.request.Request(
+        f"{(route.base_url or 'http://127.0.0.1:11434').rstrip('/')}/api/chat",
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=12) as response:
+            body = json.loads(response.read().decode("utf-8"))
+    except Exception as exc:
+        logger.error("本地文本模型调用失败: %s", exc)
+        return None
+    content = str((body.get("message") or {}).get("content") or "").strip()
+    return AIMessage(content=content) if content else None
 
 
 def _create_llm():
@@ -59,7 +132,7 @@ def _create_llm():
                 kwargs["api_key"] = DEEPSEEK_API_KEY
             _llm_instance = ChatOpenAI(**kwargs)
         else:
-            logger.error("无文本 LLM API key 配置，Agent 将无法工作")
+            logger.warning("主文本模型未配置，将使用精简本地文本通道")
             return None
 
         _llm_with_tools = _llm_instance.bind_tools(tools)
@@ -84,6 +157,12 @@ def research_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """
     messages = state.get("messages", []) if isinstance(state, dict) else getattr(state, 'messages', [])
     profile = state.get("profile", {}) if isinstance(state, dict) else getattr(state, 'profile', {})
+
+    # Store-domain reports already contain authoritative project data, rules,
+    # gaps and professional guidance. Re-running the broad knowledge-base
+    # search here adds latency and can dilute higher-authority store facts.
+    if profile.get("__domain_context__"):
+        return {}
 
     # 取最新用户消息
     last_user_msg = ""
@@ -266,10 +345,28 @@ def agent_node(state: Dict[str, Any]) -> Dict[str, Any]:
         if philosophy_guidance:
             system_content += f"\n\n{philosophy_guidance}"
     if profile:
+        store_context = profile.get("__store_context__")
+        domain_context = profile.get("__domain_context__")
         profile_lines = [f"- {k}: {v}" for k, v in profile.items()
-                         if k not in ("__intent__", "__intent_confidence__")]
+                         if k not in (
+                             "__intent__",
+                             "__intent_confidence__",
+                             "__store_context__",
+                             "__domain_context__",
+                         )]
         if profile_lines:
             system_content += f"\n\n## 当前用户画像\n" + "\n".join(profile_lines)
+        if store_context:
+            system_content += (
+                "\n\n## 当前门店实时上下文\n"
+                + json.dumps(store_context, ensure_ascii=False, default=str)
+            )
+        if domain_context:
+            system_content += (
+                "\n\n## 本轮专业模块报告\n"
+                + json.dumps(domain_context, ensure_ascii=False, default=str)
+                + "\n必须按报告中的 response_contract 组织回答；不得绕过硬规则、隐藏冲突或补造缺失数据。"
+            )
 
     # 确保系统提示在最前面，同时保留研究节点的知识库上下文
     conv_messages = []
@@ -294,20 +391,25 @@ def agent_node(state: Dict[str, Any]) -> Dict[str, Any]:
     # 调用LLM
     llm = _create_llm()
     if llm is None:
+        fallback_response = _invoke_local_text_fallback(last_user_msg, profile)
+        if fallback_response is not None:
+            return {"messages": [fallback_response]}
         return {
             "messages": [AIMessage(
-                content=f"⚠️ LLM服务未配置。请在 `.env` 文件中设置 `DEEPSEEK_API_KEY`。\n\n"
-                        f"当前接收到您的问题，但无法进行推理。请检查API key配置后重试。"
+                content="抱歉，文本推理服务暂时不可用，请稍后重试。"
             )],
         }
 
     try:
         response = llm.invoke(conv_messages)
     except Exception as exc:
-        logger.error("LLM调用失败: %s", exc)
-        return {
-            "messages": [AIMessage(content="抱歉，LLM 服务暂时不可用，请稍后重试。")],
-        }
+        logger.error("主文本模型调用失败，尝试本地降级: %s", exc)
+        fallback_response = _invoke_local_text_fallback(last_user_msg, profile)
+        if fallback_response is None:
+            return {
+                "messages": [AIMessage(content="抱歉，文本推理服务暂时不可用，请稍后重试。")],
+            }
+        response = fallback_response
 
     return {"messages": [response]}
 
@@ -388,75 +490,8 @@ def constitution_check_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def personality_inject_node(state: Dict[str, Any]) -> Dict[str, Any]:
-    """在Agent回复末尾注入人格追问。扫描已评估维度，追加未评估维度的情境问题。"""
-    import random
-    
-    messages = state.get("messages", []) if isinstance(state, dict) else getattr(state, 'messages', [])
-    
-    if not messages:
-        return {}
-    
-    # 扫描已评估的人格维度
-    assessed = set()
-    for msg in messages:
-        if hasattr(msg, 'tool_calls') and msg.tool_calls:
-            for tc in msg.tool_calls:
-                if tc.get('name') == 'update_profile':
-                    args = tc.get('args', {})
-                    dim_map = {
-                        'personality_achievement_drive': '成就动机',
-                        'personality_resilience': '抗压韧性',
-                        'personality_risk_tolerance': '风险偏好',
-                        'personality_learning_agility': '学习敏捷性',
-                        'personality_social_intelligence': '社交能力',
-                        'personality_financial_literacy': '财务素养',
-                    }
-                    for param, dim in dim_map.items():
-                        if args.get(param):
-                            assessed.add(dim)
-    
-    # 找最后一个 AI 消息（跳过 ToolMessage 和 HumanMessage）
-    target_idx = None
-    for i in range(len(messages) - 1, -1, -1):
-        if not isinstance(messages[i], AIMessage):
-            continue
-        if getattr(messages[i], 'content', None) and not getattr(messages[i], 'tool_call_id', None):
-            tc = getattr(messages[i], 'tool_calls', None)
-            if not tc:  # None or empty list = pure text response
-                target_idx = i
-                break
-    
-    if target_idx is None:
-        return {}
-    
-    # 找下一个未评估的维度
-    from graph.prompts import PERSONALITY_DIMENSION_ORDER, PERSONALITY_QUESTIONS
-    
-    next_dim = None
-    for dim in PERSONALITY_DIMENSION_ORDER:
-        if dim not in assessed:
-            next_dim = dim
-            break
-    
-    if next_dim is None:
-        return {}  # 全部已评估
-    
-    # 选择一个模板问题
-    questions = PERSONALITY_QUESTIONS.get(next_dim, [])
-    if not questions:
-        return {}
-    
-    question = random.choice(questions)
-    
-    # 追加到最后一个 AI 消息的 content
-    new_messages = list(messages)
-    old_msg = new_messages[target_idx]
-    new_content = (old_msg.content or "").rstrip() + f"\n\n{question}"
-    
-    # 使用相同 ID 创建替换消息（add_messages reducer 会按 ID 替换）
-    new_messages[target_idx] = AIMessage(content=new_content, id=getattr(old_msg, 'id', None))
-    
-    return {"messages": new_messages, "response": new_content}
+    """旧加盟顾问的人格追问已退出当前单店经营产品路径。"""
+    return {}
 
 
 def should_continue(state: Dict[str, Any]) -> Literal["tools", "__end__"]:

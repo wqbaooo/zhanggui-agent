@@ -28,7 +28,7 @@ export default function BossCoachPage() {
             <p className="font-label-caps text-on-surface-variant">情境教练 Agent</p>
             <h1 className="mt-1 text-2xl font-semibold text-on-background">接店教练</h1>
             <p className="mt-2 max-w-3xl text-sm leading-relaxed text-on-surface-variant">
-              你现在不是“准备开店”，而是准备接别人转租的店。这个页面按接手前两周训练你：先盘点、再建账、再诊断，最后小步改店。
+              这里不是开店课程，而是这家店的情境训练台：每天根据日报、差评、库存和 SOP 缺口，训练你先看账、再找主要矛盾，最后只改一个动作。
             </p>
           </div>
         </div>

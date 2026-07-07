@@ -33,11 +33,11 @@ def test_philosophy_guidance_is_internal_and_action_oriented():
 
 
 def test_system_prompt_has_philosophy_without_user_facing_preaching():
-    assert "经营哲学方法层" in SYSTEM_PROMPT
-    assert "苏格拉底追问" in SYSTEM_PROMPT
-    assert "主要矛盾分析" in SYSTEM_PROMPT
-    assert "实践检验" in SYSTEM_PROMPT
-    assert "默认不要写" in SYSTEM_PROMPT
+    assert "事实-推断-建议分离" in SYSTEM_PROMPT
+    assert "主要矛盾" in SYSTEM_PROMPT
+    assert "缺口" in SYSTEM_PROMPT
+    assert "可执行动作" in SYSTEM_PROMPT
+    assert "不暴露复杂后端术语" in SYSTEM_PROMPT
 
 
 def test_detects_bad_philosophy_exposition():

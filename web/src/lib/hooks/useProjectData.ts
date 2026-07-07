@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiGet, DEFAULT_PROJECT_ID, type DailyOperationEntry, type ProjectCockpit, type OperationListResponse } from "@/lib/api";
 import type { OperationDailyRecord } from "@/domain/types";
 import {
-  mockProject, mockInvestment, mockLocation, mockOperations,
+  mockProject, mockInvestment, mockLocation,
   mockMenuItems, mockRisks, mockPermissions,
   mockFulfillment, mockActions, mockPlatformMetrics, mockDeliveryFunnel, mockPlatformComparison,
 } from "@/data/mockProject";
@@ -28,22 +28,22 @@ export function useProjectData() {
 
   const cockpit = cockpitQuery.data;
   const opsData = opsQuery.data;
-  const hasApiData = cockpit && (cockpit.operations?.entry_count ?? 0) > 0;
   const operationRecords = (opsData?.entries ?? []).map(mapDailyOperation);
-  const hasRealOps = hasApiData && (cockpit?.operations?.entry_count ?? 0) > 0;
+  const hasRealOps = operationRecords.length > 0;
 
   return {
     isLoading: cockpitQuery.isLoading || opsQuery.isLoading,
     isApiConnected: !!cockpit,
+    error: cockpitQuery.error ?? opsQuery.error ?? null,
 
     project: mockProject,
 
-    cockpit: hasApiData ? cockpit : null,
+    cockpit: cockpit ?? null,
 
     investment: mockInvestment,
     location: mockLocation,
 
-      operations: hasRealOps ? operationRecords : mockOperations,
+    operations: operationRecords,
 
     hasRealOperations: hasRealOps,
 

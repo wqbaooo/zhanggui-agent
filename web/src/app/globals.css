@@ -3,12 +3,117 @@
 @import "tailwindcss";
 
 @theme inline {
-  /* ── Glass Merchant Palette ── */
-  --color-background: #f4f6f2;
-  --color-foreground: #17201a;
+  /* ── 章鱼橙主色 (Octopus Orange) ── */
+  --color-octo-50: #fff5ed;
+  --color-octo-100: #ffe8d4;
+  --color-octo-200: #ffcda8;
+  --color-octo-300: #ffab70;
+  --color-octo-400: #ff8235;
+  --color-octo-500: #e85d04;
+  --color-octo-600: #c2410c;
+  --color-octo-700: #9a3412;
+  --color-octo-800: #7c2d12;
+  --color-octo-900: #5a1d08;
+
+  /* ── 海苔绿 (Nori Green) ── */
+  --color-nori-50: #f0fdf4;
+  --color-nori-100: #dcfce7;
+  --color-nori-200: #bbf7d0;
+  --color-nori-300: #86efac;
+  --color-nori-400: #4ade80;
+  --color-nori-500: #16a34a;
+  --color-nori-600: #15803d;
+  --color-nori-700: #166534;
+  --color-nori-800: #14532d;
+  --color-nori-900: #052e16;
+
+  /* ── 酱褐 (Sauce Brown) ── */
+  --color-sauce-50: #fffbeb;
+  --color-sauce-100: #fef3c7;
+  --color-sauce-200: #fde68a;
+  --color-sauce-300: #fcd34d;
+  --color-sauce-400: #fbbf24;
+  --color-sauce-500: #f59e0b;
+  --color-sauce-600: #d97706;
+  --color-sauce-700: #92400e;
+  --color-sauce-800: #78350f;
+  --color-sauce-900: #451a03;
+
+  /* ── 暖中性 (Warm Stone) ── */
+  --color-stone-50: #fafaf9;
+  --color-stone-100: #f5f5f4;
+  --color-stone-200: #e7e5e4;
+  --color-stone-300: #d6d3d1;
+  --color-stone-400: #a8a29e;
+  --color-stone-500: #78716c;
+  --color-stone-600: #57534e;
+  --color-stone-700: #44403c;
+  --color-stone-800: #292524;
+  --color-stone-900: #1c1917;
+
+  /* ── 状态色 (Status Colors) ── */
+  --color-success: #16a34a;
+  --color-success-bg: #f0fdf4;
+  --color-success-border: #bbf7d0;
+  --color-success-text: #166534;
+
+  --color-warning: #f59e0b;
+  --color-warning-bg: #fffbeb;
+  --color-warning-border: #fde68a;
+  --color-warning-text: #92400e;
+
+  --color-danger: #dc2626;
+  --color-danger-bg: #fef2f2;
+  --color-danger-border: #fecaca;
+  --color-danger-text: #991b1b;
+
+  --color-expiry: #ea580c;
+  --color-expiry-bg: #fff7ed;
+  --color-expiry-border: #fed7aa;
+  --color-expiry-text: #9a3412;
+
+  --color-info: #0ea5e9;
+  --color-info-bg: #f0f9ff;
+  --color-info-border: #bae6fd;
+  --color-info-text: #075985;
+
+  /* ── 语义别名 (Semantic Aliases) ── */
+  --color-primary: #e85d04;
+  --color-primary-container: #ffe8d4;
+  --color-primary-fixed: #c2410c;
+  --color-primary-fixed-dim: #9a3412;
+  --color-on-primary: #ffffff;
+  --color-on-primary-container: #5a1d08;
+  --color-on-primary-fixed: #ffffff;
+  --color-on-primary-fixed-variant: #7c2d12;
+  --color-inverse-primary: #ff8235;
+
+  --color-secondary: #16a34a;
+  --color-secondary-container: #dcfce7;
+  --color-secondary-fixed: #bbf7d0;
+  --color-secondary-fixed-dim: #86efac;
+  --color-on-secondary: #ffffff;
+  --color-on-secondary-container: #14532d;
+  --color-on-secondary-fixed: #ffffff;
+  --color-on-secondary-fixed-variant: #166534;
+
+  --color-tertiary: #92400e;
+  --color-tertiary-container: #fef3c7;
+  --color-tertiary-fixed: #fde68a;
+  --color-tertiary-fixed-dim: #fcd34d;
+  --color-on-tertiary: #ffffff;
+  --color-on-tertiary-container: #451a03;
+  --color-on-tertiary-fixed: #ffffff;
+  --color-on-tertiary-fixed-variant: #78350f;
+
+  --color-background: #fdf6f0;
+  --color-foreground: #1c1917;
+  --color-on-background: #1c1917;
+  --color-on-surface: #1c1917;
+  --color-on-surface-variant: #57534e;
 
   --color-surface: rgba(255, 255, 255, 0.72);
-  --color-surface-dim: #dfe8dc;
+  --color-surface-dim: #f5f5f4;
   --color-surface-bright: #ffffff;
   --color-surface-variant: rgba(255, 255, 255, 0.5);
   --color-surface-container: rgba(255, 255, 255, 0.64);
@@ -16,67 +121,91 @@
   --color-surface-container-lowest: rgba(255, 255, 255, 0.38);
   --color-surface-container-high: rgba(255, 255, 255, 0.74);
   --color-surface-container-highest: rgba(255, 255, 255, 0.88);
-  --color-surface-tint: #c8a64e;
-
-  --color-primary: #e7c86f;
-  --color-primary-container: rgba(244, 218, 137, 0.48);
-  --color-primary-fixed: #9a6f12;
-  --color-primary-fixed-dim: #73500a;
-  --color-on-primary: #1b1d12;
-  --color-on-primary-container: #3b2a05;
-  --color-on-primary-fixed: #1b1d12;
-  --color-on-primary-fixed-variant: #5b3f08;
-  --color-inverse-primary: #f5de91;
-
-  --color-secondary: #2563eb;
-  --color-secondary-container: #dbeafe;
-  --color-secondary-fixed: #bfdbfe;
-  --color-secondary-fixed-dim: #60a5fa;
-  --color-on-secondary: #ffffff;
-  --color-on-secondary-container: #1e3a8a;
-  --color-on-secondary-fixed: #0f172a;
-  --color-on-secondary-fixed-variant: #1d4ed8;
-
-  --color-tertiary: #c85f19;
-  --color-tertiary-container: #f3d6bf;
-  --color-tertiary-fixed: #df8a4b;
-  --color-tertiary-fixed-dim: #c85f19;
-  --color-on-tertiary: #ffffff;
-  --color-on-tertiary-container: #6b2500;
-  --color-on-tertiary-fixed: #451a03;
-  --color-on-tertiary-fixed-variant: #943200;
+  --color-surface-tint: #ff8235;
 
   --color-error: #dc2626;
   --color-error-container: #fee2e2;
   --color-on-error: #ffffff;
   --color-on-error-container: #7f1d1d;
 
-  --color-on-background: #17201a;
-  --color-on-surface: #17201a;
-  --color-on-surface-variant: #667268;
-  --color-outline: rgba(61, 75, 64, 0.28);
+  --color-outline: rgba(68, 64, 60, 0.28);
   --color-outline-variant: rgba(255, 255, 255, 0.55);
-  --color-inverse-surface: #17201a;
-  --color-inverse-on-surface: #f8fbf4;
+  --color-inverse-surface: #292524;
+  --color-inverse-on-surface: #fafaf9;
 
-  --color-deep-forest: #183c2d;
-  --color-agent-gold: #d5a92d;
-  --color-ink-text: #0d130f;
+  --color-deep-forest: #14532d;
+  --color-agent-gold: #e85d04;
+  --color-ink-text: #1c1917;
   --color-eggshell-surface: rgba(255, 255, 255, 0.82);
-  --color-muted-border: rgba(61, 75, 64, 0.14);
+  --color-muted-border: rgba(68, 64, 60, 0.14);
 
-  /* ── Fonts ── */
+  /* ── 字体 (Fonts) ── */
   --font-sans: "IBM Plex Sans", "Noto Sans SC", "PingFang SC", sans-serif;
   --font-display: "IBM Plex Sans", "Noto Sans SC", "PingFang SC", sans-serif;
   --font-mono: "JetBrains Mono", "IBM Plex Mono", monospace;
 
-  --text-data-mono--font-family: var(--font-mono);
-  --text-label-caps--font-family: var(--font-mono);
-  --text-headline-lg--font-family: var(--font-sans);
-  --text-headline-xl--font-family: var(--font-sans);
+  /* ── 字号阶梯 (Type Scale) ── */
+  --text-display: 40px;
+  --text-display--line-height: 48px;
+  --text-display--font-weight: 700;
   --text-display-lg--font-family: var(--font-sans);
 
-  /* ── Animations ── */
+  --text-headline: 28px;
+  --text-headline--line-height: 36px;
+  --text-headline--font-weight: 700;
+  --text-headline-lg--font-family: var(--font-sans);
+  --text-headline-xl--font-family: var(--font-sans);
+
+  --text-title: 20px;
+  --text-title--line-height: 28px;
+  --text-title--font-weight: 600;
+
+  --text-body: 16px;
+  --text-body--line-height: 24px;
+
+  --text-caption: 14px;
+  --text-caption--line-height: 20px;
+
+  --text-label: 12px;
+  --text-label--line-height: 16px;
+  --text-label--font-weight: 500;
+
+  --text-data-mono--font-family: var(--font-mono);
+  --text-label-caps--font-family: var(--font-mono);
+
+  /* ── 间距 token (Spacing) ── */
+  --spacing-xs: 0.25rem;
+  --spacing-sm: 0.5rem;
+  --spacing-md: 1rem;
+  --spacing-lg: 1.5rem;
+  --spacing-xl: 2rem;
+  --spacing-2xl: 3rem;
+  --spacing-3xl: 4rem;
+
+  /* ── 圆角 token (Border Radius) ── */
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-full: 9999px;
+
+  /* ── 阴影 token (Elevation - 暖色调) ── */
+  --shadow-rest: 0 1px 2px rgba(120, 53, 15, 0.04), 0 1px 3px rgba(120, 53, 15, 0.06);
+  --shadow-hover: 0 4px 8px rgba(120, 53, 15, 0.08), 0 12px 24px rgba(120, 53, 15, 0.10);
+  --shadow-drawer: -8px 0 40px rgba(67, 20, 7, 0.15);
+  --shadow-modal: 0 24px 48px rgba(67, 20, 7, 0.18);
+  --shadow-tooltip: 0 2px 8px rgba(120, 53, 15, 0.12);
+
+  /* ── 动效曲线 token (Easing) ── */
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-enter: cubic-bezier(0, 0, 0.2, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-hover: cubic-bezier(0.25, 0.8, 0.25, 1);
+  --ease-number: cubic-bezier(0.4, 0, 0.6, 1);
+
+  /* ── 动画变量 (Animations) ── */
   --animate-shimmer: shimmer 3s linear infinite;
   --animate-pulse-glow: pulse-glow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
   --animate-scan-line: scan-line 3s linear infinite;
@@ -94,8 +223,10 @@
 * { box-sizing: border-box; }
 
 body {
-  background-color: #f4f6f2;
-  color: #17201a;
+  background-color: #fdf6f0;
+  background-image: linear-gradient(180deg, #fdf6f0 0%, #fef3e8 100%);
+  background-attachment: fixed;
+  color: #1c1917;
   font-family: "IBM Plex Sans", "Noto Sans SC", "PingFang SC", sans-serif;
   font-weight: 400;
   text-rendering: optimizeLegibility;
@@ -109,14 +240,14 @@ p, li { overflow-wrap: anywhere; }
 button { cursor: pointer; font-family: inherit; }
 
 ::selection {
-  background: rgba(231, 200, 111, 0.34);
-  color: #17201a;
+  background: rgba(232, 93, 4, 0.2);
+  color: #1c1917;
 }
 
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(71, 45, 10, 0.18); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(154, 106, 0, 0.32); }
+::-webkit-scrollbar-thumb { background: rgba(120, 53, 15, 0.18); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(194, 65, 12, 0.32); }
 
 /* ============================================
    Typography
@@ -159,6 +290,7 @@ button { cursor: pointer; font-family: inherit; }
   font-weight: 400;
   font-size: 14px;
   line-height: 20px;
+  font-variant-numeric: tabular-nums;
 }
 
 .font-label-caps {
@@ -171,7 +303,7 @@ button { cursor: pointer; font-family: inherit; }
 }
 
 /* ============================================
-   Merchant Dashboard Background
+   Warm Ambient Background (暖色环境背景)
    ============================================ */
 
 .neural-bg {
@@ -180,7 +312,7 @@ button { cursor: pointer; font-family: inherit; }
   width: 100vw; height: 100vh;
   z-index: -1;
   background:
-    linear-gradient(115deg, rgba(232, 245, 224, 0.94), rgba(247, 241, 224, 0.94), rgba(224, 242, 241, 0.9), rgba(252, 238, 207, 0.88));
+    linear-gradient(115deg, rgba(253, 246, 240, 0.94), rgba(254, 243, 232, 0.94), rgba(255, 237, 213, 0.9), rgba(255, 232, 212, 0.88));
   background-size: 240% 240%;
   animation: ambient-gradient 18s ease-in-out infinite;
   overflow: hidden;
@@ -192,8 +324,8 @@ button { cursor: pointer; font-family: inherit; }
   position: absolute;
   inset: 0;
   background-image:
-    linear-gradient(rgba(23, 32, 26, 0.045) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(23, 32, 26, 0.035) 1px, transparent 1px);
+    linear-gradient(rgba(28, 25, 23, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(28, 25, 23, 0.03) 1px, transparent 1px);
   background-size: 44px 44px;
   pointer-events: none;
   opacity: 0.8;
@@ -205,15 +337,15 @@ button { cursor: pointer; font-family: inherit; }
   inset: -20%;
   background:
     radial-gradient(circle at 18% 20%, rgba(255, 255, 255, 0.75), transparent 24%),
-    radial-gradient(circle at 78% 18%, rgba(86, 191, 161, 0.2), transparent 28%),
-    radial-gradient(circle at 62% 82%, rgba(231, 200, 111, 0.22), transparent 30%);
+    radial-gradient(circle at 78% 18%, rgba(255, 130, 53, 0.18), transparent 28%),
+    radial-gradient(circle at 62% 82%, rgba(22, 163, 74, 0.14), transparent 30%);
   filter: blur(22px);
   animation: ambient-drift 22s ease-in-out infinite alternate;
   opacity: 0.9;
 }
 
 /* ============================================
-   Workbench Cards
+   Glass Card (暖色玻璃拟态)
    ============================================ */
 
 .glass-card {
@@ -223,9 +355,9 @@ button { cursor: pointer; font-family: inherit; }
   border: 1px solid rgba(255, 255, 255, 0.52);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.55),
-    0 1px 2px rgba(23, 32, 26, 0.04),
-    0 18px 48px rgba(23, 32, 26, 0.08);
-  transition: transform 0.35s ease, border-color 0.35s ease, box-shadow 0.35s ease;
+    0 1px 2px rgba(120, 53, 15, 0.04),
+    0 18px 48px rgba(120, 53, 15, 0.08);
+  transition: transform 0.35s var(--ease-hover), border-color 0.35s var(--ease-hover), box-shadow 0.35s var(--ease-hover);
   position: relative;
   overflow: visible;
 }
@@ -237,7 +369,7 @@ button { cursor: pointer; font-family: inherit; }
   border-radius: inherit;
   background: radial-gradient(
     600px circle at var(--mouse-x, -1000px) var(--mouse-y, -1000px),
-    rgba(214, 160, 24, 0.09),
+    rgba(232, 93, 4, 0.09),
     transparent 40%
   );
   z-index: 0;
@@ -253,7 +385,7 @@ button { cursor: pointer; font-family: inherit; }
   position: absolute;
   top: 0; left: 0; right: 0;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(200, 95, 25, 0.16), transparent);
+  background: linear-gradient(90deg, transparent, rgba(232, 93, 4, 0.2), transparent);
   z-index: 1;
   pointer-events: none;
 }
@@ -263,18 +395,18 @@ button { cursor: pointer; font-family: inherit; }
   border-color: rgba(255, 255, 255, 0.72);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.72),
-    0 1px 2px rgba(23, 32, 26, 0.04),
-    0 24px 64px rgba(23, 32, 26, 0.12);
+    0 1px 2px rgba(120, 53, 15, 0.04),
+    0 24px 64px rgba(120, 53, 15, 0.12);
 }
 
 /* ============================================
-   Shimmer Button
+   Shimmer Button (章鱼橙流光)
    ============================================ */
 
 .btn-shimmer {
   position: relative;
   overflow: hidden;
-  background: linear-gradient(90deg, #d6a018, #c85f19, #d6a018);
+  background: linear-gradient(90deg, #e85d04, #c2410c, #e85d04);
   background-size: 200% 100%;
   animation: shimmer 4s infinite linear;
 }
@@ -289,17 +421,17 @@ button { cursor: pointer; font-family: inherit; }
 }
 
 /* ============================================
-   Stagger
+   Stagger (错峰入场)
    ============================================ */
 
-.stagger-1 { animation-delay: 100ms; }
-.stagger-2 { animation-delay: 200ms; }
-.stagger-3 { animation-delay: 300ms; }
-.stagger-4 { animation-delay: 400ms; }
-.stagger-5 { animation-delay: 500ms; }
-.stagger-6 { animation-delay: 600ms; }
-.stagger-7 { animation-delay: 700ms; }
-.stagger-8 { animation-delay: 800ms; }
+.stagger-1 { animation-delay: 60ms; }
+.stagger-2 { animation-delay: 120ms; }
+.stagger-3 { animation-delay: 180ms; }
+.stagger-4 { animation-delay: 240ms; }
+.stagger-5 { animation-delay: 300ms; }
+.stagger-6 { animation-delay: 360ms; }
+.stagger-7 { animation-delay: 420ms; }
+.stagger-8 { animation-delay: 480ms; }
 
 /* ============================================
    Keyframes
@@ -317,8 +449,8 @@ button { cursor: pointer; font-family: inherit; }
 }
 
 @keyframes pulse-glow {
-  0%, 100% { opacity: 1; box-shadow: 0 0 0 rgba(214, 160, 24, 0); }
-  50% { opacity: .8; box-shadow: 0 0 18px rgba(200, 95, 25, 0.18); }
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 rgba(232, 93, 4, 0); }
+  50% { opacity: .8; box-shadow: 0 0 18px rgba(232, 93, 4, 0.2); }
 }
 
 @keyframes scan-line {
@@ -363,8 +495,24 @@ button { cursor: pointer; font-family: inherit; }
 }
 
 @keyframes glow-pulse {
-  0%, 100% { box-shadow: 0 0 0 rgba(214, 160, 24, 0); }
-  50% { box-shadow: 0 0 20px rgba(214, 160, 24, 0.3); }
+  0%, 100% { box-shadow: 0 0 0 rgba(232, 93, 4, 0); }
+  50% { box-shadow: 0 0 20px rgba(232, 93, 4, 0.3); }
+}
+
+@keyframes glow-breathe {
+  0%, 100% { box-shadow: 0 0 10px rgba(232, 93, 4, 0.1); }
+  50% { box-shadow: 0 0 18px rgba(232, 93, 4, 0.16); }
+}
+
+@keyframes border-flow {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
 }
 
 .animate-slide-in-right {
@@ -384,22 +532,6 @@ button { cursor: pointer; font-family: inherit; }
   animation: glow-pulse 2s ease-in-out infinite;
 }
 
-@keyframes glow-breathe {
-  0%, 100% { box-shadow: 0 0 10px rgba(214, 160, 24, 0.1); }
-  50% { box-shadow: 0 0 18px rgba(200, 95, 25, 0.14); }
-}
-
-@keyframes border-flow {
-  0% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
-}
-
-@keyframes float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-8px); }
-}
-
 /* ============================================
    Interactive States
    ============================================ */
@@ -414,8 +546,8 @@ button { cursor: pointer; font-family: inherit; }
 }
 
 @keyframes status-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.35); }
-  50% { box-shadow: 0 0 0 6px rgba(245, 158, 11, 0); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(232, 93, 4, 0.35); }
+  50% { box-shadow: 0 0 0 6px rgba(232, 93, 4, 0); }
 }
 
 @keyframes meter-fill {
@@ -428,7 +560,7 @@ button { cursor: pointer; font-family: inherit; }
    ============================================ */
 
 .gradient-gold-fade {
-  background: linear-gradient(180deg, transparent 0%, rgba(214, 160, 24, 0.05) 100%);
+  background: linear-gradient(180deg, transparent 0%, rgba(232, 93, 4, 0.05) 100%);
 }
 
 /* ============================================
@@ -441,8 +573,8 @@ button { cursor: pointer; font-family: inherit; }
 
 .cmd-bar-glow:focus-within {
   box-shadow:
-    0 0 0 1px rgba(214, 160, 24, 0.28),
-    0 10px 26px rgba(71, 45, 10, 0.1);
+    0 0 0 1px rgba(232, 93, 4, 0.28),
+    0 10px 26px rgba(120, 53, 15, 0.1);
 }
 
 /* ============================================

@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """大口章鱼烧店铺数据播种 — 7天经营 + SKU + 员工 + 水电"""
 
-import json, time, sys
+import json, time
 from pathlib import Path
 
-PROJECT_DIR = Path(__file__).resolve().parent.parent / "project_data" / "xinyu-hengtai-dakou"
+PROJECT_ID = "xinyu-hengtai-dakou"
+PROJECT_DIR = Path(__file__).resolve().parent.parent / "project_data" / PROJECT_ID
 PROJECT_DIR.mkdir(parents=True, exist_ok=True)
 
 TODAY = "2026-06-26"
@@ -87,7 +88,7 @@ integrations = [
 
 # ── 汇编 ProjectMemory ──
 memory = {
-    "project_id": "xinyu-hengtai-dakou",
+    "project_id": PROJECT_ID,
     "created_at": now - 35 * 86400,
     "updated_at": now,
     "profile": profile,
@@ -113,7 +114,7 @@ memory_path.write_text(json.dumps(memory, ensure_ascii=False, indent=2), encodin
 
 # ── 写入 SKU（SkuCatalog 格式） ──
 sku_catalog = {
-    "project_id": "xinyu-hengtai-dakou",
+    "project_id": PROJECT_ID,
     "skus": skus,
     "purchases": [],
     "updated_at": now,
@@ -122,7 +123,7 @@ sku_catalog = {
 
 # ── 写入员工（LaborTracking 格式） ──
 labor = {
-    "project_id": "xinyu-hengtai-dakou",
+    "project_id": PROJECT_ID,
     "staff": staff,
     "work_records": [],
     "updated_at": now,
