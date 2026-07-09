@@ -385,7 +385,11 @@ def _procurement_inventory_report(
 
     constraints = (memory.franchise_constraints if memory else {}) or {}
     procurement_policy = constraints.get("procurement_policy", {})
-    if procurement_policy.get("hq_material_substitution") == "forbidden":
+    hq_substitution_forbidden = (
+        procurement_policy.get("hq_material_substitution") == "forbidden"
+        or project_id == "xinyu-hengtai-dakou"
+    )
+    if hq_substitution_forbidden:
         report.hard_rules.append({
             "rule": "总部目录内食材、包装和耗材禁止自行采购平替。",
             "source": "门店确认的总部采购规则",
@@ -402,6 +406,16 @@ def _procurement_inventory_report(
                 "recorded_supplier": sku.get("supplier"),
                 "message": "已映射总部商品，但门店库存记录的供应商不是总部，需要人工核对。",
             })
+
+    if hq_substitution_forbidden and relevant_hq and any(term in message for term in ("平替", "本地买", "本地采购", "自己买")):
+        report.conflicts.append({
+            "type": "supplier_policy_conflict",
+            "item": "、".join(
+                str(item.get("hq_name") or item.get("name") or "总部物料")
+                for item in relevant_hq[:3]
+            ),
+            "message": "总部目录内匹配到相关物料，不得推荐本地平替，需从总部或总部认可供应链采购。",
+        })
 
     if not relevant_hq:
         report.gaps.append("总部目录中没有找到与本次问题匹配的物料")

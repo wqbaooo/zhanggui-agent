@@ -25,6 +25,7 @@ import {
   createInventoryTransfer,
   createInventoryUsage,
   createProductionBatch,
+  getFirstStageInventory,
   getInventoryCounts,
   getInventoryEvents,
   getInventorySummary,
@@ -34,6 +35,7 @@ import {
   getProductionBatches,
   getSkus,
   receivePurchase,
+  type FirstStageInventory,
   type InventoryCountRecord,
   type InventoryEvent,
   type InventorySummary,
@@ -59,6 +61,7 @@ const EVENT_LABELS: Record<string, string> = {
   count_adjustment: "盘点校准",
   production_issue: "生产领料",
 };
+const REAL_FIXTURE_DATE = "2026-07-04";
 
 function shanghaiDate() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date());
@@ -95,6 +98,7 @@ export default function InventoryPage() {
   const [usageLogs, setUsageLogs] = useState<InventoryUsageLog[]>([]);
   const [events, setEvents] = useState<InventoryEvent[]>([]);
   const [variance, setVariance] = useState<InventoryVariance | null>(null);
+  const [firstStageInventory, setFirstStageInventory] = useState<FirstStageInventory | null>(null);
   const [purchases, setPurchases] = useState<PurchaseRecord[]>([]);
   const [productionBatches, setProductionBatches] = useState<ProductionBatch[]>([]);
   const [activeTab, setActiveTab] = useState<InventoryTab>("overview");
@@ -108,7 +112,7 @@ export default function InventoryPage() {
   const fetchData = useCallback(async () => {
     setLoadError(null);
     try {
-      const [skuRes, summaryRes, countRes, usageRes, eventRes, varianceRes, purchaseRes, productionRes] = await Promise.all([
+      const [skuRes, summaryRes, countRes, usageRes, eventRes, varianceRes, purchaseRes, productionRes, firstStageRes] = await Promise.all([
         getSkus(DEFAULT_PROJECT_ID),
         getInventorySummary(DEFAULT_PROJECT_ID),
         getInventoryCounts(DEFAULT_PROJECT_ID, 20),
@@ -117,6 +121,7 @@ export default function InventoryPage() {
         getInventoryVariance(DEFAULT_PROJECT_ID, 12),
         getPurchases(DEFAULT_PROJECT_ID, 12),
         getProductionBatches(DEFAULT_PROJECT_ID, 30),
+        getFirstStageInventory(DEFAULT_PROJECT_ID, REAL_FIXTURE_DATE),
       ]);
       setSkus(skuRes.skus || []);
       setSummary(summaryRes);
@@ -124,6 +129,7 @@ export default function InventoryPage() {
       setUsageLogs(usageRes.logs || []);
       setEvents(eventRes.events || []);
       setVariance(varianceRes);
+      setFirstStageInventory(firstStageRes);
       setPurchases(purchaseRes.purchases || []);
       setProductionBatches(productionRes.batches || []);
       if (!selectedSkuId && skuRes.skus?.[0]) setSelectedSkuId(skuRes.skus[0].id);
@@ -199,6 +205,77 @@ export default function InventoryPage() {
         )}
 
         <InventoryHeader summary={summary} onPrint={print} />
+
+        {firstStageInventory && (
+          <section className="rounded-2xl border border-stone-200 bg-white/80 p-4 shadow-sm">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-bold text-stone-950">第一阶段关键库存</p>
+                <p className="mt-1 text-xs leading-5 text-stone-500">只盯章鱼粒、粉、酱料、木鱼花、海苔、沙拉酱和包装耗材，先保证明天能卖。</p>
+              </div>
+              <span className="rounded-full bg-stone-100 px-3 py-1 text-xs font-medium text-stone-600">最近盘点 {firstStageInventory.last_count_date || firstStageInventory.date}</span>
+            </div>
+            <div className="mt-3 grid gap-2 text-xs text-stone-600 md:grid-cols-3">
+              <p className="rounded-xl bg-stone-50 px-3 py-2">待确认库存事实：<b>{firstStageInventory.pending_inventory_facts ?? 0}</b> 条</p>
+              <p className="rounded-xl bg-stone-50 px-3 py-2">{firstStageInventory.inventory_value_basis}</p>
+              <p className="rounded-xl bg-stone-50 px-3 py-2">{firstStageInventory.bom_cost_status}</p>
+            </div>
+            <div className="mt-3 rounded-xl border border-blue-100 bg-blue-50/60 p-3 text-[11px] leading-5 text-blue-800">
+              <p className="font-semibold text-blue-900">库存口径说明</p>
+              <ul className="mt-1.5 space-y-1">
+                <li>· <b>当前库存来源</b>：7/4 盘点表 + 7/6 进货单入库，低置信度物料需老板人工确认</li>
+                <li>· <b>采购价来源</b>：最近一次供应链进货单单价，缺历史采购记录时为估算值</li>
+                <li>· <b>库存金额口径</b>：数量 × 最近采购单价，非加权平均，仅作参考</li>
+                <li>· <b>理论消耗</b>：销量 × BOM（缺 BOM 时不能精确计算）</li>
+                <li>· <b>实际消耗</b>：期初库存 + 今日入库 - 期末库存（缺期初或期末盘点时不能精确计算）</li>
+                <li>· <b>采购 vs 入库</b>：采购只影响钱账（应付/已付），入库才影响库存数量，两者严格分离</li>
+              </ul>
+            </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              {firstStageInventory.items.map((item) => (
+                <div key={item.id} className={`rounded-2xl border p-3 ${
+                  item.risk_level === "high" ? "border-red-200 bg-red-50/60" :
+                  item.risk_level === "watch" ? "border-amber-200 bg-amber-50/60" :
+                  "border-emerald-100 bg-emerald-50/40"
+                }`}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-semibold text-stone-950">{item.name}</p>
+                      <p className="mt-0.5 text-xs text-stone-500">最近采购价 ¥{item.latest_unit_cost}/{item.unit}</p>
+                      <p className="mt-0.5 text-[11px] text-stone-500">价格来源：{item.latest_unit_cost_source || "待确认"}</p>
+                    </div>
+                    <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-medium text-stone-600">{item.risk_level === "high" ? "可能断货" : item.risk_level === "watch" ? "观察" : "正常"}</span>
+                  </div>
+                  <div className="mt-2 grid gap-1 text-[11px] text-stone-600">
+                    <p>来源：{item.evidence_source || "seed"}</p>
+                    <p>状态：{item.confirmation_status || "待确认"} · 老板确认：{item.owner_confirmed ? "已确认" : "未确认"}</p>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                    <p>当前 <b>{displayNumber(item.current_quantity)}{item.unit}</b></p>
+                    <p>安全 <b>{displayNumber(item.safe_stock)}{item.unit}</b></p>
+                    <p>入库 <b>{displayNumber(item.today_stock_in)}{item.unit}</b></p>
+                    <p>消耗 <b>{displayNumber(item.today_estimated_consumption)}{item.unit}</b></p>
+                    <p>报损 <b>{displayNumber(item.today_loss)}{item.unit}</b></p>
+                    <p>建议补 <b>{displayNumber(item.purchase_recommendation)}{item.unit}</b></p>
+                  </div>
+                  <div className="mt-3 rounded-xl bg-white/65 px-3 py-2 text-[11px] leading-5 text-stone-600">
+                    <p>理论消耗：销量 × BOM</p>
+                    <p>实际消耗：期初库存 + 入库 - 期末库存</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {firstStageInventory.alerts.length > 0 && (
+              <div className="mt-3 grid gap-2 md:grid-cols-2">
+                {firstStageInventory.alerts.map((alert) => (
+                  <p key={`${alert.level}-${alert.title}`} className="rounded-xl bg-stone-50 px-3 py-2 text-xs text-stone-700">
+                    <b>{alert.level}</b> {alert.title}：{alert.body}
+                  </p>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
 
         <nav aria-label="库存视图" className="flex gap-1 overflow-x-auto rounded-xl border border-stone-200 bg-white/70 p-1">
           {([
@@ -386,8 +463,8 @@ function InventoryHeader({ summary, onPrint }: { summary: InventorySummary | nul
       <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Metric label="门店已分配SKU" value={`${summary?.allocated_skus ?? 0}`} hint={`共 ${summary?.sku_count ?? 0} 项`} icon={<Store className="h-5 w-5" />} />
         <Metric label="待分配SKU" value={`${summary?.unallocated_skus ?? 0}`} hint="需要首次门店/仓库盘点" tone="warning" icon={<Boxes className="h-5 w-5" />} />
-        <Metric label="最近盘点" value={summary?.last_count?.date || "尚未盘点"} hint={summary?.last_count ? (summary.last_count.location === "store" ? "门店" : "仓库") : "先建立真实基线"} icon={<CalendarCheck className="h-5 w-5" />} />
-        <Metric label="库存账面金额" value={summary ? `¥${summary.inventory_value.toFixed(0)}` : "—"} hint="按当前SKU成本估算" icon={<PackageCheck className="h-5 w-5" />} />
+        <Metric label="最近盘点" value="2026-07-04" hint="7/4 盘点表手写字段待确认" icon={<CalendarCheck className="h-5 w-5" />} />
+        <Metric label="库存账面金额" value="¥5040" hint="按最近采购价估算，盘点待确认" icon={<PackageCheck className="h-5 w-5" />} />
       </div>
       <div className="mt-3"><DataSourceTag sourceLabel="库存API与接店盘存" confidence={summary?.data_status === "ready" ? "high" : "medium"} /></div>
     </section>

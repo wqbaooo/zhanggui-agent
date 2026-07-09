@@ -9,7 +9,9 @@ import { navGroups, storeIdentity } from "@/data/agent-store-os";
 
 export function SidebarNav() {
   const pathname = usePathname();
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(
+    () => new Set(navGroups.filter((group) => group.label !== "每日闭环").map((group) => group.label)),
+  );
 
   const toggleGroup = (label: string) => {
     setCollapsedGroups((prev) => {

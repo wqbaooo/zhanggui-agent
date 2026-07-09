@@ -138,7 +138,7 @@ export const okrMemory: OkrMemoryItem[] = [
     current: "第 0 天",
     progress: 8,
     tone: "info",
-    next: "每天打烊录客如云、平台、库存和异常。",
+    next: "每天复盘客如云、平台、库存和异常。",
   },
   {
     label: "外卖利润",
@@ -200,7 +200,7 @@ export const agentDepartments: AgentDepartment[] = [
     icon: Boxes,
     tone: "info",
     focus: "章鱼、粉、鸡蛋、盒子、袋子什么时候会断。",
-    input: "进货单 / 库存照片 / 打烊剩料 / 商品销量",
+    input: "进货单 / 库存照片 / 复盘剩料 / 商品销量",
     output: "安全库存、补货建议、滞留风险",
     proof: "进货单、冰柜/货架照片",
   },
@@ -264,11 +264,11 @@ export const agentTasks: AgentTask[] = [
     proof: "租金/费用截图 + 平台后台截图",
   },
   {
-    title: "建立 14 天打烊台账",
+    title: "建立 14 天经营复盘",
     owner: "掌柜总控",
     status: "Agent 可执行",
     priority: "高",
-    body: "每天只录打烊后的汇总，不要求营业中填表。连续 14 天后开始形成备料和客流模型。",
+    body: "每天只补复盘需要的经营事实，不要求营业中填表。连续 14 天后开始形成备料和客流模型。",
     proof: "客如云日报 + 库存照片",
   },
   {
@@ -369,15 +369,15 @@ export const revenueTrend = [
 export const storeModules: AgentModule[] = [
   {
     href: "/capture",
-    title: "资料入库",
-    eyebrow: "证据箱",
-    description: "截图、单据、合同、SOP、库存照片统一识别、复核、归档。",
+    title: "今日待确认",
+    eyebrow: "Raw Material",
+    description: "真实资料先生成候选经营事实，老板确认后才进入钱账或库存账。",
     icon: FileText,
-    primaryMetric: "自动识别",
-    secondaryMetric: "复核入库",
+    primaryMetric: "候选事实",
+    secondaryMetric: "确认入账",
     status: "info",
-    tasks: ["来源识别", "字段抽取", "低置信标记", "归档去向"],
-    evidence: ["客如云日报", "平台后台", "合同/转让协议", "进货单", "总部/SOP资料"],
+    tasks: ["核来源", "改金额", "标资金位置", "确认/驳回"],
+    evidence: ["7/4 客如云日报", "7/4 营业概况", "7/4 盘点表", "7/6 进货单", "微信聊天截图"],
   },
   {
     href: "/dashboard",
@@ -405,15 +405,15 @@ export const storeModules: AgentModule[] = [
   },
   {
     href: "/profit",
-    title: "利润与保本",
-    eyebrow: "Profit",
-    description: "用老板能懂的话解释房租、工资、水电、抽成、平台费和耗材怎么影响利润。",
+    title: "钱账：钱在哪里",
+    eyebrow: "Money Ledger",
+    description: "把销售发生、客如云待结算、平台未结算、前老板账户和老板已掌握资金分开看。",
     icon: WalletCards,
-    primaryMetric: "三档利润目标",
-    secondaryMetric: "保底/增长/冲刺",
+    primaryMetric: "资金位置",
+    secondaryMetric: "待确认",
     status: "watch",
-    tasks: ["补房租", "补商场费用", "补员工工资"],
-    evidence: ["费用单", "工资", "平台费率"],
+    tasks: ["核对现金", "核对客如云结算", "核对前老板回款"],
+    evidence: ["7/4 客如云日报", "7/4 客如云营业概况", "微信聊天截图"],
   },
   {
     href: "/monthly",
@@ -461,7 +461,7 @@ export const storeModules: AgentModule[] = [
     secondaryMetric: "不逐克称重",
     status: "watch",
     tasks: ["拍进货单", "录当前剩余", "设置安全库存"],
-    evidence: ["进货单", "库存照片", "打烊剩料"],
+    evidence: ["进货单", "库存照片", "复盘剩料"],
   },
   {
     href: "/consumables",
@@ -614,7 +614,7 @@ export const navGroups = [
     ],
   },
   {
-    label: "经营复盘",
+    label: "后续模块",
     items: [
       { href: "/dashboard", label: "经营总览", icon: BarChart3 },
       { href: "/sales", label: "营业走势", icon: LineChart },
@@ -625,14 +625,14 @@ export const navGroups = [
     ],
   },
   {
-    label: "货品备料",
+    label: "暂未启用",
     items: [
       { href: "/consumables", label: "水电耗材", icon: Package },
       { href: "/products", label: "总部商品", icon: Utensils },
     ],
   },
   {
-    label: "门店作业",
+    label: "后续能力",
     items: [
       { href: "/sop", label: "SOP 作业库", icon: ClipboardCheck },
       { href: "/training", label: "员工与工资", icon: GraduationCap },

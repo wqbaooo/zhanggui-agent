@@ -116,6 +116,162 @@ export interface OperationListResponse {
   summary: OperationSummary;
 }
 
+export interface RawMaterial {
+  id: string;
+  source_type: string;
+  source_platform: string;
+  title: string;
+  ai_summary?: string;
+  uploaded_at?: string;
+}
+
+export interface BusinessFact {
+  id: string;
+  raw_material_id: string;
+  fact_type: string;
+  date: string;
+  amount: number;
+  platform: string;
+  account_location: string;
+  business_owner: string;
+  confidence: string;
+  review_status: string;
+  ledger_status: string;
+  state: string;
+  title?: string;
+  description?: string;
+  impact_ledger?: string;
+  profit_impact?: boolean;
+  missing_fields?: string[];
+  raw_material?: RawMaterial | null;
+  period_start?: string | null;
+  period_end?: string | null;
+  metadata?: Record<string, unknown>;
+  posting_key?: string;
+  evidence_role?: "primary" | "supporting" | "discrepancy";
+  primary_evidence_id?: string;
+  supporting_evidence_ids?: string[];
+  duplicate_of?: string;
+  source_type?: string;
+  source_platform?: string;
+  source_date?: string;
+  evidence_image_url?: string;
+  evidence_file_ref?: string;
+  extracted_fields?: Record<string, unknown>;
+  posted_at?: string;
+  posted_by?: string;
+  affects_accounts?: string[];
+  affects_inventory_items?: string[];
+  source_group?: string;
+}
+
+export interface GapQuestion {
+  missing: string;
+  why: string;
+  impact: string;
+  action: string;
+  priority: "P0" | "P1" | "P2" | string;
+  text: string;
+}
+
+export interface MoneyView {
+  date?: string | null;
+  total_sales: number;
+  fixture_sales?: RealFixtureSalesCard;
+  former_owner?: {
+    receivable_from_former_owner: string;
+    transferred_to_owner: string;
+    pending_allocation: string;
+    unsettled: string;
+    rule: string;
+  };
+  accounts: Record<string, number>;
+  platform_accounts: Record<string, number>;
+  platform_costs: number;
+  purchase_spend: number;
+  entries: Array<Record<string, unknown>>;
+  rules: string[];
+}
+
+export interface FirstStageInventoryItem {
+  id: string;
+  name: string;
+  category: string;
+  unit: string;
+  current_quantity: number;
+  latest_unit_cost: number;
+  safe_stock: number;
+  storage_location: string;
+  today_stock_in: number;
+  today_estimated_consumption: number;
+  today_loss: number;
+  today_count_adjustment: number;
+  risk_level: "high" | "watch" | "ok";
+  purchase_recommendation: number;
+  evidence_source?: string;
+  confirmation_status?: string;
+  latest_unit_cost_source?: string;
+  owner_confirmed?: boolean;
+}
+
+export interface FirstStageInventory {
+  date: string;
+  last_count_date?: string;
+  pending_inventory_facts?: number;
+  inventory_value_basis?: string;
+  bom_cost_status?: string;
+  items: FirstStageInventoryItem[];
+  movements: Array<Record<string, unknown>>;
+  alerts: Array<{ level: string; title: string; body: string }>;
+  consumption_methods: { theoretical: string; actual: string };
+}
+
+export interface TodayOperatingCard {
+  date: string;
+  sales: Record<string, number>;
+  fixture_sales?: RealFixtureSalesCard;
+  sources?: string[];
+  money_where: MoneyView;
+  today_purchase_spend: number;
+  today_inventory_consumption_estimate: number;
+  estimated_profit: number | null;
+  profit_statement?: string;
+  missing_fields: GapQuestion[];
+  tomorrow_actions: string[];
+}
+
+export interface RealFixtureSalesCard {
+  source: string;
+  sales: {
+    order_amount: number;
+    net_operating_income: number;
+    order_count: number;
+    sales_orders: number;
+    refund_orders: number;
+    dine_in_income: number;
+    third_party_income: number;
+  };
+  deductions: {
+    merchant_discount: number;
+    delivery_cost: number;
+    service_fee: number;
+    subsidy_adjustment: number;
+  };
+  products: Array<{ name: string; quantity: number; amount: number; source: string }>;
+  money: Array<{ label: string; amount: number; status: string; source: string }>;
+  inventory: { status: string; source: string };
+  profit: { confirmed: string; pending: string };
+}
+
+export interface CostQuestionAnswer {
+  question: string;
+  answer: string;
+  known_costs: string[];
+  missing_fields: string[];
+  can_estimate_from: string[];
+  follow_up: GapQuestion;
+}
+
 export interface UtilityRecord {
   month: string;
   water: number;
@@ -335,6 +491,79 @@ export async function checkBackend(): Promise<boolean> {
 
 export function getOperationSummary(projectId = DEFAULT_PROJECT_ID, days = 7) {
   return apiGet<OperationSummary>(`/api/projects/${projectId}/operations/summary?days=${days}`);
+}
+
+export function getBusinessFacts(projectId = DEFAULT_PROJECT_ID, reviewStatus?: string) {
+  const query = reviewStatus ? `?review_status=${encodeURIComponent(reviewStatus)}` : "";
+  return apiGet<{ facts: BusinessFact[]; total: number }>(`/api/projects/${projectId}/business-facts${query}`);
+}
+
+export function updateBusinessFact(factId: string, patch: Partial<BusinessFact>, projectId = DEFAULT_PROJECT_ID) {
+  return apiPatch<{ success: boolean; fact: BusinessFact }>(`/api/projects/${projectId}/business-facts/${factId}`, patch);
+}
+
+export function confirmBusinessFact(factId: string, projectId = DEFAULT_PROJECT_ID) {
+  return apiPost<{ success: boolean; fact: BusinessFact }>(`/api/projects/${projectId}/business-facts/${factId}/confirm`, {});
+}
+
+export function rejectBusinessFact(factId: string, projectId = DEFAULT_PROJECT_ID) {
+  return apiPost<{ success: boolean; fact: BusinessFact }>(`/api/projects/${projectId}/business-facts/${factId}/reject`, {});
+}
+
+export function markBusinessFact(factId: string, action: string, projectId = DEFAULT_PROJECT_ID) {
+  return apiPost<{ success: boolean; fact: BusinessFact }>(`/api/projects/${projectId}/business-facts/${factId}/mark`, { action });
+}
+
+export function getMoneyView(projectId = DEFAULT_PROJECT_ID, date?: string) {
+  const query = date ? `?date=${encodeURIComponent(date)}` : "";
+  return apiGet<MoneyView>(`/api/projects/${projectId}/money-view${query}`);
+}
+
+export interface DailyReviewCheck {
+  date: string;
+  can_close: boolean;
+  close_status: "can_close" | "blocked" | "partial";
+  confirmed_facts_count: number;
+  pending_facts_count: number;
+  posted_entries_count: number;
+  duplicate_risks_count: number;
+  low_confidence_inventory_count: number;
+  missing_cost_fields: string[];
+  blocking_reasons: string[];
+  next_actions: string[];
+  evidence_summary: {
+    primary_evidence_count: number;
+    supporting_evidence_count: number;
+    total_sales_amount: number;
+    sources: string[];
+  };
+  suggestions: string[];
+}
+
+export type DailyCloseCheck = DailyReviewCheck;
+
+export function getDailyReviewCheck(projectId = DEFAULT_PROJECT_ID, date?: string) {
+  const query = date ? `?date=${encodeURIComponent(date)}` : "";
+  return apiGet<DailyReviewCheck>(`/api/projects/${projectId}/daily-review-check${query}`);
+}
+
+export function getDailyCloseCheck(projectId = DEFAULT_PROJECT_ID, date?: string) {
+  const query = date ? `?date=${encodeURIComponent(date)}` : "";
+  return apiGet<DailyCloseCheck>(`/api/projects/${projectId}/daily-close-check${query}`);
+}
+
+export function getFirstStageInventory(projectId = DEFAULT_PROJECT_ID, date?: string) {
+  const query = date ? `?date=${encodeURIComponent(date)}` : "";
+  return apiGet<FirstStageInventory>(`/api/projects/${projectId}/first-stage-inventory${query}`);
+}
+
+export function getTodayOperatingCard(projectId = DEFAULT_PROJECT_ID, date?: string) {
+  const query = date ? `?date=${encodeURIComponent(date)}` : "";
+  return apiGet<TodayOperatingCard>(`/api/projects/${projectId}/today-operating-card${query}`);
+}
+
+export function getCostQuestion(question = "一盒 6 粒章鱼烧成本是多少？", projectId = DEFAULT_PROJECT_ID) {
+  return apiGet<CostQuestionAnswer>(`/api/projects/${projectId}/cost-question?question=${encodeURIComponent(question)}`);
 }
 
 export function getOperations(projectId = DEFAULT_PROJECT_ID, days = 30) {

@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from server.routes import analyze, chat, audit, documents, finance, labor, projects, capture, model_routing, reports, skus, sops, speech, weather, amap
+from server.routes import analyze, chat, audit, documents, finance, labor, projects, capture, model_routing, operating_ledger, reports, skus, sops, speech, weather, amap
 
 try:
     from v2.routes import router as v2_router
@@ -52,6 +52,7 @@ app.include_router(audit.router, prefix="/api")
 app.include_router(analyze.router, prefix="/api")
 app.include_router(finance.router, prefix="/api")  # deprecated: 筹备期口径残留
 app.include_router(projects.router, prefix="/api")
+app.include_router(operating_ledger.router, prefix="/api")
 app.include_router(capture.router, prefix="/api")
 app.include_router(speech.router, prefix="/api")
 app.include_router(model_routing.router, prefix="/api")

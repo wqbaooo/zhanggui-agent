@@ -3,11 +3,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { useQueryClient } from "@tanstack/react-query";
-import { Archive, Camera, CheckCircle2, FileSpreadsheet, FileText, Loader2, Upload, X, ChevronDown, Plus } from "lucide-react";
+import { Camera, CheckCircle2, FileSpreadsheet, Loader2, Upload, X, ChevronDown, Plus } from "lucide-react";
 import { ModulePage, getModule } from "@/components/agent-os/ModulePage";
 import {
   DEFAULT_PROJECT_ID, addOperation, createDocument, createSop, recognizeCapture, previewDeliveryCsv, confirmDeliveryCsv,
   updateMonthlyOperating, writePurchaseOrder, confirmCaptureAudit, getSkus,
+  confirmBusinessFact, getBusinessFacts, markBusinessFact, rejectBusinessFact, updateBusinessFact,
+  type BusinessFact,
   type DailyOperationEntry, type RecognizeResponse, type CsvPreviewResponse, type MonthlyOperatingRecord,
   type PurchaseItemCapture, type SkuItem,
 } from "@/lib/api";
@@ -58,6 +60,44 @@ const DOCUMENT_SOURCE_OPTIONS = [
   "其他资料",
 ];
 
+function factActionOptions(factType: string): Array<[string, string]> {
+  const salesTypes = new Set(["pos_sale", "net_operating_income", "dine_in_income", "third_party_income", "merchant_discount", "delivery_cost", "service_fee", "subsidy_adjustment", "refund"]);
+  const paymentTypes = new Set(["payment_method_breakdown", "channel_sales_breakdown"]);
+  const formerOwnerTypes = new Set(["former_owner_transfer", "former_owner_collected", "platform_settlement", "manual_note"]);
+  const purchaseTypes = new Set(["purchase", "stock_in", "supplier_invoice", "purchase_confirmation"]);
+  const inventoryTypes = new Set(["inventory_count_photo", "stock_count", "stock_usage", "stock_adjustment", "stock_loss"]);
+  if (paymentTypes.has(factType)) {
+    return [["confirm", "确认到账方式"], ["keruyun_settlement", "归入客如云结算"], ["cash", "标记现金"], ["group_coupon", "标记团购券"], ["needs_reconciliation", "需要对账"], ["reject", "驳回"]];
+  }
+  if (formerOwnerTypes.has(factType)) {
+    return [["former_owner_collected", "确认前老板代收"], ["former_owner_transfer", "确认前老板回款"], ["pending_allocation", "标记待分摊回款"], ["link_period", "关联日期区间"], ["reject", "驳回"]];
+  }
+  if (purchaseTypes.has(factType)) {
+    return [["purchase", "确认采购"], ["stock_in", "确认入库"], ["purchase_not_stocked", "仅记录采购未入库"], ["needs_reconciliation", "修改数量/单价"], ["reject", "驳回"]];
+  }
+  if (inventoryTypes.has(factType)) {
+    return [["stock_count", "确认盘点"], ["needs_reconciliation", "修改数量"], ["stock_loss", "标记报损"], ["stock_usage", "标记消耗"], ["defer", "暂不入账"], ["reject", "驳回"]];
+  }
+  if (salesTypes.has(factType)) {
+    return [["confirm", "确认销售"], ["needs_reconciliation", "修改金额"], ["refund", "标记退款"], ["platform_unsettled", "标记平台未结算"], ["former_owner_collected", "标记前老板代收"], ["reject", "驳回"]];
+  }
+  return [["confirm", "确认入账"], ["needs_reconciliation", "需要对账"], ["defer", "暂不处理"], ["reject", "驳回"]];
+}
+
+function groupFactsBySource(facts: BusinessFact[]) {
+  const groups: Array<{ source: string; summary: string; facts: BusinessFact[] }> = [];
+  for (const fact of facts) {
+    const source = fact.raw_material?.title || fact.raw_material_id;
+    let group = groups.find((item) => item.source === source);
+    if (!group) {
+      group = { source, summary: fact.raw_material?.ai_summary || "", facts: [] };
+      groups.push(group);
+    }
+    group.facts.push(fact);
+  }
+  return groups;
+}
+
 function buildManualDraft(result: RecognizeResponse): ManualDocumentDraft {
   const fact = (label: string) => (result.document_facts || []).find((item) => item.label.includes(label) && item.confidence !== "low")?.value || "";
   const field = (key: string) => result.fields.find((item) => item.key === key && item.confidence !== "low")?.value;
@@ -105,6 +145,43 @@ export default function CapturePage() {
   const [skuList, setSkuList] = useState<SkuItem[]>([]);
   const [skuDropdownIndex, setSkuDropdownIndex] = useState<number | null>(null);
   const [skuSearch, setSkuSearch] = useState("");
+  const [pendingFacts, setPendingFacts] = useState<BusinessFact[]>([]);
+  const [factMessage, setFactMessage] = useState("");
+  const [factSavingId, setFactSavingId] = useState<string | null>(null);
+  const [factAmountDrafts, setFactAmountDrafts] = useState<Record<string, string>>({});
+  const pendingFactGroups = useMemo(() => groupFactsBySource(pendingFacts), [pendingFacts]);
+
+  const fetchPendingFacts = useCallback(async () => {
+    try {
+      const res = await getBusinessFacts(DEFAULT_PROJECT_ID, "need_review");
+      setPendingFacts(res.facts || []);
+      setFactAmountDrafts(Object.fromEntries((res.facts || []).map((fact) => [fact.id, String(fact.amount ?? 0)])));
+    } catch (err) {
+      setFactMessage(err instanceof Error ? err.message : "待确认事实加载失败");
+    }
+  }, []);
+
+  useEffect(() => { void fetchPendingFacts(); }, [fetchPendingFacts]);
+
+  const handleFactAction = useCallback(async (fact: BusinessFact, action: string) => {
+    setFactSavingId(fact.id);
+    setFactMessage("");
+    try {
+      const amount = Number(factAmountDrafts[fact.id]);
+      if (Number.isFinite(amount) && amount !== fact.amount) {
+        await updateBusinessFact(fact.id, { amount });
+      }
+      if (action === "confirm") await confirmBusinessFact(fact.id);
+      else if (action === "reject") await rejectBusinessFact(fact.id);
+      else await markBusinessFact(fact.id, action);
+      await fetchPendingFacts();
+      setFactMessage(action === "confirm" ? "已确认并写入正式钱账/库存账" : "已更新待确认事实");
+    } catch (err) {
+      setFactMessage(err instanceof Error ? err.message : "处理失败");
+    } finally {
+      setFactSavingId(null);
+    }
+  }, [factAmountDrafts, fetchPendingFacts]);
 
   const processFile = useCallback(async (file: File) => {
     setFileName(file.name);
@@ -453,42 +530,137 @@ export default function CapturePage() {
 
   return (
     <ModulePage module={getModule("/capture")}>
+      <section className="mb-4 rounded-2xl border border-amber-200 bg-amber-50/55 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-stone-950">今日待确认经营事实</p>
+            <p className="mt-1 text-xs leading-5 text-stone-600">AI/规则抽取结果必须老板确认后，才能进入正式钱账或库存账。</p>
+          </div>
+          <button type="button" onClick={() => void fetchPendingFacts()} className="rounded-full bg-white px-3 py-1.5 text-xs font-medium text-stone-600 ring-1 ring-amber-200">
+            刷新
+          </button>
+        </div>
+        {factMessage && <p className="mt-3 rounded-xl bg-white/80 px-3 py-2 text-xs text-stone-700">{factMessage}</p>}
+        <div className="mt-3 grid gap-3">
+          {pendingFacts.length === 0 ? (
+            <div className="rounded-xl bg-white/70 p-3 text-sm text-stone-600">暂无待确认事实。上传资料或粘贴截图后，系统会先生成待确认项。</div>
+          ) : pendingFactGroups.map((group) => (
+            <section key={group.source} className="rounded-2xl border border-white/70 bg-white/75 p-3 shadow-sm">
+              <div className="flex flex-col gap-1 border-b border-stone-100 pb-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <p className="text-sm font-bold text-stone-950">{group.source}</p>
+                  {group.summary && <p className="mt-1 text-xs leading-5 text-stone-500">{group.summary}</p>}
+                </div>
+                <span className="shrink-0 rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-medium text-amber-800">{group.facts.length} 条候选事实</span>
+              </div>
+              <div className="mt-3 grid gap-3">
+                {group.facts.map((fact) => (
+                  <div key={fact.id} className="rounded-xl border border-stone-100 bg-white/85 p-3">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <p className="text-sm font-semibold text-stone-950">{fact.title || fact.description || fact.fact_type}</p>
+                          {fact.evidence_role === "primary" && (
+                            <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700 ring-1 ring-blue-100">主证据</span>
+                          )}
+                          {fact.evidence_role === "supporting" && (
+                            <span className="rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-medium text-stone-600 ring-1 ring-stone-200">辅助证据</span>
+                          )}
+                          {fact.evidence_role === "discrepancy" && (
+                            <span className="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-700 ring-1 ring-red-100">金额差异</span>
+                          )}
+                          {fact.ledger_status === "posted" && (
+                            <span className="rounded-full bg-green-50 px-2 py-0.5 text-[10px] font-medium text-green-700 ring-1 ring-green-100">已入账</span>
+                          )}
+                          {fact.ledger_status === "duplicate_suppressed" && (
+                            <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-amber-100">重复·未入账</span>
+                          )}
+                          {fact.duplicate_of && (
+                            <span className="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-700 ring-1 ring-red-100">重复风险</span>
+                          )}
+                        </div>
+                        <p className="mt-1 text-xs text-stone-500">类型：{fact.fact_type} · 平台：{fact.platform} · 日期：{fact.date}</p>
+                        <p className="mt-1 text-xs text-stone-500">资金位置：{fact.account_location} · 影响：{fact.impact_ledger} · 置信度：{fact.confidence}</p>
+                        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-stone-500">
+                          {fact.affects_accounts && fact.affects_accounts.length > 0 && (
+                            <span>影响钱账：{fact.affects_accounts.join("、")}</span>
+                          )}
+                          {fact.affects_inventory_items && fact.affects_inventory_items.length > 0 && (
+                            <span>影响库存：{fact.affects_inventory_items.join("、")}</span>
+                          )}
+                          {fact.source_group && <span>来源分组：{fact.source_group}</span>}
+                          {fact.posted_at && <span>入账时间：{fact.posted_at.slice(0, 19).replace("T", " ")}</span>}
+                        </div>
+                        {fact.primary_evidence_id && (
+                          <p className="mt-1 text-[11px] text-stone-400">
+                            关联主证据：{fact.primary_evidence_id}（金额一致时作为辅助证据，不重复入账）
+                          </p>
+                        )}
+                        {fact.missing_fields && fact.missing_fields.length > 0 && (
+                          <p className="mt-1 text-xs text-amber-700">需补：{fact.missing_fields.join("、")}</p>
+                        )}
+                      </div>
+                      <label className="w-full text-xs text-stone-500 sm:w-32">
+                        金额/数量
+                        <input
+                          value={factAmountDrafts[fact.id] ?? String(fact.amount ?? 0)}
+                          onChange={(event) => setFactAmountDrafts((prev) => ({ ...prev, [fact.id]: event.target.value }))}
+                          className="mt-1 w-full rounded-lg border border-stone-200 px-2 py-1.5 text-sm font-semibold text-stone-950 outline-none focus:border-amber-300"
+                        />
+                      </label>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {factActionOptions(fact.fact_type).map(([action, label]) => (
+                        <button
+                          key={action}
+                          type="button"
+                          disabled={factSavingId === fact.id}
+                          onClick={() => void handleFactAction(fact, action)}
+                          className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50 ${
+                            action === "confirm"
+                              ? "bg-stone-900 text-white"
+                              : action === "reject"
+                                ? "bg-red-50 text-red-700 ring-1 ring-red-100"
+                                : "bg-stone-100 text-stone-700 hover:bg-stone-200"
+                          }`}
+                        >
+                          {factSavingId === fact.id ? "处理中" : label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+      </section>
 
       {stage === "idle" && (
-        <section className="rounded-2xl border-2 border-dashed border-primary/25 bg-primary-container/8 p-10 text-center"
+        <section className="rounded-2xl border border-primary/15 bg-white/70 px-4 py-3 shadow-sm"
           onDrop={(e) => { e.preventDefault(); const f = Array.from(e.dataTransfer.files).find((x) => x.type.startsWith("image/")); if (f) processFile(f); }}
           onDragOver={(e) => e.preventDefault()}
           tabIndex={0} role="button">
           <input id="capture-image-input" ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFileChange} className="sr-only" />
-          <Camera className="mx-auto h-10 w-10 text-primary/50" />
-          <h2 className="mt-4 text-xl font-semibold text-on-background">资料入库</h2>
-          <p className="mx-auto mt-2 max-w-md text-sm text-on-surface-variant">
-            上传截图、合同、进货单、库存照、总部SOP资料。<br />
-            系统自动识别来源、抽字段、判断是经营数据还是文档资料。
-          </p>
-          <div className="mt-6 flex items-center justify-center gap-4">
-            <label htmlFor="capture-image-input" className="inline-flex cursor-pointer items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-on-primary shadow-lg shadow-primary/20 transition-transform hover:-translate-y-0.5 focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-primary">
-              <Upload className="h-4 w-4" />上传资料
-            </label>
-            <span className="text-xs text-on-surface-variant">或在页面任意位置 Ctrl/⌘+V 粘贴 · 拖拽图片</span>
-            <input ref={csvInputRef} type="file" accept=".csv" onChange={handleCsvImport} className="hidden" />
-            <button type="button" onClick={() => csvInputRef.current?.click()} className="inline-flex items-center gap-2 rounded-full border border-white/50 bg-white/55 px-4 py-2 text-xs font-medium text-on-surface-variant hover:bg-white/80">
-              <FileSpreadsheet className="h-3.5 w-3.5" />导入 CSV
-            </button>
-          </div>
-
-          <div className="mt-6 grid grid-cols-3 gap-3 text-left">
-            {[
-              { icon: FileText, label: "经营截图", desc: "客如云日报、美团/淘宝后台、进货单 → 自动抽数字写入日报", color: "text-emerald-600" },
-              { icon: Archive, label: "合同证照", desc: "租赁合同、转让协议、健康证、营业执照 → 抽关键条款归档", color: "text-amber-600" },
-              { icon: Camera, label: "SOP资料", desc: "总部标准、现场流程、卫生检查 → 识别后转入SOP作业库", color: "text-sky-600" },
-            ].map((item) => (
-              <div key={item.label} className="rounded-xl border border-white/45 bg-white/42 p-3">
-                <item.icon className={`h-5 w-5 ${item.color}`} />
-                <p className="mt-2 text-sm font-semibold text-on-background">{item.label}</p>
-                <p className="mt-1 text-[11px] leading-relaxed text-on-surface-variant">{item.desc}</p>
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <Camera className="h-5 w-5" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <h2 className="text-base font-semibold text-on-background">资料入库</h2>
+                <p className="mt-0.5 text-xs text-on-surface-variant">拖拽图片或 Ctrl/⌘+V 粘贴</p>
               </div>
-            ))}
+            </div>
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              <label htmlFor="capture-image-input" className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-on-primary shadow-sm shadow-primary/15 transition-colors hover:bg-primary/90 focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-primary">
+              <Upload className="h-4 w-4" />上传资料
+              </label>
+            <input ref={csvInputRef} type="file" accept=".csv" onChange={handleCsvImport} className="hidden" />
+              <button type="button" onClick={() => csvInputRef.current?.click()} className="inline-flex items-center gap-2 rounded-xl border border-stone-200 bg-white px-4 py-2.5 text-sm font-medium text-on-surface-variant hover:bg-stone-50">
+              <FileSpreadsheet className="h-3.5 w-3.5" />导入 CSV
+              </button>
+            </div>
           </div>
         </section>
       )}

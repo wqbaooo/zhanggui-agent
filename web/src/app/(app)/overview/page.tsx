@@ -39,20 +39,24 @@ import {
   addOperation,
   getCaptureAuditLog,
   getConsumptionVariance,
+  getDailyReviewCheck,
   getForecast,
   getOperationSummary,
   getOperations,
   getStaff,
   getTodayInsight,
+  getTodayOperatingCard,
   getWeather,
   recognizeCapture,
   transcribeSpeech,
   type CaptureAuditLogItem,
   type ConsumptionVariance,
+  type DailyReviewCheck,
   type DailyOperationEntry,
   type ForecastItem,
   type OperationSummary,
   type RecognizeResponse,
+  type TodayOperatingCard,
   type WeatherResponse,
 } from "@/lib/api";
 import { useAIChat } from "@/lib/hooks/useAIChat";
@@ -96,6 +100,8 @@ const QUICK_PROMPTS = [
   "总部/SOP/商场通知",
   "老板一句话备注",
 ];
+
+const REAL_FIXTURE_DATE = "2026-07-04";
 
 export default function OverviewPage() {
   return (
@@ -151,8 +157,11 @@ function OverviewPageContent() {
   const [weather, setWeather] = useState<WeatherResponse | null>(null);
   const [weatherFailed, setWeatherFailed] = useState(false);
   const [auditLogs, setAuditLogs] = useState<CaptureAuditLogItem[]>([]);
+  const [todayCard, setTodayCard] = useState<TodayOperatingCard | null>(null);
+  const [selectedDate, setSelectedDate] = useState(REAL_FIXTURE_DATE);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [todayInsight, setTodayInsight] = useState<{ insight: string; health_status: "good" | "watch" | "risk"; key_concern: string | null } | null>(null);
+  const [reviewCheck, setReviewCheck] = useState<DailyReviewCheck | null>(null);
 
   const confirmedCount = intakeItems.filter((item) => item.status === "已入库").length;
   const pendingCount = intakeItems.filter((item) => item.status === "待确认" || item.status === "分析中").length;
@@ -175,13 +184,15 @@ function OverviewPageContent() {
   const fetchLiveData = useCallback(async () => {
     setLoadError(null);
     try {
-      const [ops, fRes, staffRes, opsList, auditRes, insightRes] = await Promise.all([
+      const [ops, fRes, staffRes, opsList, auditRes, insightRes, todayCardRes, closeRes] = await Promise.all([
         getOperationSummary(DEFAULT_PROJECT_ID, 7),
         getForecast(DEFAULT_PROJECT_ID),
         getStaff(DEFAULT_PROJECT_ID),
         getOperations(DEFAULT_PROJECT_ID, 7),
         getCaptureAuditLog(DEFAULT_PROJECT_ID, 8),
         getTodayInsight(DEFAULT_PROJECT_ID).catch(() => null),
+        getTodayOperatingCard(DEFAULT_PROJECT_ID, selectedDate).catch(() => null),
+        getDailyReviewCheck(DEFAULT_PROJECT_ID, selectedDate).catch(() => null),
       ]);
       setOpsSummary(ops);
       setForecastUrgent(fRes.forecast.filter((f) => f.action === "urgent" || f.action === "recommend").slice(0, 3));
@@ -191,6 +202,8 @@ function OverviewPageContent() {
       setBreakEvenData(ops.profit_ready ? calcBreakEvenAnalysis(opsList.entries, ops.entry_count) : null);
       setAuditLogs(auditRes.logs || []);
       if (insightRes) setTodayInsight(insightRes);
+      if (todayCardRes) setTodayCard(todayCardRes);
+      if (closeRes) setReviewCheck(closeRes);
 
       // 拉取库存消耗差异（按已有台账日期范围）
       if (opsList.entries.length > 0) {
@@ -214,7 +227,7 @@ function OverviewPageContent() {
       setWeather(null);
       setWeatherFailed(true);
     }
-  }, []);
+  }, [selectedDate]);
 
   useEffect(() => { fetchLiveData(); }, [fetchLiveData]);
 
@@ -723,46 +736,46 @@ function OverviewPageContent() {
 
   const dailyFactRows = useMemo(() => [
     {
-      label: "今日销售额",
-      value: latestEntry ? formatCurrency(latestEntry.revenue) : "待录入",
-      sub: hasTodayOperation ? "来自今日已确认台账" : "缺今日销售截图或文字日报",
-      tone: latestEntry ? "good" as HealthTone : "watch" as HealthTone,
+      label: "订单金额",
+      value: todayCard?.fixture_sales ? formatCurrency(todayCard.fixture_sales.sales.order_amount) : todayCard ? formatCurrency(todayCard.sales.total || 0) : latestEntry ? formatCurrency(latestEntry.revenue) : "待录入",
+      sub: todayCard?.fixture_sales ? "来源：7/4 客如云营业日报" : hasTodayOperation ? "来自今日已确认台账" : "缺今日销售截图或文字日报",
+      tone: todayCard || latestEntry ? "good" as HealthTone : "watch" as HealthTone,
     },
     {
-      label: "已到我账户",
-      value: hasData ? formatCurrency(currentOwnerAmount) : "待核对",
-      sub: settlement ? "含当前老板名下收款和现金" : "上传到账截图后核对",
-      tone: currentOwnerAmount > 0 ? "good" as HealthTone : "watch" as HealthTone,
+      label: "营业收入",
+      value: todayCard?.fixture_sales ? formatCurrency(todayCard.fixture_sales.sales.net_operating_income) : todayCard ? formatCurrency((todayCard.money_where.accounts.owner_cmb_bank || 0) + (todayCard.money_where.accounts.owner_cash || 0)) : hasData ? formatCurrency(currentOwnerAmount) : "待核对",
+      sub: todayCard?.fixture_sales ? "来源：7/4 客如云营业日报" : settlement ? "含当前老板名下收款和现金" : "上传到账截图后核对",
+      tone: todayCard || currentOwnerAmount > 0 ? "good" as HealthTone : "watch" as HealthTone,
     },
     {
-      label: "前老板代收",
-      value: hasData ? formatCurrency(formerOwnerAmount) : "待核对",
-      sub: formerOwnerAmount > 0 ? "需要确认是否已转给你" : "暂未发现待核对代收",
-      tone: formerOwnerAmount > 0 ? "watch" as HealthTone : "info" as HealthTone,
+      label: "订单数",
+      value: todayCard?.fixture_sales ? `${todayCard.fixture_sales.sales.order_count} 单` : hasData ? `${latestEntry?.orders ?? 0} 单` : "待核对",
+      sub: todayCard?.fixture_sales ? "销售订单 113 · 退款订单 1" : "来源待确认",
+      tone: "good" as HealthTone,
     },
     {
-      label: "平台未结算",
-      value: hasData ? formatCurrency(platformPendingAmount) : "待核对",
-      sub: platformPendingAmount > 0 ? "影响钱在哪里，不影响销售归属" : "等待平台账单或结算截图",
-      tone: platformPendingAmount > 0 ? "watch" as HealthTone : "info" as HealthTone,
+      label: "第三方收入",
+      value: todayCard?.fixture_sales ? formatCurrency(todayCard.fixture_sales.sales.third_party_income) : todayCard ? formatCurrency(todayCard.money_where.accounts.platform_unsettled || 0) : hasData ? formatCurrency(platformPendingAmount) : "待核对",
+      sub: "需确认平台未结算 / 前老板代收 / 已回款",
+      tone: ((todayCard?.money_where.accounts.platform_unsettled || platformPendingAmount) > 0) ? "watch" as HealthTone : "info" as HealthTone,
     },
     {
-      label: "今日采购支出",
-      value: latestEntry && latestEntry.food_cost > 0 ? formatCurrency(latestEntry.food_cost) : "待确认",
-      sub: latestEntry && latestEntry.food_cost > 0 ? "已作为食材成本记录" : "上传进货单或付款截图",
-      tone: latestEntry && latestEntry.food_cost > 0 ? "good" as HealthTone : "watch" as HealthTone,
+      label: "店内营业收入",
+      value: todayCard?.fixture_sales ? formatCurrency(todayCard.fixture_sales.sales.dine_in_income) : "待确认",
+      sub: "来源：7/4 客如云营业日报",
+      tone: "good" as HealthTone,
     },
     {
       label: "库存消耗",
-      value: consumptionVariance ? `${Math.round(consumptionVariance.verification_coverage * 100)}% 可核验` : "待盘点",
-      sub: consumptionVariance ? `差异金额 ${formatCurrency(consumptionVariance.total_variance_value)}` : "缺开店/打烊库存照片或 BOM",
-      tone: consumptionVariance && consumptionVariance.verification_coverage >= 0.3 ? "info" as HealthTone : "watch" as HealthTone,
+      value: "暂不能入账",
+      sub: todayCard?.fixture_sales?.inventory.status || "缺开店/复盘库存照片或 BOM",
+      tone: "watch" as HealthTone,
     },
     {
-      label: "预估利润",
-      value: hasData && opsSummary?.profit_ready ? formatCurrency(opsSummary.net_profit) : "不能确认",
-      sub: opsSummary?.profit_ready ? `基于 ${opsSummary.entry_count} 条完整台账` : "成本、库存或平台费未补齐",
-      tone: opsSummary?.profit_ready ? (opsSummary.net_profit >= 0 ? "good" as HealthTone : "risk" as HealthTone) : "watch" as HealthTone,
+      label: "利润",
+      value: "不能精确确认",
+      sub: todayCard?.profit_statement || "成本、库存或平台费未补齐",
+      tone: "watch" as HealthTone,
     },
     {
       label: "明日断货",
@@ -770,10 +783,22 @@ function OverviewPageContent() {
       sub: forecastUrgent[0] ? `${forecastUrgent[0].name} 剩${forecastUrgent[0].days_remaining ?? "?"}天` : "继续保持每日盘点",
       tone: forecastUrgent.length > 0 ? "risk" as HealthTone : "good" as HealthTone,
     },
-  ], [consumptionVariance, currentOwnerAmount, forecastUrgent, formerOwnerAmount, hasData, hasTodayOperation, latestEntry, opsSummary, platformPendingAmount, settlement]);
+  ], [consumptionVariance, currentOwnerAmount, forecastUrgent, formerOwnerAmount, hasData, hasTodayOperation, latestEntry, opsSummary, platformPendingAmount, settlement, todayCard]);
 
   const gapQuestions = useMemo(() => {
     const gaps: { title: string; body: string; action: string; tone: HealthTone; href: string }[] = [];
+    if (todayCard?.missing_fields?.length) {
+      todayCard.missing_fields.forEach((gap) => {
+        gaps.push({
+          title: `${gap.priority} · ${gap.missing}`,
+          body: `${gap.why}。影响：${gap.impact}。${gap.action}`,
+          action: gap.priority === "P0" ? "立即处理" : "补证据",
+          tone: gap.priority === "P0" ? "risk" : "watch",
+          href: gap.missing.includes("库存") || gap.missing.includes("BOM") ? "/inventory" : "/capture",
+        });
+      });
+      return gaps.slice(0, 4);
+    }
     if (pendingCount > 0) {
       gaps.push({
         title: `${pendingCount} 条资料还没确认`,
@@ -820,11 +845,11 @@ function OverviewPageContent() {
       });
     }
     return gaps.slice(0, 4);
-  }, [consumptionVariance, formerOwnerAmount, hasTodayOperation, opsSummary?.profit_ready, pendingCount]);
+  }, [consumptionVariance, formerOwnerAmount, hasTodayOperation, opsSummary?.profit_ready, pendingCount, todayCard]);
 
   return (
-    <div className="min-h-[calc(100vh-56px)] bg-[#fbf7ef]">
-      <main className="mx-auto w-full max-w-7xl space-y-4 px-4 py-4">
+    <div className="min-h-[calc(100vh-56px)] min-w-0 overflow-x-hidden bg-[#fbf7ef]">
+      <main className="mx-auto w-full max-w-[calc(100vw-2rem)] min-w-0 space-y-4 px-0 py-3 sm:max-w-[calc(100vw-3rem)] sm:px-4 sm:py-4 xl:max-w-7xl">
         {loadError && (
           <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
             {loadError}
@@ -833,7 +858,7 @@ function OverviewPageContent() {
 
         <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
 
-        <section className="relative overflow-hidden rounded-[2rem] border border-stone-200 bg-[linear-gradient(135deg,#fffdf8_0%,#fff7ed_48%,#fef2e7_100%)] p-4 text-stone-950 shadow-[0_22px_70px_rgba(120,88,55,0.16)] md:min-h-[650px] md:p-5">
+        <section className="relative w-full min-w-0 max-w-full overflow-hidden rounded-[2rem] border border-stone-200 bg-[linear-gradient(135deg,#fffdf8_0%,#fff7ed_48%,#fef2e7_100%)] p-4 text-stone-950 shadow-[0_22px_70px_rgba(120,88,55,0.16)] md:min-h-[650px] md:p-5">
           <div className="pointer-events-none absolute inset-0">
             <div className="absolute -left-24 bottom-0 h-72 w-72 rounded-full bg-octo-200/50 blur-3xl" />
             <div className="absolute left-[18%] top-12 h-72 w-[38rem] -rotate-12 rounded-full bg-sauce-100/80 blur-3xl" />
@@ -843,17 +868,17 @@ function OverviewPageContent() {
           </div>
 
           <div className="relative z-10 flex flex-col gap-4">
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/70 bg-white/70 px-3 py-2 shadow-sm backdrop-blur-xl">
-              <div className="flex items-center gap-2">
+            <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/70 bg-white/70 px-3 py-2 shadow-sm backdrop-blur-xl">
+              <div className="flex min-w-0 items-center gap-2">
                 <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-octo-500 text-white shadow-sm shadow-octo-200/70">
                   <Sparkles className="h-4 w-4" />
                 </span>
-                <div>
+                <div className="min-w-0">
                   <p className="text-sm font-semibold text-stone-950">{storeIdentity.name}</p>
                   <p className="text-[11px] text-stone-500">{storeIdentity.location}</p>
                 </div>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
                 <StagePill label="天气" value={weatherText} tone={weatherFailed ? "risk" : weather?.source === "fallback" ? "watch" : "info"} />
               </div>
             </div>
@@ -898,29 +923,28 @@ function OverviewPageContent() {
                   className="w-full min-w-0"
                 >
                   <div className="flex items-center gap-3">
-                    <h1 className="text-[1.75rem] font-semibold leading-[1.1] tracking-tight text-stone-950 md:text-[2.25rem]">
-                      掌柜台 · 今日经营卡
+                    <h1 className="min-w-0 text-[1.55rem] font-semibold leading-[1.1] tracking-tight text-stone-950 md:text-[2.25rem]">
+                      掌柜台 · 每日经营复盘
                     </h1>
                   </div>
-                  {todayInsight?.insight && (
-                    <div className={`mt-3 rounded-2xl border p-3 ${
-                      todayInsight.health_status === "good"
-                        ? "border-nori-200 bg-nori-50/50"
-                        : todayInsight.health_status === "risk"
-                          ? "border-red-200 bg-red-50/50"
-                          : "border-stone-200 bg-stone-50/50"
-                    }`}>
-                      <p className={`text-sm leading-6 ${
-                        todayInsight.health_status === "good"
-                          ? "text-nori-800"
-                          : todayInsight.health_status === "risk"
-                            ? "text-red-800"
-                            : "text-stone-700"
-                      }`}>
-                        {todayInsight.insight}
-                      </p>
-                    </div>
-                  )}
+                  <div className="mt-3 flex w-full flex-col gap-2 sm:flex-row sm:items-center">
+                    <label className="flex min-w-0 items-center gap-2 rounded-xl border border-stone-200 bg-white/80 px-3 py-2 text-xs text-stone-600">
+                      <span className="shrink-0 font-medium">查看日期</span>
+                      <input
+                        type="date"
+                        value={selectedDate}
+                        onChange={(event) => setSelectedDate(event.target.value || REAL_FIXTURE_DATE)}
+                        className="min-w-0 bg-transparent font-semibold text-stone-950 outline-none"
+                      />
+                    </label>
+                    <span className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">当前真实资料样例默认：2026-07-04</span>
+                  </div>
+                  <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50/55 p-3">
+                    <p className="text-sm font-semibold text-amber-950">经营结论</p>
+                    <p className="mt-1 text-sm leading-6 text-amber-900">
+                      7/4 经营净收入来自客如云日报，但现金、微信、支付宝、团购券、第三方收入的结算位置仍需老板确认；成本和 BOM 未确认前，利润暂不能精确确认。
+                    </p>
+                  </div>
                   <p className="mt-2 text-sm text-stone-500">
                     {hasData && opsSummary
                       ? opsSummary.profit_ready
@@ -929,6 +953,94 @@ function OverviewPageContent() {
                       : "把销售、到账、进货、库存照片直接丢给掌柜，先生成待确认事实"}
                   </p>
                 </motion.div>
+
+                {reviewCheck && (
+                  <section className="rounded-2xl border border-stone-200 bg-white/82 p-4 shadow-sm">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-stone-950">每日经营复盘 · 今日事实是否够用</p>
+                        <p className="mt-1 text-xs leading-5 text-stone-500">
+                          复盘核心 5 项：营业日报已确认 / 现金已确认 / 第三方收入结算状态已确认 / 无重复入账风险 / 关键库存无低置信度阻断
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${reviewCheck.can_close ? "bg-green-100 text-green-800" : "bg-amber-100 text-amber-800"}`}>
+                          {reviewCheck.can_close ? "复盘可用" : reviewCheck.close_status === "partial" ? "部分可复盘" : "缺口待补"}
+                        </span>
+                        <Link href="/capture" className="rounded-full bg-stone-900 px-3 py-1.5 text-xs font-semibold text-white">去确认</Link>
+                      </div>
+                    </div>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                      <div className="rounded-xl bg-stone-50 px-3 py-2">
+                        <p className="text-[11px] text-stone-500">已确认 / 待确认事实</p>
+                        <p className="mt-1 text-sm font-semibold text-stone-950">
+                          <span className="text-green-600">{reviewCheck.confirmed_facts_count}</span>
+                          <span className="text-stone-400"> / </span>
+                          <span className="text-amber-600">{reviewCheck.pending_facts_count}</span>
+                          <span className="ml-1 text-[11px] text-stone-400">条</span>
+                        </p>
+                      </div>
+                      <div className="rounded-xl bg-stone-50 px-3 py-2">
+                        <p className="text-[11px] text-stone-500">已入账 / 重复风险</p>
+                        <p className="mt-1 text-sm font-semibold text-stone-950">
+                          <span>{reviewCheck.posted_entries_count}</span>
+                          <span className="text-stone-400"> 条入账 · </span>
+                          <span className={reviewCheck.duplicate_risks_count > 0 ? "text-red-600" : "text-stone-400"}>
+                            {reviewCheck.duplicate_risks_count} 重复风险
+                          </span>
+                        </p>
+                      </div>
+                      <div className="rounded-xl bg-stone-50 px-3 py-2">
+                        <p className="text-[11px] text-stone-500">低置信度库存</p>
+                        <p className="mt-1 text-sm font-semibold text-stone-950">
+                          <span className={reviewCheck.low_confidence_inventory_count > 0 ? "text-amber-600" : "text-green-600"}>
+                            {reviewCheck.low_confidence_inventory_count} 项
+                          </span>
+                          <span className="ml-1 text-[11px] text-stone-400">
+                            {reviewCheck.low_confidence_inventory_count > 0 ? "需老板确认" : "库存口径可靠"}
+                          </span>
+                        </p>
+                      </div>
+                    </div>
+                    {reviewCheck.blocking_reasons.length > 0 && (
+                      <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/50 p-3">
+                        <p className="text-xs font-semibold text-amber-900">复盘缺口</p>
+                        <ul className="mt-1.5 space-y-1">
+                          {reviewCheck.blocking_reasons.slice(0, 5).map((reason) => (
+                            <li key={reason} className="text-[11px] leading-5 text-amber-800">· {reason}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {reviewCheck.next_actions.length > 0 && (
+                      <div className="mt-2">
+                        <p className="text-[11px] font-medium text-stone-500">下一步老板该确认：</p>
+                        <ul className="mt-1 space-y-0.5">
+                          {reviewCheck.next_actions.slice(0, 3).map((action) => (
+                            <li key={action} className="text-[11px] text-stone-700">→ {action}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </section>
+                )}
+
+                {todayCard?.sources && (
+                  <section className="rounded-2xl border border-stone-200 bg-white/82 p-4 shadow-sm">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-stone-950">真实资料证据链</p>
+                        <p className="mt-1 text-xs leading-5 text-stone-500">这些是真实资料 fixture / 真实 RawMaterial 样例，当前 OCR 尚未完全自动化，先由规则生成候选事实。</p>
+                      </div>
+                      <Link href="/capture" className="shrink-0 rounded-full bg-stone-900 px-3 py-1.5 text-xs font-semibold text-white">去确认事实</Link>
+                    </div>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+                      {todayCard.sources.map((source) => (
+                        <p key={source} className="min-w-0 rounded-xl bg-stone-50 px-3 py-2 text-xs leading-5 text-stone-700">{source}</p>
+                      ))}
+                    </div>
+                  </section>
+                )}
 
                 <motion.div
                   initial={{ opacity: 0, y: 14 }}
@@ -939,21 +1051,17 @@ function OverviewPageContent() {
                   <HeroMetricCard
                     icon={TrendingUp}
                     label="销售事实"
-                    value={latestEntry ? formatCurrency(latestEntry.revenue) : "待录入"}
-                    sub={hasData && opsSummary
-                      ? hasTodayOperation ? "今日销售已入账" : "最近一条销售记录不是今天"
-                      : "上传客如云或平台销售截图"}
+                    value={todayCard?.fixture_sales ? formatCurrency(todayCard.fixture_sales.sales.net_operating_income) : latestEntry ? formatCurrency(latestEntry.revenue) : "待录入"}
+                    sub={todayCard?.fixture_sales ? "经营净收入已确认/待确认，利润不能精确确认" : "上传客如云或平台销售截图"}
                     tone={hasTodayOperation ? "good" : "watch"}
                     delay={0.1}
                   />
                   <HeroMetricCard
                     icon={Wallet}
                     label="钱在哪里"
-                    value={hasData ? formatCurrency(currentOwnerAmount + formerOwnerAmount + platformPendingAmount) : "待核对"}
-                    sub={formerOwnerAmount > 0
-                      ? `前老板代收 ${formatCurrency(formerOwnerAmount)} 待核销`
-                      : hasData ? `已到我账户 ${formatCurrency(currentOwnerAmount)}` : "上传到账或转账截图"}
-                    tone={formerOwnerAmount > 0 || platformPendingAmount > 0 ? "watch" : hasData ? "good" : "info"}
+                    value={todayCard?.fixture_sales ? "多处待确认" : hasData ? formatCurrency(currentOwnerAmount + formerOwnerAmount + platformPendingAmount) : "待核对"}
+                    sub={todayCard?.fixture_sales ? "现金/微信/支付宝/团购券需要确认结算状态" : "上传到账或转账截图"}
+                    tone="watch"
                     delay={0.18}
                   />
                   <HeroMetricCard
@@ -1019,6 +1127,49 @@ function OverviewPageContent() {
                   )}
                 </AnimatePresence>
 
+                {todayCard?.fixture_sales && (
+                  <section className="grid gap-3 lg:grid-cols-[1.1fr_0.9fr]">
+                    <div className="rounded-2xl border border-stone-200 bg-white/82 p-4 shadow-sm">
+                      <p className="text-sm font-semibold text-stone-950">7/4 客如云真实字段</p>
+                      <p className="mt-1 text-xs text-stone-500">来源：7/4 客如云营业日报</p>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                        {[
+                          ["订单金额", formatCurrency(todayCard.fixture_sales.sales.order_amount)],
+                          ["营业收入", formatCurrency(todayCard.fixture_sales.sales.net_operating_income)],
+                          ["订单数", `${todayCard.fixture_sales.sales.order_count} 单`],
+                          ["销售/退款", `${todayCard.fixture_sales.sales.sales_orders} / ${todayCard.fixture_sales.sales.refund_orders}`],
+                          ["店内营业收入", formatCurrency(todayCard.fixture_sales.sales.dine_in_income)],
+                          ["第三方营业收入", formatCurrency(todayCard.fixture_sales.sales.third_party_income)],
+                          ["商户优惠", formatCurrency(todayCard.fixture_sales.deductions.merchant_discount)],
+                          ["服务费", formatCurrency(todayCard.fixture_sales.deductions.service_fee)],
+                          ["配送支出", formatCurrency(todayCard.fixture_sales.deductions.delivery_cost)],
+                          ["补贴", formatCurrency(todayCard.fixture_sales.deductions.subsidy_adjustment)],
+                        ].map(([label, value]) => (
+                          <div key={label} className="min-w-0 rounded-xl bg-stone-50 px-3 py-2">
+                            <p className="text-[11px] text-stone-500">{label}</p>
+                            <p className="mt-1 truncate text-sm font-semibold text-stone-950">{value}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-stone-200 bg-white/82 p-4 shadow-sm">
+                      <p className="text-sm font-semibold text-stone-950">商品销售</p>
+                      <p className="mt-1 text-xs text-stone-500">来源：7/4 客如云营业日报</p>
+                      <div className="mt-3 space-y-2">
+                        {todayCard.fixture_sales.products.map((item) => (
+                          <div key={item.name} className="flex min-w-0 items-center justify-between gap-3 rounded-xl bg-stone-50 px-3 py-2">
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-semibold text-stone-900">{item.name}</p>
+                              <p className="text-[11px] text-stone-500">{item.quantity} 份</p>
+                            </div>
+                            <p className="shrink-0 text-sm font-bold text-stone-950">{formatCurrency(item.amount)}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </section>
+                )}
+
                 <motion.div
                   initial={{ opacity: 0, y: 14 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -1067,40 +1218,13 @@ function OverviewPageContent() {
                       )) : (
                         <div className="rounded-2xl border border-nori-100 bg-nori-50/50 p-3">
                           <p className="text-sm font-semibold text-nori-800">今天没有关键缺口</p>
-                          <p className="mt-1 text-xs leading-5 text-nori-700">继续补充打烊库存照片和平台结算截图，明天的利润估算会更准。</p>
+                          <p className="mt-1 text-xs leading-5 text-nori-700">继续补充复盘库存照片和平台结算截图，明天的利润估算会更准。</p>
                         </div>
                       )}
                     </div>
                   </section>
                 </motion.div>
 
-                <motion.div
-                  initial={{ opacity: 0, y: 16 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.4, delay: 0.15 }}
-                >
-                  <button
-                    onClick={openChat}
-                    className="group flex items-center gap-3 rounded-2xl border border-stone-200 bg-white/82 px-4 py-3 shadow-sm transition-all hover:border-octo-200 hover:shadow-md"
-                  >
-                    <span className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-octo-500 to-octo-600 text-white shadow-sm shadow-octo-200/60">
-                      <Sparkles className="h-5 w-5" />
-                    </span>
-                    <div className="flex-1 text-left">
-                      <p className="text-sm font-semibold text-stone-900">掌柜对话</p>
-                      <p className="text-[11px] text-stone-500">
-                        {messages.length > 0 && !isStreaming
-                          ? messages[messages.length - 1].content?.slice(0, 20) + "..."
-                          : messages.length === 0 && !isStreaming
-                            ? "点击进入对话，分析经营数据"
-                            : "正在处理…"}
-                      </p>
-                    </div>
-                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-octo-50 text-octo-600 group-hover:bg-octo-100 transition-colors">
-                      <ChevronRight className="h-4 w-4" />
-                    </span>
-                  </button>
-                </motion.div>
               </div>
             </div>
           </div>
@@ -1323,10 +1447,10 @@ function StagePill({ label, value, tone }: { label: string; value: string; tone:
     tone === "good" ? "border-nori-200 bg-nori-50 text-nori-700" :
     "border-sky-200 bg-sky-50 text-sky-700";
   return (
-    <span className={`inline-flex max-w-[220px] items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] shadow-sm ${color}`}>
+    <span className={`inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] shadow-sm sm:max-w-[220px] ${color}`}>
       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dotToneClass(tone)}`} />
-      <span className="text-stone-500">{label}</span>
-      <span className="truncate font-medium">{value}</span>
+      <span className="shrink-0 text-stone-500">{label}</span>
+      <span className="min-w-0 truncate font-medium">{value}</span>
     </span>
   );
 }
@@ -1436,7 +1560,7 @@ function StageInputDock({
           <textarea
             value={input}
             onChange={(event) => setInput(event.target.value)}
-            placeholder="问经营问题、安排任务，或直接发文字和资料…"
+            placeholder="今天发生了什么？发截图、拍库存、说一句话都可以…"
             rows={1}
             className="max-h-24 min-h-11 min-w-0 flex-1 resize-none bg-transparent py-3 text-sm leading-5 text-stone-900 outline-none placeholder:text-stone-400"
             onKeyDown={(event) => {
@@ -1448,7 +1572,7 @@ function StageInputDock({
           />
         </div>
         <div className="flex flex-wrap items-center gap-2 md:shrink-0">
-          <StageDockButton onClick={onUpload} icon={Upload} label="文件" />
+          <StageDockButton onClick={onUpload} icon={Upload} label="截图/文件" />
           <StageDockButton onClick={onCamera} icon={Camera} label="拍照" />
           <StageDockButton onClick={onVoice} icon={isTranscribing ? Loader2 : Mic} label={isRecording ? "结束" : "语音"} active={isRecording} />
           <button
@@ -1457,7 +1581,7 @@ function StageInputDock({
             className="ml-auto inline-flex h-12 items-center justify-center gap-2 rounded-full bg-octo-500 px-5 text-sm font-semibold text-white shadow-sm shadow-octo-200/80 transition-transform hover:scale-[1.02] hover:bg-octo-600 disabled:cursor-not-allowed disabled:bg-stone-200 disabled:text-stone-400 disabled:shadow-none md:ml-0"
           >
             {isStreaming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            交给掌柜
+            自动识别
           </button>
         </div>
       </div>
@@ -1522,17 +1646,17 @@ function IntakePanel({
         <div>
           <p className="flex items-center gap-2 text-sm font-semibold text-stone-950">
             <Sparkles className="h-4 w-4 text-octo-600" />
-            交给掌柜
+            今天发生了什么？
           </p>
-          <p className="mt-1 text-xs leading-5 text-stone-500">记账、截图、单据、库存、员工、异常，都可以直接放进来。</p>
+          <p className="mt-1 text-xs leading-5 text-stone-500">发截图、拍库存、说一句话都可以；系统先识别，再让你确认。</p>
         </div>
-        <span className="rounded-full bg-octo-50 px-2.5 py-1 text-[11px] font-medium text-octo-700">今日入口</span>
+        <span className="rounded-full bg-octo-50 px-2.5 py-1 text-[11px] font-medium text-octo-700">统一识别入口</span>
       </div>
 
       <textarea
         value={input}
         onChange={(event) => setInput(event.target.value)}
-        placeholder="今天有什么要记？例如：卖了2300，美团900，章鱼粉快没了……"
+        placeholder="今天发生了什么？例如：卖了2300，美团900，章鱼粉快没了……"
         className="mt-4 min-h-32 w-full resize-none rounded-2xl border border-stone-200 bg-stone-50/70 px-4 py-3 text-sm leading-6 text-stone-900 outline-none transition-colors placeholder:text-stone-400 focus:border-octo-300 focus:bg-white focus:ring-4 focus:ring-octo-50"
         rows={5}
         onKeyDown={(event) => {

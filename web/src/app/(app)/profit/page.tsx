@@ -30,9 +30,11 @@ import {
   getOperations,
   getProjectCockpit,
   getPurchases,
+  getMoneyView,
   type ConsumptionVariance,
   type DailyOperationEntry,
   type ForecastItem,
+  type MoneyView,
   type OperationSummary,
   type PurchaseRecord,
 } from "@/lib/api";
@@ -65,6 +67,7 @@ const STATUS_LABELS: Record<string, string> = {
   missing_opening_count: "缺期初盘点",
   missing_count: "缺盘点",
 };
+const REAL_FIXTURE_DATE = "2026-07-04";
 
 export default function ProfitPage() {
   const [summary, setSummary] = useState<OperationSummary | null>(null);
@@ -73,24 +76,27 @@ export default function ProfitPage() {
   const [forecast, setForecast] = useState<ForecastItem[]>([]);
   const [profile, setProfile] = useState<Record<string, unknown>>({});
   const [purchases, setPurchases] = useState<PurchaseRecord[]>([]);
+  const [moneyView, setMoneyView] = useState<MoneyView | null>(null);
   const [initialized, setInitialized] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoadError(null);
     try {
-      const [sum, ops, fRes, cockpit, purchaseRes] = await Promise.all([
+      const [sum, ops, fRes, cockpit, purchaseRes, moneyRes] = await Promise.all([
         getOperationSummary(DEFAULT_PROJECT_ID, 30),
         getOperations(DEFAULT_PROJECT_ID, 30),
         getForecast(DEFAULT_PROJECT_ID),
         getProjectCockpit(DEFAULT_PROJECT_ID, 30),
         getPurchases(DEFAULT_PROJECT_ID, 30),
+        getMoneyView(DEFAULT_PROJECT_ID, REAL_FIXTURE_DATE),
       ]);
       setSummary(sum);
       setEntries(ops.entries);
       setForecast(fRes.forecast.filter((f) => f.action === "urgent" || f.action === "recommend").slice(0, 4));
       setProfile(cockpit.profile || {});
       setPurchases(purchaseRes.purchases || []);
+      setMoneyView(moneyRes);
       if (ops.entries.length > 0) {
         const sorted = [...ops.entries].sort((a, b) => a.date.localeCompare(b.date));
         const start = sorted[0].date;
@@ -327,6 +333,68 @@ export default function ProfitPage() {
               <button onClick={fetchData} className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white">重试</button>
             </div>
           </div>
+        )}
+        {moneyView && (
+          <section className="rounded-2xl border border-stone-200 bg-white/80 p-4 shadow-sm">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-bold text-stone-950">钱账：钱在哪里</p>
+                <p className="mt-1 text-xs leading-5 text-stone-500">7/4 销售发生、客如云待结算、第三方平台、前老板账户和老板现金分开解释。</p>
+              </div>
+              <span className="rounded-full bg-stone-900 px-3 py-1 text-xs font-semibold text-white">2026-07-04</span>
+            </div>
+            {moneyView.fixture_sales && (
+              <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                <MoneyBlock title="1. 今日销售发生" rows={[
+                  ["订单金额", `¥${moneyView.fixture_sales.sales.order_amount.toFixed(2)}`],
+                  ["营业收入", `¥${moneyView.fixture_sales.sales.net_operating_income.toFixed(2)}`],
+                  ["店内营业收入", `¥${moneyView.fixture_sales.sales.dine_in_income.toFixed(2)}`],
+                  ["第三方营业收入", `¥${moneyView.fixture_sales.sales.third_party_income.toFixed(2)}`],
+                ]} source="来源：7/4 客如云营业日报" />
+                <MoneyBlock title="2. 老板已掌握资金" rows={[
+                  ["招商银行卡到账", "待确认"],
+                  ["现金", "¥185.00，待确认"],
+                ]} source="来源：7/4 客如云营业概况 / 微信聊天截图" />
+                <MoneyBlock title="3. 客如云待结算" rows={[
+                  ["微信", "¥956.00"],
+                  ["支付宝", "¥166.00"],
+                  ["二代码支付小程序", "¥1.00"],
+                  ["是否 T+1 到招行卡", "待确认"],
+                ]} source="来源：7/4 客如云营业概况" />
+                <MoneyBlock title="4. 第三方/平台待确认" rows={[
+                  ["淘宝闪购相关金额", "¥104.37 / ¥224.01 需对账"],
+                  ["美团外卖相关金额", "¥81.40 / ¥188.73 需对账"],
+                  ["抖音团购券", "¥226.76"],
+                  ["美团团购券", "¥75.27"],
+                  ["需要确认", "平台未结算 / 前老板代收 / 已回款"],
+                ]} source="来源：7/4 客如云营业概况" />
+                <MoneyBlock title="5. 前老板账户" rows={[
+                  ["前老板应转给我", moneyView.former_owner?.receivable_from_former_owner || "待确认"],
+                  ["前老板已转给我", moneyView.former_owner?.transferred_to_owner || "待确认"],
+                  ["待分摊回款", moneyView.former_owner?.pending_allocation || "待确认"],
+                  ["当前未结清", moneyView.former_owner?.unsettled || "待确认"],
+                ]} source="来源：微信聊天截图" />
+                <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-3">
+                  <p className="text-xs font-semibold text-amber-900">重要提示</p>
+                  <p className="mt-1 text-[11px] leading-5 text-amber-800">
+                    前老板回款是<b>资金转移</b>，不是新的销售收入。它只改变钱的位置（从前老板账户 → 老板银行卡），
+                    不增加今日营业收入，也不记入利润。确认回款时生成的是「应收回款 / 内部转账」类型。
+                  </p>
+                </div>
+                <MoneyBlock title="6. 不是收入的项目" rows={[
+                  ["退款/扣款", "与收入分开"],
+                  ["采购支出", "付款影响现金，不等于今日消耗"],
+                  ["非经营款", "不计入销售"],
+                  ["前老板转账", "不是新收入，是应收回款"],
+                ]} source="规则：可信经营账本" />
+              </div>
+            )}
+            <div className="mt-3 grid gap-2 text-xs text-stone-600 md:grid-cols-2">
+              {moneyView.rules.map((rule) => (
+                <p key={rule} className="rounded-xl bg-stone-50 px-3 py-2">{rule}</p>
+              ))}
+            </div>
+          </section>
         )}
         {initialized && !hasData && (
           <div className="rounded-2xl border border-dashed border-white/60 bg-white/35 p-8 text-center">
@@ -697,6 +765,23 @@ function SettlementCard({
         ¥{Math.round(value).toLocaleString()}
       </p>
       <p className="mt-1 text-[11px] leading-5 text-stone-500">{hint}</p>
+    </div>
+  );
+}
+
+function MoneyBlock({ title, rows, source }: { title: string; rows: Array<[string, string]>; source: string }) {
+  return (
+    <div className="min-w-0 rounded-2xl border border-stone-200 bg-stone-50/70 p-4">
+      <p className="text-sm font-semibold text-stone-950">{title}</p>
+      <div className="mt-3 space-y-2">
+        {rows.map(([label, value]) => (
+          <div key={label} className="flex min-w-0 items-start justify-between gap-3 rounded-xl bg-white/75 px-3 py-2">
+            <p className="min-w-0 text-xs text-stone-500">{label}</p>
+            <p className="max-w-[58%] text-right text-xs font-semibold leading-5 text-stone-900">{value}</p>
+          </div>
+        ))}
+      </div>
+      <p className="mt-3 text-[11px] leading-5 text-stone-500">{source}</p>
     </div>
   );
 }
