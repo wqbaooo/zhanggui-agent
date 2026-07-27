@@ -143,8 +143,8 @@ export const MOCK_COCKPIT: ProjectCockpit = {
     estimated_monthly_cost: 11200,
   },
   agent_signals: [
-    { source: "财务 Agent", title: "食材成本率 38%", body: "接近警戒线，关注章鱼粒采购价变动。", tone: "watch", target: "/inventory" },
-    { source: "库存 Agent", title: "月营收跃升，建议检查库存", body: "4月营收较3月增长超170%，食材和耗材可能吃紧。", tone: "watch", target: "/inventory" },
-    { source: "情报 Agent", title: "4月营收同比增长 1017%", body: "增速异常，确认是否有特殊原因。", tone: "info", target: "/monthly" },
+    { source: "会计", title: "食材成本率 38%", body: "接近警戒线，关注章鱼粒采购价变动。", tone: "watch", target: "/inventory" },
+    { source: "仓管", title: "月营收跃升，建议检查库存", body: "4月营收较3月增长超170%，食材和耗材可能吃紧。", tone: "watch", target: "/inventory" },
+    { source: "掌柜", title: "4月营收同比增长 1017%", body: "增速异常，确认是否有特殊原因。", tone: "info", target: "/monthly" },
   ],
 };

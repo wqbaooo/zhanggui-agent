@@ -23,15 +23,17 @@ export function getModule(href: string) {
 export function ModulePage({
   module,
   children,
+  compact = false,
 }: {
   module: AgentModule;
   children?: React.ReactNode;
+  compact?: boolean;
 }) {
   const Icon = module.icon;
 
   return (
     <main className="mx-auto flex w-full max-w-7xl flex-col gap-4 pb-8">
-      <section className="glass-card rounded-xl p-4 md:p-5">
+      <section className={`glass-card rounded-xl ${compact ? "px-4 py-3" : "p-4 md:p-5"}`}>
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
@@ -43,18 +45,18 @@ export function ModulePage({
                 {toneLabel[module.status]}
               </span>
             </div>
-            <h1 className="mt-3 text-2xl font-semibold tracking-normal text-stone-900 md:text-3xl">
+            <h1 className={`${compact ? "mt-2 text-xl" : "mt-3 text-2xl md:text-3xl"} font-semibold tracking-normal text-stone-900`}>
               {module.title}
             </h1>
-            <p className="mt-2 max-w-[48rem] text-sm leading-relaxed text-stone-500">
+            <p className={`${compact ? "mt-1 text-xs" : "mt-2 text-sm"} max-w-[48rem] leading-relaxed text-stone-500`}>
               {module.description}
             </p>
           </div>
 
-          <div className="grid min-w-[260px] grid-cols-2 gap-2">
+          {!compact && <div className="grid min-w-[260px] grid-cols-2 gap-2">
             <MetricTile label="核心指标" value={module.primaryMetric} />
             <MetricTile label="当前状态" value={module.secondaryMetric} />
-          </div>
+          </div>}
         </div>
       </section>
 

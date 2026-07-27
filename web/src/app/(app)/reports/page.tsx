@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, ArrowRight, CalendarDays, CheckCircle2, ChevronRight, Download, Info, Lightbulb, Loader2, Sparkles, TrendingDown } from "lucide-react";
+import { AlertTriangle, ArrowRight, CalendarDays, CheckCircle2, ChevronRight, Download, Info, Lightbulb, Loader2, Printer, Sparkles, TrendingDown } from "lucide-react";
 import { ModulePage, getModule } from "@/components/agent-os/ModulePage";
 import { DEFAULT_PROJECT_ID, getReports, generateReport, getOperationSummary, type Report } from "@/lib/api";
 
@@ -16,8 +16,8 @@ const findingColor: Record<string, string> = {
   info: "border-sky-200 bg-sky-50 text-sky-800",
 };
 
-function fmtMoney(v: number) { return `¥${(v / 1000).toFixed(1)}k`; }
-function fmtPct(v: number) { return `${(v * 100).toFixed(0)}%`; }
+function fmtMoney(v: number | null) { return v == null ? "待核算" : `¥${(v / 1000).toFixed(1)}k`; }
+function fmtPct(v: number | null) { return v == null ? "待核算" : `${(v * 100).toFixed(0)}%`; }
 
 export default function ReportsPage() {
   const [report, setReport] = useState<Report | null>(null);
@@ -63,6 +63,31 @@ export default function ReportsPage() {
   }, [loadLatest]);
 
   const hasEnoughData = dataDays >= 3;
+  const reportIsVerified = report?.status === "finance_confirmed";
+  const downloadCashTemplate = useCallback(() => {
+    const rows = [
+      ["日期", "班次/经手人", "期初备用金", "现金销售", "其他现金收入", "现金采购支出", "现金退款", "存入银行卡", "应有现金", "实点现金", "长款/短款", "保留备用金", "交接人", "确认人", "备注/凭证"],
+      ["", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
+    ];
+    const csv = "\ufeff" + rows.map((row) => row.join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "掌柜Agent-现金管理日报空白表.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  }, []);
+
+  const printCashTemplate = useCallback(() => {
+    const rows = ["期初备用金", "现金销售", "其他现金收入", "现金采购支出", "现金退款", "存入银行卡", "应有现金", "实点现金", "长款/短款", "保留备用金"];
+    const html = `<html><head><title>现金管理日报</title><style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:24px;color:#111}h1{font-size:20px;margin:0 0 12px}.meta{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0}.meta div{border:1px solid #999;padding:8px;height:28px}table{border-collapse:collapse;width:100%;font-size:12px}th,td{border:1px solid #999;padding:8px;height:28px;text-align:left}th{background:#f3f4f6}</style></head><body><h1>现金管理日报</h1><div class="meta"><div>日期：</div><div>班次：</div><div>经手人：</div><div>确认人：</div></div><table><thead><tr><th>项目</th><th>金额</th><th>说明/凭证</th></tr></thead><tbody>${rows.map((item) => `<tr><td>${item}</td><td></td><td></td></tr>`).join("")}</tbody></table></body></html>`;
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) return;
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.print();
+  }, []);
 
   return (
     <ModulePage module={getModule("/reports")}>
@@ -81,6 +106,14 @@ export default function ReportsPage() {
               <span>已积累 {dataDays} 天经营数据</span>
             </div>
             <div className="ml-auto flex gap-2">
+              <button onClick={downloadCashTemplate}
+                className="inline-flex items-center gap-1.5 rounded-full border border-white/50 bg-white/55 px-3 py-1.5 text-xs font-medium text-on-surface-variant hover:bg-white/80">
+                <Download className="h-3.5 w-3.5" />现金表
+              </button>
+              <button onClick={printCashTemplate}
+                className="inline-flex items-center gap-1.5 rounded-full border border-white/50 bg-white/55 px-3 py-1.5 text-xs font-medium text-on-surface-variant hover:bg-white/80">
+                <Printer className="h-3.5 w-3.5" />打印空白表
+              </button>
               <button onClick={() => handleGenerate("weekly")} disabled={generating || !hasEnoughData}
                 className="inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-1.5 text-xs font-semibold text-on-primary shadow-sm disabled:opacity-40">
                 {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
@@ -114,9 +147,13 @@ export default function ReportsPage() {
                     <p className="text-xs font-medium text-on-surface-variant">
                       {report.report_type === "weekly" ? "周复盘" : "月复盘"} · {report.period_start} ~ {report.period_end}
                     </p>
-                    <h2 className="mt-1 text-2xl font-bold text-on-background">{report.net_profit >= 0 ? "本期盈利" : "本期亏损"}</h2>
+                    <h2 className="mt-1 text-2xl font-bold text-on-background">
+                      {reportIsVerified ? ((report.net_profit ?? 0) >= 0 ? "本期盈利" : "本期亏损") : "历史报告未核验"}
+                    </h2>
                     <p className="mt-1 text-xs text-on-surface-variant">
-                      覆盖 {report.total_days} 天 · 日均 {report.total_orders > 0 ? `${Math.round(report.total_orders / Math.max(report.total_days, 1))} 单` : "无数据"}
+                      {reportIsVerified
+                        ? `覆盖 ${report.total_days} 天 · 日均 ${(report.total_orders ?? 0) > 0 ? `${Math.round((report.total_orders ?? 0) / Math.max(report.total_days, 1))} 单` : "无数据"}`
+                        : "原始记录保留，但不能作为收入、成本或利润结论"}
                     </p>
                   </div>
                   <button
@@ -135,22 +172,32 @@ export default function ReportsPage() {
                   </button>
                 </div>
 
-                <div className="mt-4 grid grid-cols-5 gap-2">
-                  <MiniMetric label="总营收" value={fmtMoney(report.total_revenue)}
-                    change={report.revenue_change_pct} />
-                  <MiniMetric label="日均" value={`¥${report.avg_daily_revenue.toLocaleString()}`} />
-                  <MiniMetric label="净利" value={fmtMoney(report.net_profit)}
-                    tone={report.net_profit < 0 ? "risk" : "good"}
-                    change={report.profit_change_pct} />
-                  <MiniMetric label="食材率" value={fmtPct(report.food_cost_rate)}
-                    tone={report.food_cost_rate > 0.4 ? "risk" : undefined} />
-                  <MiniMetric label="外卖占比" value={fmtPct(report.takeout_ratio)}
-                    tone={report.takeout_ratio > 0.45 ? "watch" : undefined} />
-                </div>
+                {reportIsVerified ? (
+                  <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-5">
+                    <MiniMetric label="总营收" value={fmtMoney(report.total_revenue)}
+                      change={report.revenue_change_pct ?? undefined} />
+                    <MiniMetric label="日均" value={report.avg_daily_revenue == null ? "待核算" : `¥${report.avg_daily_revenue.toLocaleString()}`} />
+                    <MiniMetric label="净利" value={fmtMoney(report.net_profit)}
+                      tone={(report.net_profit ?? 0) < 0 ? "risk" : "good"}
+                      change={report.profit_change_pct ?? undefined} />
+                    <MiniMetric label="食材率" value={fmtPct(report.food_cost_rate)}
+                      tone={(report.food_cost_rate ?? 0) > 0.4 ? "risk" : undefined} />
+                    <MiniMetric label="外卖占比" value={fmtPct(report.takeout_ratio)}
+                      tone={(report.takeout_ratio ?? 0) > 0.45 ? "watch" : undefined} />
+                  </div>
+                ) : (
+                  <div className="mt-4 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <div>
+                      <p className="text-sm font-semibold">成本与关账依据不完整</p>
+                      <p className="mt-1 text-xs leading-5">这份旧报告生成于统一财务底账启用前，页面不再展示其中的利润、成本率和经营结论。补齐对应日期关账后，可重新生成正式报告。</p>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* 叙事摘要 */}
-              {report.narrative && (
+              {reportIsVerified && report.narrative && (
                 <div className="rounded-2xl border border-white/45 bg-white/42 p-4">
                   <div className="flex items-center gap-2 mb-2">
                     <Sparkles className="h-4 w-4 text-primary" />
@@ -161,7 +208,7 @@ export default function ReportsPage() {
               )}
 
               {/* 发现问题 */}
-              {report.findings.length > 0 && (
+              {reportIsVerified && report.findings.length > 0 && (
                 <div className="rounded-2xl border border-white/45 bg-white/42 p-4">
                   <div className="flex items-center gap-2 mb-3">
                     <Lightbulb className="h-4 w-4 text-amber-500" />
@@ -188,7 +235,7 @@ export default function ReportsPage() {
               )}
 
               {/* 板块快览 */}
-              <div className="grid gap-3 md:grid-cols-3">
+              {reportIsVerified && <div className="grid gap-3 md:grid-cols-3">
                 {Object.entries(report.sections).map(([key, sec]) => (
                   <div key={key} className="rounded-2xl border border-white/45 bg-white/42 p-4">
                     <p className="text-xs font-medium text-on-surface-variant">{sec.title}</p>
@@ -217,10 +264,10 @@ export default function ReportsPage() {
                     </div>
                   </div>
                 ))}
-              </div>
+              </div>}
 
               {/* 动作建议 */}
-              {report.actions.length > 0 && (
+              {reportIsVerified && report.actions.length > 0 && (
                 <div className="rounded-2xl border border-white/45 bg-white/42 p-4">
                   <p className="text-sm font-semibold text-on-background mb-3">该做什么</p>
                   <div className="flex flex-wrap gap-2">
@@ -250,7 +297,7 @@ export default function ReportsPage() {
                           {r.report_type === "weekly" ? "周" : "月"} {r.period_start.slice(5)}
                         </p>
                         <p className="mt-0.5 text-[10px] text-on-surface-variant">
-                          {fmtMoney(r.total_revenue)} · {fmtPct(r.food_cost_rate)}
+                          {r.status === "finance_confirmed" ? `${fmtMoney(r.total_revenue)} · ${fmtPct(r.food_cost_rate)}` : "历史未核验"}
                         </p>
                       </button>
                     ))}

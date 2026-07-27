@@ -21,6 +21,7 @@ from server.schemas import (
     InventoryCountCreate,
     InventoryTransferCreate,
     InventoryUsageCreate,
+    InventoryWasteCreate,
     ProductionBatchClose,
     ProductionBatchCreate,
     PurchaseCreate,
@@ -81,6 +82,8 @@ async def create_sku(project_id: str, req: SkuCreate):
         display_unit=req.display_unit,
         store_target_days=req.store_target_days,
         supplier_lead_days=req.supplier_lead_days,
+        reorder_enabled=req.reorder_enabled,
+        usage_integer_only=req.usage_integer_only,
         notes=req.notes,
         status="正常",
     )
@@ -110,6 +113,12 @@ async def create_purchase(project_id: str, req: PurchaseCreate):
         external_order_id=req.external_order_id,
         location=req.location,
         notes=req.notes,
+        platform=req.platform,
+        freight=req.freight,
+        discount_amount=req.discount_amount,
+        refund_amount=req.refund_amount,
+        evidence_file=req.evidence_file,
+        accounting_status=req.accounting_status,
     )
     saved = catalog.record_purchase(purchase)
     return {
@@ -239,6 +248,11 @@ async def list_inventory_usage(project_id: str, limit: int = Query(60, ge=1, le=
     return {"logs": logs, "total": len(catalog.usage_logs)}
 
 
+@router.get("/{project_id}/skus/usage-summary/{date}")
+async def get_inventory_usage_summary(project_id: str, date: str):
+    return _catalog(project_id).daily_usage_summary(date)
+
+
 @router.post("/{project_id}/skus/usage-logs")
 async def create_inventory_usage(project_id: str, req: InventoryUsageCreate):
     catalog = _catalog(project_id)
@@ -253,6 +267,46 @@ async def create_inventory_usage(project_id: str, req: InventoryUsageCreate):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"success": True, "log": saved.to_dict(), "summary": catalog.inventory_summary()}
+
+
+@router.put("/{project_id}/skus/usage-logs/{date}")
+async def replace_inventory_usage(project_id: str, date: str, req: InventoryUsageCreate):
+    if req.date != date:
+        raise HTTPException(status_code=400, detail="路径日期与表单日期必须一致")
+    catalog = _catalog(project_id)
+    try:
+        saved = catalog.replace_daily_usage(UsageLog(
+            date=req.date,
+            location=req.location,
+            items=[item.model_dump() for item in req.items],
+            source=req.source,
+            notes=req.notes,
+        ))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "success": True,
+        "log": saved.to_dict(),
+        "usage_summary": catalog.daily_usage_summary(date),
+        "summary": catalog.inventory_summary(),
+    }
+
+
+@router.post("/{project_id}/skus/waste")
+async def create_inventory_waste(project_id: str, req: InventoryWasteCreate):
+    catalog = _catalog(project_id)
+    try:
+        events = catalog.record_waste(
+            date=req.date,
+            location=req.location,
+            items=[item.model_dump() for item in req.items],
+            reason=req.reason,
+            source=req.source,
+            notes=req.notes,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"success": True, "events": events, "summary": catalog.inventory_summary()}
 
 
 @router.get("/{project_id}/skus/counts")

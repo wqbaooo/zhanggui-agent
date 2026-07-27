@@ -1,0 +1,10 @@
+name: zhanggui-store
+version: 1.0.0
+description: Read-only verified facts for the Xinyu Hengtai Dakou Takoyaki store
+provides_tools:
+  - store_finance_overview
+  - store_finance_date_coverage
+  - store_daily_finance
+  - store_cash_forecast
+  - store_inventory_summary
+  - store_operations_summary

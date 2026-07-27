@@ -121,7 +121,7 @@ def _get_project_memory(project_id: str = ""):
 
 @tool
 def search_knowledge(query: str) -> str:
-    """搜索餐饮开店知识库，包含勇哥视频课程、方法论、案例、QA对。
+    """【数字团队通用】搜索餐饮开店知识库，包含勇哥视频课程、方法论、案例、QA对。
     
     用途：
     - 查找选址方法、商圈评估、客流分析
@@ -209,7 +209,7 @@ def calculate_finance(
     labor_monthly: str = "5000",
     other_monthly: str = "1000"
 ) -> str:
-    """餐饮财务测算工具。计算盈亏平衡点、回本周期、净利润率。
+    """【会计岗位工具】餐饮财务测算。计算盈亏平衡点、回本周期、净利润率。
 
     Args:
         investment: 总投资额（元或万）
@@ -356,7 +356,7 @@ def update_profile(
     personality_financial_literacy: str = "",
     personality_archetype: str = ""
 ) -> str:
-    """更新用户画像。在对话中自然识别用户信息并归档，支撑跨轮次记忆。
+    """【掌柜岗位工具】更新用户画像。在对话中自然识别用户信息并归档，支撑跨轮次记忆。
 
     当智能体通过对话提取到用户的业务属性（城市、品类、预算、经营方式、经验、当前阶段）
     或人格评估维度（成就动机、抗压韧性、风险偏好、学习敏捷性、社交能力、财务素养）
@@ -1732,21 +1732,389 @@ def manage_tasks(action: str, project_id: str = "", task_id: str = "",
         return f"未知操作: {action}。支持: list/add/update/stats"
 
 
+# ============ 账本操作工具（待确认事实处理） ============
+
+def _get_ledger(project_id: str = "xinyu-hengtai-dakou"):
+    from core.agent_permissions import enforce_project_scope
+    from models.operating_ledger import OperatingLedger
+    return OperatingLedger.load(enforce_project_scope(project_id))
+
+
+@tool
+def analyze_channel_sales_target(
+    target_revenue: float,
+    project_id: str = "xinyu-hengtai-dakou",
+    date: str = "",
+) -> str:
+    """【运营+会计联合工具】按真实堂食/外卖实收和订单，反推目标营收需要多少单。
+
+    用于老板问“实收目标1000需要多少堂食单和外卖单”“客单价是多少”。
+    必须返回数据日期、渠道实收、订单、客单价和公式；渠道拆分未知时明确拒绝计算。
+    """
+    from core.agent_permissions import enforce_project_scope
+    from models.channel_goal import analyze_channel_goal, render_channel_goal_answer
+    from models.project import ProjectMemory
+
+    project_id = enforce_project_scope(project_id)
+    memory = ProjectMemory.load(project_id)
+    result = analyze_channel_goal(
+        memory.daily_operations if memory else [],
+        target_revenue=target_revenue,
+        date=date or None,
+    )
+    return render_channel_goal_answer(result)
+
+
+@tool
+def get_financial_context(project_id: str = "xinyu-hengtai-dakou", days: int = 30) -> str:
+    """读取这家店统一财务上下文，供各 Agent 回答收入、对账、现金和利润问题。
+
+    平台明细、前老板代收和现金输入会明确区分；未知数据不会被当成 0。
+    """
+    from core.agent_permissions import enforce_project_scope
+    from models.finance_ledger import FinanceLedger
+    from models.operating_ledger import OperatingLedger
+
+    project_id = enforce_project_scope(project_id)
+    finance = FinanceLedger.for_project(project_id)
+    legacy_evidence = OperatingLedger.load(project_id)
+    overview = finance.finance_overview(project_id)
+    reconciliations = legacy_evidence.reconciliation_view()
+    return json.dumps({
+        "project_id": project_id,
+        "finance_overview": overview,
+        "platform_reconciliations": reconciliations,
+        "alerts": finance.alerts(project_id),
+        "rules": [
+            "客如云日报作为门店收入主表，平台明细不重复加收入",
+            "前老板代收先记应收前老板，收到转账后核销",
+            "未知不等于零",
+        ],
+        "next_inputs": overview.get("missing_inputs", []),
+    }, ensure_ascii=False, default=str)
+
+
+@tool
+def preview_finance_plan(
+    event_type: str,
+    transaction_date: str,
+    amount: float,
+    account_key: str,
+    source_reference: str,
+    project_id: str = "xinyu-hengtai-dakou",
+    counterparty: str = "",
+    business_period_start: str = "",
+    business_period_end: str = "",
+    platforms: str = "",
+    notes: str = "",
+) -> str:
+    """【会计工具】为一笔财务证据生成可解释执行方案，但不入账。
+
+    前老板合并转款要传核销日期范围，platforms 用逗号分隔。返回方案编号、
+    校验、收入影响和逐笔核销建议，必须展示给老板后再确认。
+    """
+    from core.agent_permissions import enforce_project_scope
+    from core.finance_execution import FinanceExecutionService
+    from models.finance_ledger import FinanceLedger, money_to_minor
+
+    project_id = enforce_project_scope(project_id)
+    plan = FinanceExecutionService(FinanceLedger.for_project(project_id)).preview(
+        project_id,
+        {
+            "event_type": event_type,
+            "transaction_date": transaction_date,
+            "amount_minor": money_to_minor(amount),
+            "account_key": account_key,
+            "source_reference": source_reference,
+            "counterparty": counterparty or None,
+            "business_period_start": business_period_start or None,
+            "business_period_end": business_period_end or None,
+            "platforms": [
+                item.strip() for item in platforms.split(",") if item.strip()
+            ] or None,
+            "notes": notes or None,
+        },
+    )
+    return json.dumps(plan, ensure_ascii=False, default=str)
+
+
+@tool
+def execute_finance_plan(
+    plan_id: str,
+    project_id: str = "xinyu-hengtai-dakou",
+) -> str:
+    """【会计写入工具】执行老板刚刚明确确认的财务方案。
+
+    只有方案编号已在对话中展示，且老板本轮明确说“确认执行”时才能调用。
+    服务端会再次检查应收、重复记录和核销来源，并保证重试不重复入账。
+    """
+    from core.agent_permissions import enforce_project_scope
+    from core.finance_execution import FinanceExecutionService
+    from models.finance_ledger import FinanceLedger
+
+    project_id = enforce_project_scope(project_id)
+    plan = FinanceExecutionService(FinanceLedger.for_project(project_id)).execute(
+        project_id, plan_id, confirmed_by="owner_via_agent"
+    )
+    return json.dumps(plan, ensure_ascii=False, default=str)
+
+
+@tool
+def list_pending_facts(project_id: str = "xinyu-hengtai-dakou") -> str:
+    """列出当前门店所有待确认的经营事实（需要老板处理的异常事实）。
+
+    老板说"看看有哪些要确认的""今天有什么要处理的"时调用此工具。
+    返回每条事实的编号、来源、金额、日期、异常原因摘要。
+    """
+    ledger = _get_ledger(project_id)
+    facts = ledger.list_facts("need_review")
+    if not facts:
+        return "当前没有待确认的经营事实，账本已清。"
+    lines = [f"## 待确认事实 ({len(facts)} 条)", ""]
+    for f in facts:
+        lines.append(
+            f"- **{f['id']}** | {f.get('source_type') or f.get('platform', '')} | "
+            f"{f.get('date', '')} | ¥{f.get('amount', 0)} | {f.get('title', '')}"
+        )
+        if f.get("anomaly_reason"):
+            lines.append(f"  ⚠ 异常：{f['anomaly_reason']}")
+        if f.get("missing_fields"):
+            lines.append(f"  缺字段：{', '.join(f['missing_fields'])}")
+    lines.append("")
+    lines.append("用 get_fact_detail 查看某条事实的原图和抽取字段；用 confirm_fact/reject_fact/modify_fact_amount/mark_fact 处理。")
+    return "\n".join(lines)
+
+
+@tool
+def get_fact_detail(fact_id: str, project_id: str = "xinyu-hengtai-dakou") -> str:
+    """查看单条待确认事实的完整详情，包括原图链接、抽取字段、影响账户、重复检查结果。
+
+    老板想看某条事实的具体内容、对照原图核对时调用此工具。
+    必须先调用此工具了解事实全貌，再做确认/驳回/修改决定。
+    """
+    ledger = _get_ledger(project_id)
+    try:
+        fact = ledger.find_fact(fact_id)
+    except KeyError as e:
+        return str(e)
+    enriched = ledger.enrich_fact(fact)
+    lines = [f"## 事实详情：{fact_id}", ""]
+    lines.append(f"- 标题：{fact.get('title', '')}")
+    lines.append(f"- 类型：{fact.get('fact_type', '')}")
+    lines.append(f"- 日期：{fact.get('date', '')}")
+    lines.append(f"- 金额：¥{fact.get('amount', 0)}")
+    lines.append(f"- 来源：{fact.get('source_type', '')} / {fact.get('source_platform', '')}")
+    lines.append(f"- 置信度：{fact.get('confidence', '')}")
+    lines.append(f"- 影响账户：{', '.join(fact.get('affects_accounts', [])) or '未定'}")
+    lines.append(f"- 影响库存：{', '.join(fact.get('affects_inventory_items', [])) or '无'}")
+    lines.append(f"- 影响账本：{enriched.get('impact_ledger', '')}")
+    if fact.get("evidence_image_url"):
+        lines.append(f"- 原图链接：{fact['evidence_image_url']}")
+    else:
+        lines.append("- 原图链接：无（未保存原图）")
+    if fact.get("extracted_fields"):
+        lines.append("- 抽取字段：")
+        for k, v in fact["extracted_fields"].items():
+            lines.append(f"  {k}: {v}")
+    if fact.get("missing_fields"):
+        lines.append(f"- 缺失字段：{', '.join(fact['missing_fields'])}")
+    if fact.get("anomaly_reason"):
+        lines.append(f"- ⚠ 异常原因：{fact['anomaly_reason']}")
+    dup = ledger.find_duplicate_posted(fact)
+    if dup:
+        lines.append(f"- ⚠ 疑似重复：与已入账事实 {dup['id']}（{dup.get('title','')}）金额相同")
+    lines.append("")
+    lines.append(f"确认状态：{fact.get('review_status', '')} / {fact.get('ledger_status', '')}")
+    return "\n".join(lines)
+
+
+@tool
+def confirm_fact(fact_id: str, project_id: str = "xinyu-hengtai-dakou") -> str:
+    """确认一条待确认经营事实，将其写入正式钱账/库存账。
+
+    老板说"这条没问题""确认入账""确认"时调用此工具。
+    会生成 LedgerEntry 并影响财务记录，或生成 InventoryMovement 影响库存。
+    如果事实与已入账事实重复，会自动标记为辅助证据不重复入账。
+    """
+    ledger = _get_ledger(project_id)
+    try:
+        result = ledger.confirm_fact(fact_id)
+    except KeyError as e:
+        return str(e)
+    fact = result.get("fact", {})
+    note = result.get("note", "")
+    entries = result.get("ledger_entries", [])
+    movements = result.get("inventory_movements", [])
+    lines = [f"✅ 已确认事实 {fact_id}"]
+    if note:
+        lines.append(f"说明：{note}")
+    if entries:
+        lines.append(f"生成 {len(entries)} 条账本记录：")
+        for e in entries:
+            lines.append(f"  - {e.get('entry_type', '')} | {e.get('account', '')} | ¥{e.get('amount', 0)} | {e.get('status', '')}")
+    if movements:
+        lines.append(f"生成 {len(movements)} 条库存变动：")
+        for m in movements:
+            lines.append(f"  - {m.get('movement_type', '')} | {m.get('item_name', '')} | {m.get('quantity', 0)}")
+    if not entries and not movements and not note:
+        lines.append("该事实已入账，无需重复处理。")
+    return "\n".join(lines)
+
+
+@tool
+def reject_fact(fact_id: str, reason: str = "", project_id: str = "xinyu-hengtai-dakou") -> str:
+    """驳回一条待确认经营事实，标记为无效不入账。
+
+    老板说"这条不对""驳回""这个不算"时调用此工具。
+    reason 参数记录驳回原因，便于后续追溯。
+    """
+    ledger = _get_ledger(project_id)
+    try:
+        fact = ledger.reject_fact(fact_id)
+    except KeyError as e:
+        return str(e)
+    if reason:
+        fact["description"] = f"{fact.get('title', '')}（已驳回：{reason}）"
+        ledger.update_fact(fact_id, {"description": fact["description"]})
+    return f"❌ 已驳回事实 {fact_id}" + (f"，原因：{reason}" if reason else "")
+
+
+@tool
+def modify_fact_amount(fact_id: str, new_amount: float, reason: str = "", project_id: str = "xinyu-hengtai-dakou") -> str:
+    """修改一条待确认事实的金额。用于老板发现金额识别错误时修正。
+
+    老板说"这笔金额不对，实际是1500""其中500是昨天的"时调用此工具。
+    修改后事实仍为待确认状态，需再调用 confirm_fact 确认入账。
+    reason 参数记录修改原因。
+    """
+    ledger = _get_ledger(project_id)
+    try:
+        fact = ledger.update_fact(fact_id, {"amount": new_amount})
+    except KeyError as e:
+        return str(e)
+    lines = [f"✏️ 已修改事实 {fact_id} 的金额为 ¥{new_amount}"]
+    if reason:
+        ledger.update_fact(fact_id, {"description": f"{fact.get('title', '')}（金额修改：{reason}）"})
+        lines.append(f"修改原因：{reason}")
+    lines.append("该事实仍为待确认状态，确认无误后请调用 confirm_fact 入账。")
+    return "\n".join(lines)
+
+
+@tool
+def mark_fact(fact_id: str, action: str, project_id: str = "xinyu-hengtai-dakou") -> str:
+    """对待确认事实标记特殊业务动作，不直接入账但会调整事实属性。
+
+    老板说"这笔是前老板代收的""确认采购""确认入库""标记退款""标记平台未结算"时调用此工具。
+
+    可选 action 值：
+    - former_owner_collected: 标记前老板代收（钱在前老板账户）
+    - former_owner_transfer: 标记前老板回款（钱已转到我方账户）
+    - platform_unsettled: 标记平台未结算
+    - refund: 标记退款
+    - purchase: 确认采购（产生支出）
+    - stock_in: 确认入库（仅影响库存不影响钱账）
+    - non_operating: 标记非经营性收支
+    - keruyun_settlement: 归入客如云结算
+    - cash: 标记现金
+    - group_coupon: 标记团购券
+    - needs_reconciliation: 标记需要对账
+    - defer: 暂不处理
+    """
+    ledger = _get_ledger(project_id)
+    try:
+        fact = ledger.mark_fact(fact_id, action)
+    except KeyError as e:
+        return str(e)
+    action_labels = {
+        "former_owner_collected": "前老板代收",
+        "former_owner_transfer": "前老板回款",
+        "platform_unsettled": "平台未结算",
+        "refund": "退款",
+        "purchase": "采购",
+        "stock_in": "入库",
+        "non_operating": "非经营性",
+        "keruyun_settlement": "客如云结算",
+        "cash": "现金",
+        "group_coupon": "团购券",
+        "needs_reconciliation": "需要对账",
+        "defer": "暂不处理",
+    }
+    label = action_labels.get(action, action)
+    return f"🏷️ 已标记事实 {fact_id} 为「{label}」。当前状态：{fact.get('review_status', '')}。如需入账请再调用 confirm_fact。"
+
+
+@tool
+def explain_anomaly(fact_id: str, project_id: str = "xinyu-hengtai-dakou") -> str:
+    """分析一条待确认事实为什么被判定为异常，帮助老板理解问题点。
+
+    老板问"这条为什么有问题""哪里异常了"时调用此工具。
+    综合检查：字段完整性、金额合理性、重复风险、证据对照、业务判断需求，
+    返回异常分析供老板决策。不写死阈值，由证据对照和经营常识综合判断。
+    """
+    ledger = _get_ledger(project_id)
+    try:
+        fact = ledger.find_fact(fact_id)
+    except KeyError as e:
+        return str(e)
+    lines = [f"## 异常分析：{fact_id}", ""]
+    issues: list[str] = []
+
+    if fact.get("missing_fields"):
+        issues.append(f"字段缺失：{', '.join(fact['missing_fields'])}，影响入账完整性")
+    if fact.get("confidence") == "low":
+        issues.append("识别置信度低，抽取字段可能不准确，建议对照原图核对")
+    dup = ledger.find_duplicate_posted(fact)
+    if dup:
+        issues.append(f"疑似重复：与已入账事实 {dup['id']}（{dup.get('title', '')}）可能为同笔交易")
+
+    amount = fact.get("amount", 0)
+    fact_type = fact.get("fact_type", "")
+    if amount == 0:
+        issues.append("金额为0，可能识别失败或需要手动补录")
+    if fact_type in ("former_owner_collected", "former_owner_transfer"):
+        issues.append("需老板拍板：涉及前老板账户，需确认钱是否已到账")
+    if fact_type in ("purchase", "stock_in"):
+        issues.append("需老板拍板：区分是采购（产生支出）还是入库（仅影响库存）")
+    if fact_type == "refund":
+        issues.append("需老板确认：退款是否已实际发生，金额是否正确")
+
+    if not fact.get("evidence_image_url"):
+        issues.append("未保存原图，无法对照核对")
+
+    if issues:
+        lines.append("发现以下问题：")
+        for i, issue in enumerate(issues, 1):
+            lines.append(f"{i}. {issue}")
+    else:
+        lines.append("未发现明显异常，字段完整且无重复风险。")
+    lines.append("")
+    lines.append("建议处理方式：")
+    if issues:
+        lines.append("- 核对原图后，用 confirm_fact 确认或 modify_fact_amount 修正金额")
+        lines.append("- 如涉及前老板/采购入库区分，用 mark_fact 标记后确认")
+        lines.append("- 如确属错误，用 reject_fact 驳回")
+    else:
+        lines.append("- 可直接调用 confirm_fact 确认入账")
+    return "\n".join(lines)
+
+
 # ============ 获取所有工具列表 ============
 
 def get_all_tools():
-    """返回所有工具列表，用于 bind_tools。"""
+    """返回真实单店经营工具；历史选址、加盟和筹备工具不再暴露给 Agent。"""
     return [
         search_knowledge,
         search_web,
-        calculate_finance,
-        analyze_location,
-        analyze_franchise,
-        update_profile,
-        generate_plan,
-        generate_feasibility_report,
-        analyze_competition,
         analyze_local_trends,
-        query_city_costs,
-        manage_tasks,
+        analyze_channel_sales_target,
+        get_financial_context,
+        preview_finance_plan,
+        execute_finance_plan,
+        list_pending_facts,
+        get_fact_detail,
+        confirm_fact,
+        reject_fact,
+        modify_fact_amount,
+        mark_fact,
+        explain_anomaly,
     ]

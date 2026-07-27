@@ -3,6 +3,14 @@
 @import "tailwindcss";
 
 @theme inline {
+  /* Tailwind v4 会在未声明容器尺度时把 max-w-xl 等误解析成间距尺度。 */
+  --container-sm: 24rem;
+  --container-md: 28rem;
+  --container-lg: 32rem;
+  --container-xl: 36rem;
+  --container-2xl: 42rem;
+  --container-3xl: 48rem;
+
   /* ── 章鱼橙主色 (Octopus Orange) ── */
   --color-octo-50: #fff5ed;
   --color-octo-100: #ffe8d4;
@@ -606,4 +614,173 @@ button { cursor: pointer; font-family: inherit; }
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* Tailwind 4 在当前主题中把命名 max-width 当成了 0.5rem 递增的间距值。
+   这里恢复标准容器宽度，避免抽屉、弹窗和正文容器被压成窄条。 */
+.max-w-sm { max-width: 24rem; }
+.max-w-md { max-width: 28rem; }
+.max-w-lg { max-width: 32rem; }
+.max-w-xl { max-width: 36rem; }
+.max-w-2xl { max-width: 42rem; }
+.max-w-3xl { max-width: 48rem; }
+
+@media (min-width: 40rem) {
+  .sm\:max-w-xl { max-width: 36rem; }
+}
+
+/* ============================================
+   Finance workspace — desktop web design lock
+   Calm surfaces, one accent, semantic status colors.
+   ============================================ */
+
+.finance-shell {
+  --finance-ink: #211d1a;
+  --finance-muted: #706963;
+  --finance-line: #e8e3de;
+  --finance-paper: #ffffff;
+  --finance-canvas: #f7f5f2;
+  color: var(--finance-ink);
+}
+
+.finance-command-bar {
+  border: 1px solid rgba(231, 226, 220, 0.92);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.92);
+  padding: 16px 18px;
+  box-shadow: 0 1px 2px rgba(45, 32, 24, 0.035), 0 10px 32px rgba(45, 32, 24, 0.045);
+  backdrop-filter: blur(20px) saturate(1.12);
+  -webkit-backdrop-filter: blur(20px) saturate(1.12);
+}
+
+.finance-surface {
+  border: 1px solid var(--finance-line);
+  border-radius: 16px;
+  background: var(--finance-paper);
+  box-shadow: 0 1px 2px rgba(45, 32, 24, 0.025);
+}
+
+.finance-button-primary,
+.finance-button-secondary,
+.finance-button-quiet {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 10px;
+  padding: 0 16px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  transition: transform 180ms cubic-bezier(.22,1,.36,1), background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.finance-button-primary {
+  border: 1px solid #9a3412;
+  background: #9a3412;
+  color: #fff;
+  box-shadow: 0 2px 5px rgba(124, 45, 18, .15);
+}
+
+.finance-button-primary:hover {
+  background: #7c2d12;
+  box-shadow: 0 5px 14px rgba(124, 45, 18, .16);
+}
+
+.finance-button-primary:disabled {
+  cursor: not-allowed;
+  border-color: #d6d3d1;
+  background: #d6d3d1;
+  box-shadow: none;
+}
+
+.finance-button-secondary {
+  border: 1px solid #ded8d2;
+  background: #fff;
+  color: #3b3530;
+}
+
+.finance-button-secondary:hover,
+.finance-button-quiet:hover {
+  border-color: #c9b5a7;
+  background: #fff9f5;
+  color: #8a2f13;
+}
+
+.finance-button-quiet {
+  border: 1px solid transparent;
+  background: transparent;
+  color: #57514b;
+}
+
+.finance-status {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.finance-status-success { background: #eef8f2; color: #177245; }
+.finance-status-warning { background: #fff6df; color: #8a5b08; }
+
+.finance-money-input {
+  display: flex;
+  height: 42px;
+  align-items: center;
+  border: 1px solid #ded8d2;
+  border-radius: 10px;
+  background: #fff;
+  padding: 0 12px;
+  color: #9b948e;
+  transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+}
+
+.finance-money-input:focus-within {
+  border-color: #c45c30;
+  box-shadow: 0 0 0 3px rgba(194, 65, 12, .10);
+}
+
+.finance-money-input input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  padding-left: 10px;
+  text-align: right;
+  color: #211d1a;
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.finance-money-input input::placeholder { color: #b1aaa4; font-weight: 400; }
+.finance-money-input-disabled { border-color: transparent; background: #f5f3f1; }
+
+.finance-menu-item {
+  display: flex;
+  width: 100%;
+  min-height: 38px;
+  align-items: center;
+  gap: 9px;
+  border-radius: 8px;
+  padding: 0 10px;
+  color: #49423d;
+  font-size: 13px;
+  text-align: left;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.finance-menu-item:hover { background: #f7f4f1; color: #211d1a; }
+
+.finance-shell button:focus-visible,
+.finance-shell a:focus-visible,
+.finance-shell input:focus-visible,
+.finance-shell select:focus-visible {
+  outline: 2px solid rgba(194, 65, 12, .55);
+  outline-offset: 2px;
 }

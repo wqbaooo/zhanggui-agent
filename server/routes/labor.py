@@ -54,6 +54,7 @@ async def create_staff(project_id: str, req: StaffCreate):
         pay_type=req.pay_type,
         standard_monthly_work_days=req.standard_monthly_work_days,
         overtime_multiplier=req.overtime_multiplier,
+        overtime_hourly_rate=req.overtime_hourly_rate,
         hire_date=req.hire_date or "",
         status="在岗",
         notes=req.notes,

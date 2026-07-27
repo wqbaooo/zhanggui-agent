@@ -7,31 +7,31 @@ import type { Components } from "react-markdown";
 
 const markdownComponents: Components = {
   h1: ({ children }) => (
-    <h1 className="text-lg font-semibold text-stone-900 mt-4 mb-2 first:mt-0">
+    <h1 className="mb-2 mt-4 text-lg font-semibold tracking-[-0.01em] text-stone-900 first:mt-0">
       {children}
     </h1>
   ),
   h2: ({ children }) => (
-    <h2 className="text-base font-semibold text-stone-900 mt-4 mb-2 first:mt-0">
+    <h2 className="mb-2 mt-4 text-base font-semibold tracking-[-0.01em] text-stone-900 first:mt-0">
       {children}
     </h2>
   ),
   h3: ({ children }) => (
-    <h3 className="text-[15px] font-semibold text-stone-900 mt-3 mb-1.5 first:mt-0">
+    <h3 className="mb-1.5 mt-3 text-[15px] font-semibold text-stone-900 first:mt-0">
       {children}
     </h3>
   ),
   p: ({ children }) => (
-    <p className="my-2 leading-7 text-stone-800">{children}</p>
+    <p className="my-2 leading-7 text-stone-700 first:mt-0 last:mb-0">{children}</p>
   ),
   strong: ({ children }) => (
     <strong className="font-semibold text-stone-900">{children}</strong>
   ),
   ul: ({ children }) => (
-    <ul className="my-2 pl-5 list-disc space-y-1 text-stone-700">{children}</ul>
+    <ul className="my-2.5 list-disc space-y-1.5 pl-5 text-stone-700 marker:text-octo-400">{children}</ul>
   ),
   ol: ({ children }) => (
-    <ol className="my-2 pl-5 list-decimal space-y-1 text-stone-700">{children}</ol>
+    <ol className="my-2.5 list-decimal space-y-1.5 pl-5 text-stone-700 marker:font-semibold marker:text-octo-500">{children}</ol>
   ),
   li: ({ children }) => (
     <li className="leading-6">{children}</li>
@@ -110,36 +110,31 @@ export function ChatMessage({
     >
       <div
         className={cn(
-          "flex gap-3",
+        "flex items-start gap-3.5",
           isUser ? "justify-end" : "justify-start"
         )}
       >
       {!isUser && (
-        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-primary to-agent-gold flex items-center justify-center text-white text-sm font-semibold animate-glow-pulse">
+        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-[14px] bg-gradient-to-br from-[#d64d17] to-[#ef6a24] text-sm font-semibold text-white shadow-[0_7px_18px_rgba(196,65,12,0.18)]">
           掌
         </div>
       )}
 
       <div
         className={cn(
-          "max-w-[85%] rounded-2xl px-4 py-3 shadow-sm transition-all duration-300",
-          "group relative overflow-hidden",
+          "group relative overflow-hidden px-5 py-4 transition-[transform,box-shadow,border-color] duration-200 ease-out",
           isUser
-            ? "bg-primary text-on-primary hover:shadow-lg"
-            : "glass-card hover:shadow-md"
+            ? "max-w-[68%] rounded-[22px] rounded-tr-[8px] bg-[#c94b18] text-white shadow-[0_8px_22px_rgba(155,55,18,0.16)] hover:-translate-y-0.5 hover:shadow-[0_12px_28px_rgba(155,55,18,0.20)]"
+            : "max-w-[82%] rounded-[24px] rounded-tl-[8px] border border-white/90 bg-white/92 shadow-[0_12px_34px_rgba(67,48,36,0.09)] backdrop-blur-xl hover:border-octo-100 hover:shadow-[0_16px_42px_rgba(67,48,36,0.12)]"
         )}
       >
-        {!isUser && (
-          <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-        )}
-
-        <div className="relative z-10">
+        <div>
           {isUser ? (
-            <p className="text-sm leading-relaxed whitespace-pre-wrap text-on-primary">
+            <p className="whitespace-pre-wrap text-[15px] leading-7 text-white">
               {content}
             </p>
           ) : (
-            <div className="text-sm">
+            <div className="text-[15px]">
               <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
                 {content}
               </ReactMarkdown>
@@ -148,31 +143,21 @@ export function ChatMessage({
 
           {timestamp && (
             <p className={cn(
-              "text-xs mt-3 opacity-60",
-              isUser ? "text-on-primary" : "text-stone-500"
+              "mt-2.5 text-[11px] tabular-nums",
+              isUser ? "text-white/65" : "text-stone-400"
             )}>
               {timestamp}
             </p>
           )}
         </div>
 
-        <div className={cn(
-          "absolute bottom-0 left-0 right-0 h-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-500",
-          isUser
-            ? "bg-gradient-to-r from-transparent via-on-primary/30 to-transparent"
-            : "bg-gradient-to-r from-transparent via-primary/40 to-transparent"
-        )} />
       </div>
-
-      {isUser && (
-        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-on-surface-variant flex items-center justify-center text-white text-sm font-semibold">
-          你
-        </div>
-      )}
     </div>
 
-    {!isUser && run && (run.consulted_modules?.length || run.conflict_count || run.gaps?.length) && (
-      <div className="ml-11 mt-1.5 space-y-1.5 rounded-2xl border border-stone-200/70 bg-white/60 px-3 py-2 text-[11px] leading-5 text-stone-500 backdrop-blur-sm">
+    {!isUser && run && Boolean(
+      run.consulted_modules?.length || run.conflict_count || run.gaps?.length
+    ) && (
+      <div className="ml-[3.15rem] mt-2 space-y-1.5 rounded-2xl border border-stone-200/70 bg-white/65 px-3.5 py-2.5 text-[11px] leading-5 text-stone-500 backdrop-blur-xl">
         {run.consulted_modules && run.consulted_modules.length > 0 && (
           <div className="flex flex-wrap items-center gap-1">
             <span className="font-medium text-stone-500">本轮核对：</span>

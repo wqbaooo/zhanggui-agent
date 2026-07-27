@@ -14,6 +14,15 @@ class ChatRequest(BaseModel):
     session_id: Optional[str] = Field(None, description="会话 ID，空则创建新会话")
     project_id: Optional[str] = Field(None, description="项目 ID")
     context: Dict[str, Any] = Field(default_factory=dict, description="注入的上下文（城市/品类/预算等）")
+    scope: str = Field("master", description="会话范围：master / finance / inventory 等")
+    client_message_id: Optional[str] = Field(None, description="前端消息 ID，用于防止重复写入")
+
+
+class AgentSessionCreate(BaseModel):
+    id: Optional[str] = None
+    title: str = "新对话"
+    scope: str = "master"
+    messages: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class ChatResponse(BaseModel):
@@ -231,6 +240,8 @@ class SkuCreate(BaseModel):
     display_unit: str = Field("", description="老板查看和台账使用的单位")
     store_target_days: float = Field(0.0, ge=0, description="门店目标覆盖天数，0 表示未配置")
     supplier_lead_days: int = Field(3, ge=0, description="供应商到货周期")
+    reorder_enabled: bool = Field(True, description="是否纳入补货预测")
+    usage_integer_only: bool = Field(True, description="每日开封/领用是否只允许整数")
     notes: str = Field("", description="备注")
 
 
@@ -250,6 +261,8 @@ class SkuUpdate(BaseModel):
     display_unit: Optional[str] = None
     store_target_days: Optional[float] = Field(None, ge=0)
     supplier_lead_days: Optional[int] = Field(None, ge=0)
+    reorder_enabled: Optional[bool] = None
+    usage_integer_only: Optional[bool] = None
     active: Optional[bool] = None
     last_purchase_date: Optional[str] = None
     notes: Optional[str] = None
@@ -303,6 +316,12 @@ class PurchaseCreate(BaseModel):
     external_order_id: str = Field("", description="供应链订单号")
     location: str = Field("warehouse", description="兼容旧字段；实际位置在清点收货时确认")
     notes: str = Field("", description="备注")
+    platform: str = Field("", description="总部/拼多多/淘宝/淘宝闪购/1688等")
+    freight: float = Field(0.0, ge=0, description="订单采购运费")
+    discount_amount: float = Field(0.0, ge=0, description="订单优惠")
+    refund_amount: float = Field(0.0, ge=0, description="订单退款")
+    evidence_file: str = Field("", description="原始凭证文件")
+    accounting_status: str = Field("inventory_asset", description="库存资产/低值耗材/设备资产等会计口径")
 
 
 class PurchaseReceiptItem(BaseModel):
@@ -347,6 +366,15 @@ class InventoryUsageCreate(BaseModel):
     location: str = "store"
     items: List[InventoryUsageItem]
     source: str = "paper_ledger"
+    notes: str = ""
+
+
+class InventoryWasteCreate(BaseModel):
+    date: str
+    location: str = "store"
+    items: List[InventoryMovementItem]
+    reason: str = Field(..., min_length=1, description="撒漏/变质/过期/破损/其他")
+    source: str = "owner_confirmed"
     notes: str = ""
 
 
@@ -435,6 +463,7 @@ class StaffCreate(BaseModel):
     pay_type: str = Field("auto", pattern="^(auto|hourly|monthly|owner)$", description="计薪方式")
     standard_monthly_work_days: int = Field(26, ge=1, le=31, description="月薪标准出勤天数")
     overtime_multiplier: float = Field(1.5, ge=1, le=5, description="加班工资倍数")
+    overtime_hourly_rate: float = Field(0.0, ge=0, description="固定加班时薪；大于 0 时优先于加班倍数")
     hire_date: Optional[str] = Field(None, description="入职日期 YYYY-MM-DD")
     notes: str = Field("", description="备注")
 
@@ -450,6 +479,7 @@ class StaffUpdate(BaseModel):
     pay_type: Optional[str] = Field(None, pattern="^(auto|hourly|monthly|owner)$")
     standard_monthly_work_days: Optional[int] = Field(None, ge=1, le=31)
     overtime_multiplier: Optional[float] = Field(None, ge=1, le=5)
+    overtime_hourly_rate: Optional[float] = Field(None, ge=0)
     hire_date: Optional[str] = None
     status: Optional[str] = None
     notes: Optional[str] = None

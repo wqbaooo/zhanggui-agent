@@ -579,6 +579,18 @@ class ProjectMemory:
         # 外卖营收
         total_delivery_revenue = sum(float(e.get("delivery_revenue", 0) or 0) for e in entries)
 
+        # 截图没有给出渠道拆分时，写入层会保留 0 作为兼容值，并在
+        # unknown_fields 中标记真实状态。汇总不能把这个兼容值当成真实的零。
+        unknown_fields = sorted({
+            field
+            for entry in entries
+            for field in (entry.get("unknown_fields") or [])
+        })
+        unknown_field_entries = {
+            field: sum(1 for entry in entries if field in (entry.get("unknown_fields") or []))
+            for field in unknown_fields
+        }
+
         settlement_totals: Dict[str, float] = {
             "current_owner": 0.0,
             "former_owner": 0.0,
@@ -635,13 +647,16 @@ class ProjectMemory:
 
         prime_cost = total_food_cost + total_labor
         total_cost = sum(operating_cost(entry) for entry in entries)
-        net_profit = total_revenue - total_cost
+        calculated_net_profit = total_revenue - total_cost
         avg_order_value = total_revenue / total_orders if total_orders else 0
         prev_total_revenue = sum(float(e.get("actual_revenue", 0) or e.get("revenue", 0) or 0) for e in prev_entries)
         prev_total_original_amount = sum(float(e.get("original_amount", 0) or 0) for e in prev_entries)
         prev_total_orders = sum(int(e.get("orders", 0) or 0) for e in prev_entries)
         prev_total_cost = sum(operating_cost(entry) for entry in prev_entries)
-        prev_net_profit = prev_total_revenue - prev_total_cost
+        prev_profit_ready = bool(prev_entries) and all(
+            entry.get("cost_status") == "confirmed" for entry in prev_entries
+        )
+        prev_calculated_net_profit = prev_total_revenue - prev_total_cost
         prev_avg_order_value = prev_total_revenue / prev_total_orders if prev_total_orders else 0
 
         food_cost_rate = total_food_cost / total_revenue if total_revenue else 0
@@ -649,11 +664,11 @@ class ProjectMemory:
         prime_cost_rate = prime_cost / total_revenue if total_revenue else 0
         platform_fee_rate = total_platform / total_revenue if total_revenue else 0
         bad_review_rate = total_bad_reviews / total_orders if total_orders else 0
-        takeout_ratio = total_takeout / total_orders if total_orders else 0
-        delivery_rate = total_delivery_revenue / total_revenue if total_revenue else 0
+        takeout_ratio = None if "takeout_orders" in unknown_fields else (total_takeout / total_orders if total_orders else 0)
+        delivery_rate = None if "delivery_revenue" in unknown_fields else (total_delivery_revenue / total_revenue if total_revenue else 0)
 
         alerts: List[Dict[str, str]] = []
-        if profit_ready and net_profit < 0:
+        if profit_ready and calculated_net_profit < 0:
             alerts.append({
                 "level": "high",
                 "message": "最近经营数据为亏损，先检查食材成本、人工和平台活动是否吃掉毛利。",
@@ -673,7 +688,7 @@ class ProjectMemory:
                 "level": "medium",
                 "message": "差评率超过 3%，需要拆解出餐、包装、口味和配送原因。",
             })
-        if takeout_ratio > 0.5 and total_platform + total_marketing > total_revenue * 0.12:
+        if takeout_ratio is not None and takeout_ratio > 0.5 and total_platform + total_marketing > total_revenue * 0.12:
             alerts.append({
                 "level": "medium",
                 "message": "外卖占比高且平台/活动成本偏重，需要单独核算外卖单均利润。",
@@ -699,10 +714,19 @@ class ProjectMemory:
             "prev_total_revenue": round(prev_total_revenue, 2),
             "prev_total_original_amount": round(prev_total_original_amount, 2),
             "prev_total_orders": prev_total_orders,
-            "prev_net_profit": round(prev_net_profit, 2),
+            "prev_net_profit": round(prev_calculated_net_profit, 2) if prev_profit_ready else None,
             "prev_avg_order_value": round(prev_avg_order_value, 2),
             "delivery_revenue": round(total_delivery_revenue, 2),
-            "delivery_rate": round(delivery_rate, 4),
+            "delivery_rate": round(delivery_rate, 4) if delivery_rate is not None else None,
+            "unknown_fields": unknown_fields,
+            "unknown_field_entries": unknown_field_entries,
+            "field_coverage": {
+                field: round(
+                    sum(1 for entry in entries if field not in (entry.get("unknown_fields") or [])) / len(entries),
+                    4,
+                ) if entries else 0
+                for field in ("takeout_orders", "delivery_orders", "delivery_revenue", "payment_methods", "cash_count")
+            },
             "settlement_summary": {
                 "current_owner": round(settlement_totals["current_owner"], 2),
                 "former_owner": round(settlement_totals["former_owner"], 2),
@@ -725,8 +749,8 @@ class ProjectMemory:
                 key=lambda item: item["amount"],
                 reverse=True,
             ),
-            "total_cost": round(total_cost, 2),
-            "net_profit": round(net_profit, 2),
+            "total_cost": round(total_cost, 2) if profit_ready else None,
+            "net_profit": round(calculated_net_profit, 2) if profit_ready else None,
             "profit_ready": profit_ready,
             "profit_status": "confirmed" if profit_ready else "missing_costs",
             "missing_cost_fields": missing_cost_fields,
@@ -734,14 +758,14 @@ class ProjectMemory:
                 (len(required_cost_fields) - len(missing_cost_fields)) / len(required_cost_fields),
                 4,
             ),
-            "food_cost_rate": round(food_cost_rate, 4),
-            "labor_cost_rate": round(labor_cost_rate, 4),
-            "prime_cost": round(prime_cost, 2),
-            "prime_cost_rate": round(prime_cost_rate, 4),
-            "platform_fee_rate": round(platform_fee_rate, 4),
+            "food_cost_rate": round(food_cost_rate, 4) if profit_ready else None,
+            "labor_cost_rate": round(labor_cost_rate, 4) if profit_ready else None,
+            "prime_cost": round(prime_cost, 2) if profit_ready else None,
+            "prime_cost_rate": round(prime_cost_rate, 4) if profit_ready else None,
+            "platform_fee_rate": round(platform_fee_rate, 4) if "service_fee" not in unknown_fields else None,
             "total_bad_reviews": total_bad_reviews,
             "bad_review_rate": round(bad_review_rate, 4),
-            "takeout_ratio": round(takeout_ratio, 4),
+            "takeout_ratio": round(takeout_ratio, 4) if takeout_ratio is not None else None,
             "latest_entry": entries[-1] if entries else None,
             "alerts": alerts,
         }

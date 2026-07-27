@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 
 import config
 import models.sku as sku_model
+from models.finance_ledger import FinanceLedger
 from server.main import app
 
 
@@ -448,6 +449,51 @@ def test_consumption_variance_with_bom_and_sales(tmp_path, monkeypatch):
     assert row["verification_status"] == "over_consumption"
 
 
+def test_consumption_variance_does_not_double_subtract_logged_usage(tmp_path, monkeypatch):
+    """每日开包已改变账面库存，期间耗用闭合时不能再次扣除。"""
+    client = inventory_client(tmp_path, monkeypatch)
+    project_id = "consumption-variance-no-double-count"
+    sku = create_test_sku(client, project_id, stock=10)
+
+    client.post(f"/api/projects/{project_id}/skus/counts", json={
+        "date": "2026-07-01",
+        "location": "store",
+        "count_type": "spot",
+        "lines": [{"sku_id": sku["id"], "counted_quantity": 10}],
+    })
+    purchase = client.post(f"/api/projects/{project_id}/skus/purchase", json={
+        "date": "2026-07-02",
+        "supplier": "总部",
+        "items": [{"sku_id": sku["id"], "name": sku["name"], "quantity": 5, "unit_cost": 25}],
+    }).json()["purchase"]
+    client.post(f"/api/projects/{project_id}/skus/purchases/{purchase['id']}/receive", json={
+        "date": "2026-07-02",
+        "items": [{"sku_id": sku["id"], "received_quantity": 5, "allocations": {"store": 5}}],
+    })
+    client.post(f"/api/projects/{project_id}/skus/usage-logs", json={
+        "date": "2026-07-02",
+        "location": "store",
+        "items": [{"sku_id": sku["id"], "quantity": 2}],
+    })
+    client.post(f"/api/projects/{project_id}/skus/counts", json={
+        "date": "2026-07-03",
+        "location": "store",
+        "count_type": "spot",
+        "lines": [{"sku_id": sku["id"], "counted_quantity": 8}],
+    })
+
+    from models.sku import SkuCatalog
+
+    result = SkuCatalog.load(project_id).consumption_variance_analysis(
+        "2026-07-01",
+        "2026-07-03",
+    )
+    row = next(item for item in result["rows"] if item["sku_id"] == sku["id"])
+    assert row["usage_logged"] == 2
+    assert row["actual_consumption"] == 7
+    assert "不重复扣减" in result["method"]
+
+
 def test_consumption_variance_requires_opening_and_closing_counts(tmp_path, monkeypatch):
     client = inventory_client(tmp_path, monkeypatch)
     project_id = "consumption-variance-missing-opening"
@@ -469,3 +515,230 @@ def test_consumption_variance_requires_opening_and_closing_counts(tmp_path, monk
     row = next(r for r in result["rows"] if r["sku_id"] == sku["id"])
     assert row["actual_consumption"] is None
     assert row["verification_status"] == "missing_opening_count"
+
+
+def test_receipt_uses_moving_weighted_average_cost(tmp_path, monkeypatch):
+    client = inventory_client(tmp_path, monkeypatch)
+    project_id = "receipt-weighted-cost"
+    sku = create_test_sku(client, project_id, stock=10)
+
+    purchase = client.post(f"/api/projects/{project_id}/skus/purchase", json={
+        "date": "2026-07-10",
+        "supplier": "平替供应商",
+        "items": [{"sku_id": sku["id"], "name": sku["name"], "quantity": 5, "unit_cost": 25}],
+    }).json()["purchase"]
+    response = client.post(f"/api/projects/{project_id}/skus/purchases/{purchase['id']}/receive", json={
+        "date": "2026-07-11",
+        "items": [{"sku_id": sku["id"], "received_quantity": 5, "allocations": {"warehouse": 5}}],
+    })
+
+    assert response.status_code == 200
+    persisted = client.get(f"/api/projects/{project_id}/skus/{sku['id']}").json()["sku"]
+    assert persisted["current_stock"] == 15
+    assert persisted["unit_cost"] == 26.0
+    assert persisted["unit_cost_source"] == "移动加权平均（库存账）"
+
+
+def test_waste_is_separate_from_normal_usage_and_deducts_stock(tmp_path, monkeypatch):
+    client = inventory_client(tmp_path, monkeypatch)
+    project_id = "waste-ledger"
+    sku = create_test_sku(client, project_id, stock=10)
+    client.post(f"/api/projects/{project_id}/skus/transfer", json={
+        "date": "2026-07-12",
+        "from_location": "unallocated",
+        "to_location": "store",
+        "items": [{"sku_id": sku["id"], "quantity": 10}],
+    })
+
+    rejected = client.post(f"/api/projects/{project_id}/skus/waste", json={
+        "date": "2026-07-12",
+        "location": "store",
+        "items": [{"sku_id": sku["id"], "quantity": 11}],
+        "reason": "撒漏",
+    })
+    assert rejected.status_code == 400
+
+    accepted = client.post(f"/api/projects/{project_id}/skus/waste", json={
+        "date": "2026-07-12",
+        "location": "store",
+        "items": [{"sku_id": sku["id"], "quantity": 2}],
+        "reason": "撒漏",
+        "notes": "打翻一包",
+    })
+    assert accepted.status_code == 200
+    assert accepted.json()["events"][0]["event_type"] == "waste"
+    assert accepted.json()["events"][0]["metadata"]["reason"] == "撒漏"
+
+    persisted = client.get(f"/api/projects/{project_id}/skus/{sku['id']}").json()["sku"]
+    assert persisted["stock_by_location"]["store"] == 8
+    assert persisted["current_stock"] == 8
+
+
+def test_daily_usage_is_integer_only_and_duplicate_post_requires_overwrite(tmp_path, monkeypatch):
+    client = inventory_client(tmp_path, monkeypatch)
+    project_id = "daily-usage-guard"
+    sku = create_test_sku(client, project_id, stock=10)
+
+    decimal = client.post(f"/api/projects/{project_id}/skus/usage-logs", json={
+        "date": "2026-07-27",
+        "location": "operational",
+        "items": [{"sku_id": sku["id"], "quantity": 0.3}],
+        "source": "paper_daily_usage",
+    })
+    assert decimal.status_code == 400
+    assert "只能填写整数" in decimal.json()["detail"]
+
+    accepted = client.post(f"/api/projects/{project_id}/skus/usage-logs", json={
+        "date": "2026-07-27",
+        "location": "operational",
+        "items": [{"sku_id": sku["id"], "quantity": 2}],
+        "source": "paper_daily_usage",
+    })
+    assert accepted.status_code == 200
+
+    duplicate = client.post(f"/api/projects/{project_id}/skus/usage-logs", json={
+        "date": "2026-07-27",
+        "location": "operational",
+        "items": [{"sku_id": sku["id"], "quantity": 3}],
+        "source": "paper_daily_usage",
+    })
+    assert duplicate.status_code == 400
+    assert "覆盖保存" in duplicate.json()["detail"]
+
+
+def test_daily_usage_overwrite_restores_old_deduction_and_updates_cost_summary(tmp_path, monkeypatch):
+    client = inventory_client(tmp_path, monkeypatch)
+    project_id = "daily-usage-overwrite"
+    sku = create_test_sku(client, project_id, stock=10)
+    category_update = client.patch(f"/api/projects/{project_id}/skus/{sku['id']}", json={
+        "category": "常温食材",
+    })
+    assert category_update.status_code == 200
+    client.post(f"/api/projects/{project_id}/skus/transfer", json={
+        "date": "2026-07-27",
+        "from_location": "unallocated",
+        "to_location": "store",
+        "items": [{"sku_id": sku["id"], "quantity": 3}],
+    })
+    client.post(f"/api/projects/{project_id}/skus/transfer", json={
+        "date": "2026-07-27",
+        "from_location": "unallocated",
+        "to_location": "warehouse",
+        "items": [{"sku_id": sku["id"], "quantity": 7}],
+    })
+
+    first = client.put(f"/api/projects/{project_id}/skus/usage-logs/2026-07-27", json={
+        "date": "2026-07-27",
+        "location": "operational",
+        "items": [{"sku_id": sku["id"], "quantity": 5}],
+        "source": "paper_daily_usage",
+    })
+    assert first.status_code == 200
+    current = client.get(f"/api/projects/{project_id}/skus/{sku['id']}").json()["sku"]
+    assert current["stock_by_location"]["store"] == 0
+    assert current["stock_by_location"]["warehouse"] == 5
+
+    corrected = client.put(f"/api/projects/{project_id}/skus/usage-logs/2026-07-27", json={
+        "date": "2026-07-27",
+        "location": "operational",
+        "items": [{"sku_id": sku["id"], "quantity": 2}],
+        "source": "paper_daily_usage",
+    })
+    assert corrected.status_code == 200
+    current = client.get(f"/api/projects/{project_id}/skus/{sku['id']}").json()["sku"]
+    assert current["stock_by_location"]["store"] == 1
+    assert current["stock_by_location"]["warehouse"] == 7
+    assert current["current_stock"] == 8
+
+    summary = client.get(
+        f"/api/projects/{project_id}/skus/usage-summary/2026-07-27"
+    ).json()
+    assert summary["recorded_sku_count"] == 1
+    assert summary["rows"][0]["quantity"] == 2
+    assert summary["usage_cost"] == 53.0
+    assert "不等于已确认商品毛利" in summary["cost_basis"]
+
+    price_change = client.patch(f"/api/projects/{project_id}/skus/{sku['id']}", json={
+        "unit_cost": 99,
+    })
+    assert price_change.status_code == 200
+    summary_after_price_change = client.get(
+        f"/api/projects/{project_id}/skus/usage-summary/2026-07-27"
+    ).json()
+    assert summary_after_price_change["usage_cost"] == 53.0
+    assert summary_after_price_change["rows"][0]["unit_cost"] == 26.5
+
+    period_cost = sku_model.SkuCatalog.load(project_id).period_usage_cost_summary(
+        "2026-07-27", "2026-07-27"
+    )
+    assert period_cost["food_cost"] == 53.0
+    assert period_cost["status"] == "estimated_from_daily_usage"
+
+    ledger = FinanceLedger(tmp_path / "finance.db")
+    ledger.initialize()
+    ledger.ensure_store(project_id, "test", "2026-07-01")
+    finance = ledger.finance_overview(project_id, "2026-07-27", "2026-07-27")
+    assert finance["known_operating_cost_minor"] == 0
+    assert finance["estimated_adjustments_minor"]["food_cost"] == 5300
+    assert finance["inventory_usage_bridge"]["food_cost"] == 53.0
+    assert "不自动过账" in finance["inventory_usage_bridge"]["accounting_boundary"]
+
+
+def test_daily_usage_overwrite_rolls_back_when_correction_is_invalid(tmp_path, monkeypatch):
+    client = inventory_client(tmp_path, monkeypatch)
+    project_id = "daily-usage-invalid-correction"
+    sku = create_test_sku(client, project_id, stock=6)
+
+    first = client.put(f"/api/projects/{project_id}/skus/usage-logs/2026-07-27", json={
+        "date": "2026-07-27",
+        "location": "operational",
+        "items": [{"sku_id": sku["id"], "quantity": 2}],
+        "source": "paper_daily_usage",
+    })
+    assert first.status_code == 200
+
+    rejected = client.put(f"/api/projects/{project_id}/skus/usage-logs/2026-07-27", json={
+        "date": "2026-07-27",
+        "location": "operational",
+        "items": [{"sku_id": sku["id"], "quantity": 0.3}],
+        "source": "paper_daily_usage",
+    })
+    assert rejected.status_code == 400
+
+    persisted = client.get(f"/api/projects/{project_id}/skus/{sku['id']}").json()["sku"]
+    assert persisted["current_stock"] == 4
+    summary = client.get(f"/api/projects/{project_id}/skus/usage-summary/2026-07-27").json()
+    assert summary["rows"][0]["quantity"] == 2
+
+
+def test_operational_usage_records_shortfall_without_creating_negative_stock(tmp_path, monkeypatch):
+    client = inventory_client(tmp_path, monkeypatch)
+    project_id = "daily-usage-shortfall"
+    sku = create_test_sku(client, project_id, stock=2)
+
+    response = client.put(f"/api/projects/{project_id}/skus/usage-logs/2026-07-27", json={
+        "date": "2026-07-27",
+        "location": "operational",
+        "items": [{"sku_id": sku["id"], "quantity": 5}],
+        "source": "paper_daily_usage",
+    })
+    assert response.status_code == 200
+
+    persisted = client.get(f"/api/projects/{project_id}/skus/{sku['id']}").json()["sku"]
+    assert persisted["current_stock"] == 0
+    summary = client.get(f"/api/projects/{project_id}/skus/usage-summary/2026-07-27").json()
+    assert summary["shortfall_sku_count"] == 1
+    assert summary["rows"][0]["shortfall"] == 3
+
+
+def test_forecast_excludes_non_replenishable_low_value_items(tmp_path, monkeypatch):
+    client = inventory_client(tmp_path, monkeypatch)
+    project_id = "forecast-reorder-boundary"
+    sku = create_test_sku(client, project_id, stock=10)
+    update = client.patch(f"/api/projects/{project_id}/skus/{sku['id']}", json={
+        "reorder_enabled": False,
+    })
+    assert update.status_code == 200
+
+    forecast = client.get(f"/api/projects/{project_id}/skus/forecast").json()["forecast"]
+    assert all(row["sku_id"] != sku["id"] for row in forecast)

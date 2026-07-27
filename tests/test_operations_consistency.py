@@ -144,8 +144,22 @@ def test_operation_summary_has_settlement_fields(client):
     assert s["total_merchant_discount"] >= 0
     assert s["total_refund_amount"] >= 0
     assert s["total_revenue"] > 0
-    assert s["settlement_summary"]["former_owner"] == 2245.18
-    assert s["settlement_summary"]["cash_on_hand"] == 676.0
+    memory = _load_memory()
+    former_owner_methods = {"美团外卖", "淘宝闪购餐饮", "美团团购券", "抖音团购券"}
+    expected_former_owner = round(sum(
+        float(payment.get("amount", 0) or 0)
+        for entry in memory.get("daily_operations", [])
+        for payment in entry.get("payment_methods", []) or []
+        if payment.get("method") in former_owner_methods
+    ), 2)
+    assert s["settlement_summary"]["former_owner"] == expected_former_owner
+    expected_cash = round(sum(
+        float(payment.get("amount", 0) or 0)
+        for entry in memory.get("daily_operations", [])
+        for payment in entry.get("payment_methods", []) or []
+        if payment.get("method") == "现金"
+    ), 2)
+    assert s["settlement_summary"]["cash_on_hand"] == expected_cash
     assert s["product_sales"][0]["name"] == "经典必吃"
 
 
@@ -156,6 +170,10 @@ def test_incomplete_costs_do_not_claim_profit(client):
 
     assert summary["profit_ready"] is False
     assert summary["profit_status"] == "missing_costs"
+    assert summary["net_profit"] is None
+    assert summary["total_cost"] is None
+    assert summary["food_cost_rate"] is None
+    assert summary["labor_cost_rate"] is None
     assert {"food_cost", "labor", "rent_allocated"}.issubset(
         set(summary["missing_cost_fields"])
     )

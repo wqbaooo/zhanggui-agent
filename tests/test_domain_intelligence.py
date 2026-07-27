@@ -5,6 +5,7 @@ from core.domain_intelligence import (
     route_domains,
     validate_grounded_answer,
 )
+from graph.tools import get_all_tools
 from models.labor import LaborTracking
 from models.project import ProjectMemory
 from models.sku import SkuCatalog
@@ -22,7 +23,8 @@ def test_delivery_material_question_queries_rules_hq_catalog_and_inventory():
     assert report["domain"] == "procurement_inventory"
     assert any("订书机" in item for item in report["professional_guidance"])
     assert any(item["fact"] == "总部目录匹配物料" for item in report["known_facts"])
-    assert any(item["fact"] == "本店已记录库存" for item in report["known_facts"])
+    assert not any(item["fact"] == "本店已记录库存" for item in report["known_facts"])
+    assert "本店尚未录入相关物料库存" in report["gaps"]
     assert context["response_contract"]["relationship"].startswith("用户是门店老板")
 
 
@@ -108,7 +110,7 @@ def test_grounded_fallback_answers_delivery_material_question_without_roleplay()
     assert "订书机" in answer
     assert "总部目录内食材、包装和耗材禁止自行采购平替" in answer
     assert "总部订货目录中查到" in answer
-    assert "门店SKU库存中查到" in answer
+    assert "本店尚未录入相关物料库存" in answer
     assert "顾客" not in answer
     assert "味道" not in answer
 
@@ -129,6 +131,56 @@ def test_follow_up_inherits_previous_delivery_material_scope():
     )
     assert follow_up["route"]["domains"] == ["procurement"]
     assert any("外卖" in item["name"] for item in hq_items)
+
+
+def test_natural_follow_up_inherits_previous_inventory_scope():
+    first = build_domain_context(PROJECT_ID, "库存现在最需要补什么？")
+    follow_up = build_domain_context(
+        PROJECT_ID,
+        "那还缺哪些信息？",
+        previous_context=first,
+    )
+
+    assert follow_up["route"]["domains"] == ["inventory"]
+    assert follow_up["reports"][0]["domain"] == "procurement_inventory"
+    assert "库存现在最需要补什么" in follow_up["query"]
+
+
+def test_pending_stock_is_exposed_as_unknown_not_zero_and_guarded():
+    context = build_domain_context(PROJECT_ID, "库存判断最缺什么证据？")
+    report = context["reports"][0]
+    store_items = next(
+        fact["items"]
+        for fact in report["known_facts"]
+        if fact["fact"] == "本店已记录库存"
+    )
+    pending_items = [item for item in store_items if item["status"] == "待盘点"]
+
+    assert pending_items
+    assert all(item["current_stock"] is None for item in pending_items)
+    assert all(item["quantity_status"] == "unknown" for item in pending_items)
+    assert "把待盘点库存表述为零" in validate_grounded_answer(
+        "章鱼烧酱和芒果爆爆珠均为 0 kg。",
+        context,
+    )
+
+
+def test_agent_tool_registry_only_exposes_single_store_operating_tools():
+    tool_names = {item.name for item in get_all_tools()}
+
+    assert {
+        "analyze_location",
+        "analyze_franchise",
+        "generate_feasibility_report",
+        "analyze_competition",
+        "query_city_costs",
+    }.isdisjoint(tool_names)
+    assert {
+        "get_financial_context",
+        "list_pending_facts",
+        "confirm_fact",
+        "analyze_channel_sales_target",
+    }.issubset(tool_names)
 
 
 def test_channel_profit_does_not_claim_store_profit_is_channel_profit():

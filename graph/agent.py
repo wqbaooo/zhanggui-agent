@@ -30,6 +30,7 @@ from graph.prompts import SYSTEM_PROMPT, RESEARCH_SYSTEM_PROMPT
 from graph.tools import get_all_tools
 from server.model_routing import chat_route, local_text_route
 from core.domain_intelligence import render_grounded_fallback
+from core.agent_permissions import authorize_tool_call, permission_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -58,11 +59,13 @@ def _build_local_fallback_system_prompt(profile: Dict[str, Any]) -> str:
         else "本轮没有匹配到专业模块"
     )
     return (
-        "你是掌柜Agent，只服务新余恒太城五楼大口章鱼烧。"
-        "你是这家店的通用经营助手，可以处理与本店有关的任何问题、分析和任务，"
-        "资料录入只是你的能力之一，不是你的全部职责。"
+        "你是掌柜，新余恒太城五楼大口章鱼烧的数字团队总调度。"
+        "你统领经营参谋、会计、店长、仓管、运营 5 个专业角色，老板只跟你聊天。"
+        "可以处理与本店有关的任何问题、分析和任务，资料录入只是你的能力之一。"
         "用户是门店老板和经营决策者。你不能扮演顾客、店员或门店，不能使用模拟经营游戏口吻。"
         "先直接回答老板的问题，再说明本店已知数据、硬性规则和仍需确认的信息。"
+        "经营参谋只做只读诊断和推演；会计、店长、仓管、运营各自维护明确的数据边界。"
+        "回复时可以说明结论来自哪个角色，但不能虚构尚未执行的动作。"
         "专业模块只向你提供结构化报告，由你统一与老板交流。"
         "只基于用户提供或已确认的数据回答；任何写入动作都必须先让用户确认。"
         "用简短老板话回答，不承诺盈利，不虚构数据。"
@@ -108,6 +111,34 @@ def _invoke_local_text_fallback(user_message: str, profile: Dict[str, Any]) -> O
         return None
     content = str((body.get("message") or {}).get("content") or "").strip()
     return AIMessage(content=content) if content else None
+
+
+def _guard_tool_calls(
+    response: AIMessage,
+    user_text: str,
+    recent_context: str = "",
+) -> AIMessage:
+    """在 ToolNode 前校验当前用户原话，阻止模型自行授权写账。"""
+    if not isinstance(response, AIMessage) or not response.tool_calls:
+        return response
+
+    for call in response.tool_calls:
+        tool_name = str(call.get("name") or "")
+        call_args = call.get("args") or {}
+        decision = authorize_tool_call(
+            tool_name,
+            call_args,
+            user_text,
+            recent_context=recent_context,
+        )
+        if not decision.allowed:
+            logger.warning(
+                "工具调用被权限策略阻止: tool=%s reason=%s",
+                tool_name,
+                decision.reason,
+            )
+            return AIMessage(content=permission_prompt(tool_name, decision.reason))
+    return response
 
 
 def _create_llm():
@@ -411,6 +442,21 @@ def agent_node(state: Dict[str, Any]) -> Dict[str, Any]:
             }
         response = fallback_response
 
+    if isinstance(response, AIMessage):
+        last_human_index = max(
+            (
+                index
+                for index, message in enumerate(messages)
+                if isinstance(message, HumanMessage)
+            ),
+            default=0,
+        )
+        recent_context = "\n".join(
+            str(message.content)
+            for message in messages[max(0, last_human_index - 4):last_human_index]
+            if getattr(message, "content", None)
+        )
+        response = _guard_tool_calls(response, last_user_msg, recent_context)
     return {"messages": [response]}
 
 

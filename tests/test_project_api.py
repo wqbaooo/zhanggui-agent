@@ -43,6 +43,7 @@ def test_project_profile_and_operation_lifecycle(tmp_path, monkeypatch):
         "marketing_cost": 50,
         "inventory_loss": 10,
         "notes": "试营业",
+        "cost_status": "confirmed",
     })
     assert operation_res.status_code == 200
     summary = operation_res.json()["summary"]

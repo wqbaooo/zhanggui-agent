@@ -12,6 +12,7 @@ openai>=1.0.0
 # === 知识库 ===
 # PDF 文档入库
 pypdf>=4.0.0
+openpyxl>=3.1.0
 
 # 语音识别（可选）
 openai-whisper>=20231117

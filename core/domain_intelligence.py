@@ -10,6 +10,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
 import json
+import re
 
 from config import PROJECT_DATA_DIR
 from models.labor import LaborTracking
@@ -40,6 +41,21 @@ DOMAIN_KEYWORDS = {
 }
 
 GENERIC_DELIVERY_TOOLS = ["订书机", "订书钉", "封口贴", "标签纸", "记号笔", "小票纸"]
+
+FOLLOW_UP_MARKERS = (
+    "刚才",
+    "上面",
+    "这些",
+    "那些",
+    "它们",
+    "里面",
+    "那还",
+    "还缺",
+    "还有吗",
+    "然后呢",
+    "接着",
+    "继续",
+)
 
 
 @dataclass
@@ -78,14 +94,16 @@ def route_domains(message: str, previous_domains: List[str] | None = None) -> Li
         labor_specific_terms = ("工资", "兼职", "全职", "排班", "工时", "加班", "人工", "守店")
         if not any(term in text for term in labor_specific_terms):
             selected.remove("labor")
-    if (
-        any(term in text for term in ("刚才", "上面", "这些", "那些", "它们", "里面"))
-        and previous_domains
-    ):
+    if _is_contextual_follow_up(text) and previous_domains:
         for domain in previous_domains:
             if domain not in selected:
                 selected.append(domain)
     return selected or ["general"]
+
+
+def _is_contextual_follow_up(message: str) -> bool:
+    """Recognize short owner follow-ups that depend on the previous domain."""
+    return any(marker in message for marker in FOLLOW_UP_MARKERS)
 
 
 def build_domain_context(
@@ -101,7 +119,7 @@ def build_domain_context(
     )
     domains = route_domains(message, previous_domains)
     previous_query = str(previous_context.get("query", "")) if previous_context else ""
-    is_follow_up = any(term in message for term in ("刚才", "上面", "这些", "那些", "它们", "里面"))
+    is_follow_up = _is_contextual_follow_up(message)
     effective_message = f"{previous_query}；{message}" if is_follow_up and previous_query else message
     reports: List[DomainReport] = []
     for domain in domains:
@@ -148,6 +166,8 @@ def build_domain_context(
 def context_for_client(context: Dict[str, Any]) -> Dict[str, Any]:
     """Return safe, concise run metadata for the frontend."""
     return {
+        "intent": context.get("intent", "business_question"),
+        "allowed_tools": context.get("allowed_tools", []),
         "status": context.get("status", "answered"),
         "domains": context.get("route", {}).get("domains", []),
         "consulted_modules": context.get("route", {}).get("consulted_modules", []),
@@ -182,6 +202,8 @@ def context_for_prompt(context: Dict[str, Any]) -> Dict[str, Any]:
             "professional_guidance": report.get("professional_guidance", [])[:1],
         })
     return {
+        "intent": context.get("intent", "business_question"),
+        "allowed_tools": context.get("allowed_tools", []),
         "route": context.get("route", {}),
         "status": context.get("status", "answered"),
         "reports": compact_reports,
@@ -216,13 +238,13 @@ def render_grounded_fallback(message: str, context: Dict[str, Any]) -> str:
                 f"近7日全店净利润为¥{float(net_profit):,.0f}；但现有台账不能证明外卖渠道单独赚钱。"
             )
         else:
-            parts.append("目前还不能确认外卖渠道是否赚钱，需要先补齐渠道成本。")
+            parts.append("全店净利润目前待核算，当前底账也不能证明外卖渠道单独赚钱，需要先补齐渠道成本。")
+    elif report.get("domain") == "finance":
+        parts.append("全店净利润目前待核算；我先按统一财务底账核对营收、成本、资金和应收。")
     elif guidance:
         parts.append(guidance[0])
     elif report.get("domain") == "labor":
         parts.append("可以，我先按员工工资标准、实际工时和加班记录核算。")
-    elif report.get("domain") == "finance":
-        parts.append("可以，我先按本店真实经营台账看营收、成本和净利润。")
     elif report.get("domain") == "channel":
         parts.append("可以，我先按外卖流水、平台费、活动成本和退款情况核算真实到手利润。")
     elif report.get("domain") in {"sop", "risk"}:
@@ -235,6 +257,7 @@ def render_grounded_fallback(message: str, context: Dict[str, Any]) -> str:
         for domain_report in reports[:2]
         for fact in domain_report.get("known_facts", [])[:2]
     ])
+    rendered_values = False
     for fact in facts[:3]:
         items = fact.get("items", [])
         if items:
@@ -242,9 +265,12 @@ def render_grounded_fallback(message: str, context: Dict[str, Any]) -> str:
             source = str(fact.get("source") or "本店资料")
             parts.append(f"{source}中查到：{'、'.join(name for name in names if name)}。")
         elif fact.get("values"):
+            if rendered_values:
+                continue
             values = fact["values"]
             readable = _format_operation_values(values)
             parts.append(f"本店已记录：{readable}。")
+            rendered_values = True
         elif fact.get("count") is not None:
             parts.append(f"{fact.get('fact')}：{fact.get('count')}。")
 
@@ -284,7 +310,7 @@ def validate_grounded_answer(answer: str, context: Dict[str, Any]) -> List[str]:
         if any(phrase in answer for phrase in unsupported_permission_phrases):
             issues.append("把未知采购权限表述为允许")
         has_catalog_only_gap = any(
-            "只有目录信息" in gap
+            "只有目录信息" in gap or "尚未录入相关物料库存" in gap
             for report in reports
             for gap in report.get("gaps", [])
         )
@@ -293,6 +319,19 @@ def validate_grounded_answer(answer: str, context: Dict[str, Any]) -> List[str]:
             for phrase in ("库存为0", "库存 0", "当前库存0", "当前库存为零")
         ):
             issues.append("把总部目录占位表述为真实零库存")
+        has_pending_stock = any(
+            item.get("quantity_status") == "unknown"
+            for report in reports
+            for fact in report.get("known_facts", [])
+            for item in fact.get("items", [])
+        )
+        zero_quantity_claim = re.search(
+            r"(?:库存|数量|均为|都是|为)\s*(?:0(?:\.0+)?\s*(?:kg|g|个|包|瓶|桶|支)?|零)",
+            answer,
+            re.IGNORECASE,
+        )
+        if has_pending_stock and zero_quantity_claim:
+            issues.append("把待盘点库存表述为零")
     return issues
 
 
@@ -369,10 +408,19 @@ def _procurement_inventory_report(
     store_fact_items = [
             {
                 "name": sku.get("name"),
-                "current_stock": sku.get("current_stock"),
+                "current_stock": (
+                    None
+                    if sku.get("status") in {"待盘点", "未盘点", "unknown"}
+                    else sku.get("current_stock")
+                ),
                 "unit": sku.get("unit"),
                 "supplier": sku.get("supplier"),
                 "status": sku.get("status"),
+                "quantity_status": (
+                    "unknown"
+                    if sku.get("status") in {"待盘点", "未盘点", "unknown"}
+                    else "observed"
+                ),
             }
             for sku in relevant_store[:12]
         ]
@@ -487,6 +535,32 @@ def _operations_report(project_id: str, domain: str) -> DomainReport:
     if not memory or not memory.daily_operations:
         report.gaps.append("尚未录入真实经营流水")
         return report
+    if domain == "finance":
+        from models.finance_ledger import FinanceLedger
+
+        finance = FinanceLedger.for_project(project_id).finance_overview(project_id)
+        report.known_facts.append({
+            "fact": "期间经营摘要",
+            "values": {
+                "entry_count": finance.get("sales_days"),
+                "total_revenue": (finance.get("revenue_minor") or 0) / 100,
+                "total_orders": finance.get("orders"),
+                "net_profit": finance.get("net_profit_minor") / 100 if finance.get("net_profit_minor") is not None else None,
+            },
+            "source": "SQLite 财务账本",
+        })
+        if finance.get("missing_inputs"):
+            report.gaps.extend(str(item) for item in finance["missing_inputs"])
+            report.conflicts.append({
+                "type": "finance_incomplete",
+                "message": "营业收入已确认，但成本和打烊数据未闭合，暂不能确认净利润和保本额。",
+            })
+        report.professional_guidance.append(
+            "收入、到账、应收和利润分开核算；任何未知成本不能按 0 处理。"
+        )
+        report.proposed_actions.append({"label": "查看统一财务台", "target": "/profit"})
+        report.evidence.append({"label": "SQLite 财务账本", "source": f"project_data/{project_id}/finance.db"})
+        return report
     summary = memory.operation_summary(days=7)
     keys = (
         "entry_count",
@@ -509,6 +583,10 @@ def _operations_report(project_id: str, domain: str) -> DomainReport:
         for entry in memory.daily_operations[-7:]
     ):
         report.gaps.append("缺少外卖渠道拆分数据")
+        report.gaps.append("现有台账未把食材和人工成本按渠道分摊，暂不能确认外卖渠道单独净利润")
+        report.professional_guidance.append(
+            "判断外卖是否赚钱，需要用外卖收入减去平台费、活动成本、包装、退款以及分摊后的食材和人工成本。"
+        )
     elif domain == "channel":
         report.gaps.append("现有台账未把食材和人工成本按渠道分摊，暂不能确认外卖渠道单独净利润")
         report.professional_guidance.append(

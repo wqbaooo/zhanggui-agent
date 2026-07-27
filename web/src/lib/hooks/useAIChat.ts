@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { API_BASE, DEFAULT_PROJECT_ID } from "@/lib/api";
 
 export interface ChatMessage {
@@ -13,7 +13,9 @@ export interface ChatMessage {
 }
 
 export interface ChatRunMetadata {
-  status: "answered" | "needs_input" | "conflict";
+  status: "answered" | "needs_input" | "conflict" | "conversation";
+  intent?: "social" | "business_question" | "business_action";
+  allowed_tools?: string[];
   domains: string[];
   consulted_modules: string[];
   gaps: string[];
@@ -21,6 +23,10 @@ export interface ChatRunMetadata {
   model_provider?: string;
   model?: string;
   guardrail_applied?: boolean;
+  answer_source?: string;
+  requested_runtime?: string;
+  runtime_fallback?: boolean;
+  runtime_fallback_reason?: string | null;
 }
 
 export interface ChatSession {
@@ -30,6 +36,17 @@ export interface ChatSession {
   createdAt: string;
   updatedAt: string;
   projectId: string;
+  scope?: string;
+  runtime?: string;
+}
+
+export interface AgentRuntimeStatus {
+  selected: "trusted" | "hermes" | string;
+  available: boolean;
+  active: boolean;
+  label: string;
+  model?: string;
+  fallback?: string | null;
 }
 
 const STORAGE_KEY = "store-agent-chat-sessions";
@@ -75,16 +92,41 @@ function generateSessionTitle(firstMessage: string): string {
   return trimmed.length > 20 ? trimmed.slice(0, 20) + "…" : trimmed;
 }
 
+async function fetchBackendSessions(): Promise<ChatSession[]> {
+  const response = await fetch(
+    `${API_BASE}/api/projects/${DEFAULT_PROJECT_ID}/agent/sessions?scope=master`,
+    { cache: "no-store" }
+  );
+  if (!response.ok) throw new Error(`历史记录加载失败：${response.status}`);
+  const payload = await response.json();
+  return Array.isArray(payload.sessions) ? payload.sessions : [];
+}
+
+async function persistSession(session: ChatSession, includeMessages = false) {
+  const response = await fetch(
+    `${API_BASE}/api/projects/${DEFAULT_PROJECT_ID}/agent/sessions`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: session.id,
+        title: session.title,
+        scope: "master",
+        messages: includeMessages ? session.messages : [],
+      }),
+    }
+  );
+  if (!response.ok) throw new Error(`对话保存失败：${response.status}`);
+}
+
 export function useAIChat() {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const initializedRef = useRef(false);
+  const [runtimeStatus, setRuntimeStatus] = useState<AgentRuntimeStatus | null>(null);
 
   useEffect(() => {
-    if (initializedRef.current) return;
-    initializedRef.current = true;
     const loaded = loadSessions();
     setSessions(loaded);
     const activeId = loadActiveSessionId();
@@ -93,6 +135,33 @@ export function useAIChat() {
     } else if (loaded.length > 0) {
       setActiveSessionId(loaded[0].id);
     }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const runtimeResponse = await fetch(`${API_BASE}/api/agent/runtime`, { cache: "no-store" });
+        if (runtimeResponse.ok && !cancelled) {
+          setRuntimeStatus(await runtimeResponse.json());
+        }
+        let backendSessions = await fetchBackendSessions();
+        if (backendSessions.length === 0 && loaded.length > 0) {
+          await Promise.all(loaded.map((session) => persistSession(session, true)));
+          backendSessions = await fetchBackendSessions();
+        }
+        if (cancelled || backendSessions.length === 0) return;
+        setSessions(backendSessions);
+        saveSessions(backendSessions);
+        const currentId = loadActiveSessionId();
+        const nextId = currentId && backendSessions.some((session) => session.id === currentId)
+          ? currentId
+          : backendSessions[0].id;
+        setActiveSessionId(nextId);
+        saveActiveSessionId(nextId);
+      } catch {
+        // Keep local history available while the backend is offline.
+      }
+    })();
+    return () => { cancelled = true; };
   }, []);
 
   const activeSession = sessions.find((s) => s.id === activeSessionId) || null;
@@ -121,6 +190,9 @@ export function useAIChat() {
     persistSessions(updated);
     setActiveSession(newSession.id);
     setError(null);
+    void persistSession(newSession).catch(() => {
+      // The send endpoint will create it later if the backend is temporarily offline.
+    });
     return newSession;
   }, [sessions, persistSessions, setActiveSession]);
 
@@ -134,6 +206,9 @@ export function useAIChat() {
         setActiveSession(null);
       }
     }
+    void fetch(`${API_BASE}/api/projects/${DEFAULT_PROJECT_ID}/agent/sessions/${id}`, {
+      method: "DELETE",
+    }).catch(() => undefined);
   }, [sessions, activeSessionId, persistSessions, setActiveSession]);
 
   const updateSessionMessages = useCallback((sessionId: string, updater: (prev: ChatMessage[]) => ChatMessage[], titleUpdate?: string) => {
@@ -213,6 +288,8 @@ export function useAIChat() {
           message: content.trim(),
           project_id: DEFAULT_PROJECT_ID,
           session_id: sessionId,
+          scope: "master",
+          client_message_id: userMsg.id,
         }),
         signal: controller.signal,
       });
@@ -263,6 +340,11 @@ export function useAIChat() {
     } finally {
       window.clearTimeout(timeout);
       setIsStreaming(false);
+      void fetch(`${API_BASE}/api/agent/runtime`, { cache: "no-store" })
+        .then(async (response) => {
+          if (response.ok) setRuntimeStatus(await response.json());
+        })
+        .catch(() => undefined);
     }
   }, [isStreaming, activeSessionId, sessions, messages.length, persistSessions, setActiveSession]);
 
@@ -284,5 +366,6 @@ export function useAIChat() {
     createNewSession,
     deleteSession,
     activeSession,
+    runtimeStatus,
   };
 }

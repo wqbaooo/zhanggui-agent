@@ -30,9 +30,12 @@ from core.domain_intelligence import (
     render_grounded_fallback,
     validate_grounded_answer,
 )
+from core.conversation_policy import conversation_only_context, plan_conversation_turn
 from core.readiness import build_readiness_structured, merge_readiness_overlay
 from models.project import ProjectMemory
 from models.schemas import AssistantRequest, AssistantResponse
+from models.channel_goal import analyze_channel_goal, find_goal_amount, render_channel_goal_answer
+from core.finance_answers import answer_finance_question
 
 logger = logging.getLogger(__name__)
 DEFAULT_PROJECT_ID = "xinyu-hengtai-dakou"
@@ -219,11 +222,17 @@ class 掌柜Agent:
         document_knowledge_path: Optional[str] = None,
         deepseek_api_key: Optional[str] = None,
         project_id: Optional[str] = None,
+        reasoning_runtime: Any = None,
     ):
         self._use_langgraph = _langgraph_available()
         self._project_id = project_id or DEFAULT_PROJECT_ID
         self._last_domain_context: Dict[str, Any] = {}
         self._last_answer_guardrail: List[str] = []
+        self._last_answer_source = "not_run"
+        self._reasoning_runtime = reasoning_runtime
+        self._last_runtime_provider: Optional[str] = None
+        self._last_runtime_model: Optional[str] = None
+        self._runtime_fallback_reason: Optional[str] = None
 
         if self._use_langgraph:
             try:
@@ -250,16 +259,59 @@ class 掌柜Agent:
 
     def get_response(self, user_input: str) -> str:
         """获取回复（纯文本）。"""
+        turn_plan = plan_conversation_turn(user_input)
+        self._runtime_fallback_reason = None
+        if turn_plan.direct_reply is not None:
+            self._last_domain_context = conversation_only_context(user_input, turn_plan)
+            self._last_answer_guardrail = []
+            self._last_answer_source = "conversation_policy"
+            self._last_runtime_provider = None
+            self._last_runtime_model = None
+            return turn_plan.direct_reply
+
         previous_context = self._last_domain_context
         self._last_domain_context = build_domain_context(
             self._project_id,
             user_input,
             previous_context=previous_context,
         )
-        if self._use_langgraph:
-            text = self._langgraph_get_response(user_input)
+        self._last_domain_context["intent"] = turn_plan.intent
+        self._last_domain_context["allowed_tools"] = list(turn_plan.allowed_tools)
+        target_revenue = find_goal_amount(user_input)
+        if target_revenue is not None and any(
+            term in user_input for term in ("堂食", "外卖", "订单", "多少单", "客单价")
+        ):
+            memory = ProjectMemory.load(self._project_id)
+            result = analyze_channel_goal(
+                memory.daily_operations if memory else [],
+                target_revenue=target_revenue,
+            )
+            self._last_answer_guardrail = []
+            self._last_answer_source = "deterministic_channel_analysis"
+            return render_channel_goal_answer(result)
+        previous_query = str(previous_context.get("query", "")) if previous_context else ""
+        finance_answer = answer_finance_question(user_input, self._project_id, previous_query)
+        if finance_answer is not None:
+            self._last_answer_guardrail = []
+            self._last_answer_source = "deterministic_finance_analysis"
+            return finance_answer
+        if self._reasoning_runtime is not None:
+            try:
+                runtime_answer = self._reasoning_runtime.get_response(
+                    user_input,
+                    context_for_prompt(self._last_domain_context),
+                )
+                text = runtime_answer.text
+                self._last_runtime_provider = runtime_answer.provider
+                self._last_runtime_model = runtime_answer.model
+                self._last_answer_source = runtime_answer.provider
+            except Exception as exc:
+                logger.warning("外部 Agent 运行时失败，回退可信链: %s", exc)
+                self._runtime_fallback_reason = str(exc)
+                text = self._trusted_runtime_response(user_input)
+                self._last_answer_source = "runtime_fallback"
         else:
-            text = self._session.get_response(user_input)
+            text = self._trusted_runtime_response(user_input)
         self._last_answer_guardrail = validate_grounded_answer(
             text,
             self._last_domain_context,
@@ -275,15 +327,45 @@ class 掌柜Agent:
             )
         return merge_readiness_overlay(user_input, text)
 
+    def _trusted_runtime_response(self, user_input: str) -> str:
+        """Run the existing trusted chain when Hermes is disabled or unhealthy."""
+        self._last_runtime_provider = None
+        self._last_runtime_model = None
+        if self._use_langgraph:
+            text = self._langgraph_get_response(user_input)
+            self._last_answer_source = "langgraph"
+        else:
+            text = self._session.get_response(user_input)
+            self._last_answer_source = "legacy_session"
+        return text
+
     def get_run_metadata(self) -> Dict[str, Any]:
         """Return the latest structured routing/evidence summary for the UI."""
         from server.model_routing import chat_route
 
         metadata = context_for_client(self._last_domain_context)
         route = chat_route()
-        metadata["model_provider"] = route.provider if route.configured else "grounded_local_fallback"
-        metadata["model"] = route.model if route.configured else "deterministic_domain_report"
+        if self._last_answer_source == "conversation_policy":
+            metadata["model_provider"] = "conversation_policy"
+            metadata["model"] = "lightweight_social_turn"
+        elif self._last_answer_source.startswith("deterministic_"):
+            metadata["model_provider"] = "deterministic_store_analysis"
+            metadata["model"] = self._last_answer_source
+        elif self._last_answer_source in {"hermes", "pi"}:
+            metadata["model_provider"] = self._last_runtime_provider or self._last_answer_source
+            metadata["model"] = self._last_runtime_model or "external-agent"
+        elif self._use_langgraph and route.configured:
+            metadata["model_provider"] = route.provider
+            metadata["model"] = route.model
+        else:
+            metadata["model_provider"] = "legacy_fallback"
+            metadata["model"] = "core.session"
+        metadata["answer_source"] = self._last_answer_source
         metadata["guardrail_applied"] = bool(self._last_answer_guardrail)
+        requested_runtime = getattr(self._reasoning_runtime, "provider", None)
+        metadata["requested_runtime"] = requested_runtime or "trusted"
+        metadata["runtime_fallback"] = bool(self._runtime_fallback_reason)
+        metadata["runtime_fallback_reason"] = self._runtime_fallback_reason
         return metadata
 
     def _langgraph_get_response(self, user_input: str) -> str:

@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""LangGraph astream_events → SSE 事件转换器。
+"""可信 Agent 回复 → SSE 事件转换器。
 
-将 LangGraph 的流式事件映射为 Vercel AI SDK 兼容的 SSE stream parts。
+流式与同步端点共用同一个 Agent 编排入口，避免绕过门店事实、
+确定性财务回答、多轮领域上下文和回答守卫。
 """
 
 from __future__ import annotations
 
 import json
 import logging
-from typing import Any, AsyncGenerator, Dict
+import asyncio
+from typing import Any, AsyncGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -19,77 +21,60 @@ async def stream_agent_response(
     session_id: str,
     project_id: str = "",
 ) -> AsyncGenerator[str, None]:
-    """流式执行 Agent 并生成 SSE 事件。
+    """通过统一可信 Agent 链生成 SSE 事件。
 
     Yields:
         SSE 格式的字符串，每行一个事件。
-        事件类型: text-delta, tool-input-start, tool-output-available,
-                  reasoning-delta, finish
+        事件类型: text-delta, finish
     """
-    from core.readiness import build_readiness_overlay
-    from graph.agent import build_agent
-    from graph.state import get_state
-    from langchain_core.messages import HumanMessage
+    from server.deps import get_agent
+    from models.agent_sessions import AgentSessionStore
 
-    agent = build_agent()
-    config = {"configurable": {"thread_id": session_id}}
-    state = get_state(session_id)
-
-    messages = list(state.messages) if state.messages else []
-    messages.append(HumanMessage(content=user_message))
+    resolved_project = project_id or "xinyu-hengtai-dakou"
+    store = AgentSessionStore.for_project(resolved_project)
+    store.ensure_session(resolved_project, session_id, runtime="stream")
+    store.append_message(session_id, "user", user_message)
 
     yield _sse("start-step", {})
 
-    emitted_text = ""
-
+    rendered_response = ""
+    metadata: dict[str, Any] = {}
     try:
-        async for event in agent.astream_events(
-            {"messages": messages, "profile": state.profile},
-            config=config,
-            version="v2",
-        ):
-            kind = event.get("event", "")
+        agent = get_agent(resolved_project, session_id)
+        response = await asyncio.wait_for(
+            asyncio.to_thread(agent.get_response, user_message),
+            timeout=90,
+        )
+        rendered_response = str(response)
+        metadata = agent.get_run_metadata()
+        for chunk in _chunk_text(str(response)):
+            yield _sse("text-delta", chunk)
+    except asyncio.TimeoutError:
+        logger.warning("Agent stream timed out: session=%s", session_id)
+        rendered_response = "处理超过 90 秒，请简化问题后重试。"
+        metadata = {"error": "timeout"}
+        yield _sse("text-delta", rendered_response)
+    except Exception:
+        logger.exception("Agent stream failed: session=%s", session_id)
+        rendered_response = "服务暂时不可用，请稍后重试。"
+        metadata = {"error": "runtime_failure"}
+        yield _sse("text-delta", rendered_response)
 
-            if kind == "on_chat_model_stream":
-                chunk = event.get("data", {}).get("chunk", None)
-                if chunk and hasattr(chunk, "content") and chunk.content:
-                    text = chunk.content
-                    if isinstance(text, str) and text:
-                        emitted_text += text
-                        yield _sse("text-delta", text)
-
-                if chunk and hasattr(chunk, "tool_call_chunks") and chunk.tool_call_chunks:
-                    for tc in chunk.tool_call_chunks:
-                        if tc.get("name"):
-                            yield _sse("tool-input-start", {
-                                "toolName": tc["name"],
-                                "toolCallId": tc.get("id", ""),
-                            })
-                        if tc.get("args"):
-                            yield _sse("tool-input-delta", {
-                                "toolCallId": tc.get("id", ""),
-                                "argsTextDelta": tc["args"],
-                            })
-
-            elif kind == "on_tool_end":
-                output = event.get("data", {}).get("output", "")
-                tool_name = event.get("name", "unknown")
-                yield _sse("tool-output-available", {
-                    "toolCallId": event.get("run_id", ""),
-                    "toolName": tool_name,
-                    "output": str(output)[:2000],
-                })
-
-    except Exception as exc:
-        logger.error("Agent stream error: %s", exc)
-        yield _sse("text-delta", f"\n\n抱歉，处理时出现问题：{exc}")
-
-    overlay = build_readiness_overlay(user_message)
-    if overlay and "项目审查补齐：新手加盟最低闭环" not in emitted_text:
-        yield _sse("text-delta", "\n\n---\n\n" + overlay)
+    store.append_message(
+        session_id,
+        "assistant",
+        rendered_response,
+        status="failed" if metadata.get("error") else "complete",
+        metadata=metadata,
+    )
 
     yield _sse("finish-step", {})
     yield _sse("finish", {})
+
+
+def _chunk_text(text: str, size: int = 96) -> list[str]:
+    """Split a trusted complete answer into stable SSE text deltas."""
+    return [text[index:index + size] for index in range(0, len(text), size)] or [""]
 
 
 def _sse(event_type: str, data: Any) -> str:

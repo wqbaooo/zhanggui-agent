@@ -66,6 +66,9 @@ export default function ChannelsPage() {
 
   // 数据来源检测：有真实 delivery_revenue 说明有外卖数据源
   const hasRealDelivery = entries.some((e) => (e.delivery_revenue || 0) > 0);
+  const deliveryUnknown = entries.some((e) =>
+    (e.unknown_fields || []).some((field) => ["delivery_revenue", "delivery_orders", "takeout_orders"].includes(field)),
+  );
 
   const hasData = entries.length > 0;
 
@@ -159,11 +162,11 @@ export default function ChannelsPage() {
           <>
           {/* KPI */}
           <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
-            <Kpi label="外卖占比" value={`${(deliveryRatio * 100).toFixed(0)}%`} sub={`${deliveryOrders}单`} tone={deliveryRatio > 0.45 ? "watch" : "good"} />
-            <Kpi label="外卖营收" value={`¥${(deliveryRev / 1000).toFixed(1)}k`} sub={hasRealDelivery ? "真实数据" : "估算"} tone={hasRealDelivery ? "good" : "info"} />
-            <Kpi label="到手利润" value={`¥${(deliveryProfit / 1000).toFixed(1)}k`} sub={deliveryRev > 0 ? `${(deliveryProfit / deliveryRev * 100).toFixed(0)}%` : "—"} tone={deliveryProfit > 0 ? "good" : "risk"} />
-            <Kpi label="平台费率" value={`${deliveryRev > 0 ? (platformFee / deliveryRev * 100).toFixed(1) : 0}%`} sub="佣金+服务费" tone={platformFee / Math.max(deliveryRev, 1) > 0.20 ? "risk" : "watch"} />
-            <Kpi label="包装成本" value={`¥${packagingCost.toFixed(0)}`} sub={`${deliveryOrders > 0 ? (packagingCost / deliveryOrders).toFixed(1) : 0}/单`} tone="info" />
+            <Kpi label="外卖占比" value={deliveryUnknown ? "待补" : `${(deliveryRatio * 100).toFixed(0)}%`} sub={deliveryUnknown ? "渠道拆分未知" : `${deliveryOrders}单`} tone="info" />
+            <Kpi label="外卖营收" value={deliveryUnknown ? "待补" : `¥${(deliveryRev / 1000).toFixed(1)}k`} sub={deliveryUnknown ? "不要按 0 解释" : hasRealDelivery ? "真实数据" : "估算"} tone={deliveryUnknown ? "info" : hasRealDelivery ? "good" : "info"} />
+            <Kpi label="到手利润" value={deliveryUnknown ? "待补" : `¥${(deliveryProfit / 1000).toFixed(1)}k`} sub={deliveryUnknown ? "成本与渠道未齐" : deliveryRev > 0 ? `${(deliveryProfit / deliveryRev * 100).toFixed(0)}%` : "—"} tone={deliveryUnknown ? "info" : deliveryProfit > 0 ? "good" : "risk"} />
+            <Kpi label="平台费率" value={deliveryUnknown ? "待补" : `${deliveryRev > 0 ? (platformFee / deliveryRev * 100).toFixed(1) : 0}%`} sub="佣金+服务费" tone={deliveryUnknown ? "info" : platformFee / Math.max(deliveryRev, 1) > 0.20 ? "risk" : "watch"} />
+            <Kpi label="包装成本" value={deliveryUnknown ? "待补" : `¥${packagingCost.toFixed(0)}`} sub={deliveryUnknown ? "支出未录入" : `${deliveryOrders > 0 ? (packagingCost / deliveryOrders).toFixed(1) : 0}/单`} tone="info" />
           </div>
 
           {/* 渠道利润对比 */}

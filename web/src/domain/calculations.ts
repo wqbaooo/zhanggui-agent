@@ -490,3 +490,292 @@ export function calculateBreakevenAnalysis(model: InvestmentModel) {
   const r = calculateInvestment(model);
   return { dailyRevenue: r.breakevenDailyRevenue, dailyOrders: r.breakevenDailyOrders, monthlyRevenue: r.breakevenDailyRevenue * model.monthlyOperatingDays, contributionMargin: model.grossMarginRate - model.platformCommissionRate - model.lossRate - model.discountRate, safetyMargin: model.averageDailyOrders * model.averageOrderValue > r.breakevenDailyRevenue ? (model.averageDailyOrders * model.averageOrderValue - r.breakevenDailyRevenue) / (model.averageDailyOrders * model.averageOrderValue) : 0 };
 }
+
+/* ─── 异常检测 ─── */
+
+export interface AnomalyItem {
+  type: "revenue" | "food_cost_rate" | "refund" | "orders" | "labor";
+  level: "warning" | "danger";
+  title: string;
+  description: string;
+  date: string;
+  value: number;
+  expected: number;
+  deviation: number;
+}
+
+export function detectAnomalies(
+  entries: Array<{
+    date: string;
+    revenue: number;
+    actual_revenue?: number;
+    food_cost: number;
+    labor: number;
+    orders: number;
+    refund_amount?: number;
+    refund_orders?: number;
+    revenue_basis?: "net_settlement" | "gross_sales";
+  }>,
+): AnomalyItem[] {
+  if (entries.length < 3) return [];
+
+  const sorted = [...entries].sort((a, b) => a.date.localeCompare(b.date));
+  const anomalies: AnomalyItem[] = [];
+
+  const getRevenue = (e: typeof sorted[0]) => e.actual_revenue ?? e.revenue;
+  const getFoodCostRate = (e: typeof sorted[0]) => {
+    const rev = getRevenue(e);
+    return rev > 0 ? e.food_cost / rev : 0;
+  };
+
+  const avgRevenue = sorted.reduce((s, e) => s + getRevenue(e), 0) / sorted.length;
+  const avgFoodRate = sorted.reduce((s, e) => s + getFoodCostRate(e), 0) / sorted.length;
+  const avgOrders = sorted.reduce((s, e) => s + e.orders, 0) / sorted.length;
+
+  for (const e of sorted) {
+    const rev = getRevenue(e);
+    const revDev = avgRevenue > 0 ? (rev - avgRevenue) / avgRevenue : 0;
+    if (Math.abs(revDev) > 0.3) {
+      anomalies.push({
+        type: "revenue",
+        level: revDev < -0.4 ? "danger" : "warning",
+        title: revDev < 0 ? "营收异常偏低" : "营收异常偏高",
+        description: `当日实收 ¥${Math.round(rev).toLocaleString()}，${Math.abs(revDev * 100).toFixed(0)}%偏离均值`,
+        date: e.date,
+        value: Math.round(rev),
+        expected: Math.round(avgRevenue),
+        deviation: Math.round(revDev * 10000) / 100,
+      });
+    }
+
+    const rate = getFoodCostRate(e);
+    const rateDev = avgFoodRate > 0 ? (rate - avgFoodRate) / avgFoodRate : 0;
+    if (rate > 0 && Math.abs(rateDev) > 0.15) {
+      anomalies.push({
+        type: "food_cost_rate",
+        level: rateDev > 0.25 ? "danger" : "warning",
+        title: rateDev > 0 ? "食材成本率偏高" : "食材成本率偏低",
+        description: `当日食材率 ${(rate * 100).toFixed(1)}%，${Math.abs(rateDev * 100).toFixed(0)}%偏离均值`,
+        date: e.date,
+        value: Math.round(rate * 10000) / 10000,
+        expected: Math.round(avgFoodRate * 10000) / 10000,
+        deviation: Math.round(rateDev * 10000) / 100,
+      });
+    }
+
+    const orderDev = avgOrders > 0 ? (e.orders - avgOrders) / avgOrders : 0;
+    if (Math.abs(orderDev) > 0.3) {
+      anomalies.push({
+        type: "orders",
+        level: orderDev < -0.4 ? "danger" : "warning",
+        title: orderDev < 0 ? "订单数异常偏少" : "订单数异常偏多",
+        description: `当日 ${e.orders} 单，${Math.abs(orderDev * 100).toFixed(0)}%偏离均值`,
+        date: e.date,
+        value: e.orders,
+        expected: Math.round(avgOrders),
+        deviation: Math.round(orderDev * 10000) / 100,
+      });
+    }
+
+    const refundAmount = e.refund_amount || 0;
+    if (refundAmount > 0 && rev > 0 && refundAmount / rev > 0.05) {
+      anomalies.push({
+        type: "refund",
+        level: refundAmount / rev > 0.1 ? "danger" : "warning",
+        title: "退款金额偏高",
+        description: `当日退款 ¥${refundAmount.toFixed(0)}，占营收 ${(refundAmount / rev * 100).toFixed(1)}%`,
+        date: e.date,
+        value: refundAmount,
+        expected: 0,
+        deviation: refundAmount / rev,
+      });
+    }
+  }
+
+  return anomalies.sort((a, b) => {
+    const levelOrder = { danger: 0, warning: 1 };
+    if (levelOrder[a.level] !== levelOrder[b.level]) return levelOrder[a.level] - levelOrder[b.level];
+    return b.date.localeCompare(a.date);
+  });
+}
+
+/* ─── 利润表（损益表） ─── */
+
+export interface IncomeStatementItem {
+  name: string;
+  amount: number;
+  rate: number;
+  children?: IncomeStatementItem[];
+  indent?: number;
+}
+
+export interface IncomeStatement {
+  revenue: number;
+  variableCosts: IncomeStatementItem[];
+  totalVariableCost: number;
+  grossProfit: number;
+  grossProfitRate: number;
+  fixedCosts: IncomeStatementItem[];
+  totalFixedCost: number;
+  netProfit: number;
+  netProfitRate: number;
+}
+
+export function calcIncomeStatement(
+  entries: Array<{
+    food_cost: number; packaging_cost?: number; labor: number;
+    rent_allocated: number; utility: number; other_cost: number;
+    platform_fee: number; marketing_cost: number; inventory_loss: number;
+    revenue: number; actual_revenue?: number; revenue_basis?: "net_settlement" | "gross_sales";
+  }>,
+): IncomeStatement | null {
+  if (entries.length === 0) return null;
+
+  const totalRevenue = entries.reduce((s, e) => s + (e.actual_revenue ?? e.revenue), 0);
+  const isNetSettlement = entries.some((e) => e.revenue_basis === "net_settlement" || (e.actual_revenue ?? 0) > 0);
+
+  const foodCost = entries.reduce((s, e) => s + e.food_cost, 0);
+  const packagingCost = entries.reduce((s, e) => s + (e.packaging_cost || 0), 0);
+  const platformFee = isNetSettlement ? 0 : entries.reduce((s, e) => s + e.platform_fee, 0);
+  const marketingCost = isNetSettlement ? 0 : entries.reduce((s, e) => s + e.marketing_cost, 0);
+  const inventoryLoss = entries.reduce((s, e) => s + e.inventory_loss, 0);
+  const otherVariable = entries.reduce((s, e) => s + e.other_cost, 0);
+
+  const laborCost = entries.reduce((s, e) => s + e.labor, 0);
+  const rentCost = entries.reduce((s, e) => s + e.rent_allocated, 0);
+  const utilityCost = entries.reduce((s, e) => s + e.utility, 0);
+
+  const variableCosts: IncomeStatementItem[] = [
+    { name: "食材成本", amount: Math.round(foodCost), rate: totalRevenue > 0 ? foodCost / totalRevenue : 0 },
+    { name: "包装成本", amount: Math.round(packagingCost), rate: totalRevenue > 0 ? packagingCost / totalRevenue : 0 },
+  ];
+  if (platformFee > 0) {
+    variableCosts.push({ name: "平台费用", amount: Math.round(platformFee), rate: totalRevenue > 0 ? platformFee / totalRevenue : 0 });
+  }
+  if (marketingCost > 0) {
+    variableCosts.push({ name: "营销费用", amount: Math.round(marketingCost), rate: totalRevenue > 0 ? marketingCost / totalRevenue : 0 });
+  }
+  if (inventoryLoss > 0) {
+    variableCosts.push({ name: "损耗报损", amount: Math.round(inventoryLoss), rate: totalRevenue > 0 ? inventoryLoss / totalRevenue : 0 });
+  }
+  if (otherVariable > 0) {
+    variableCosts.push({ name: "其他变动成本", amount: Math.round(otherVariable), rate: totalRevenue > 0 ? otherVariable / totalRevenue : 0 });
+  }
+
+  const totalVariableCost = variableCosts.reduce((s, c) => s + c.amount, 0);
+  const grossProfit = totalRevenue - totalVariableCost;
+  const grossProfitRate = totalRevenue > 0 ? grossProfit / totalRevenue : 0;
+
+  const fixedCosts: IncomeStatementItem[] = [
+    { name: "人工成本", amount: Math.round(laborCost), rate: totalRevenue > 0 ? laborCost / totalRevenue : 0 },
+    { name: "房租成本", amount: Math.round(rentCost), rate: totalRevenue > 0 ? rentCost / totalRevenue : 0 },
+    { name: "水电能耗", amount: Math.round(utilityCost), rate: totalRevenue > 0 ? utilityCost / totalRevenue : 0 },
+  ];
+
+  const totalFixedCost = fixedCosts.reduce((s, c) => s + c.amount, 0);
+  const netProfit = grossProfit - totalFixedCost;
+  const netProfitRate = totalRevenue > 0 ? netProfit / totalRevenue : 0;
+
+  return {
+    revenue: Math.round(totalRevenue),
+    variableCosts,
+    totalVariableCost: Math.round(totalVariableCost),
+    grossProfit: Math.round(grossProfit),
+    grossProfitRate: Math.round(grossProfitRate * 10000) / 10000,
+    fixedCosts,
+    totalFixedCost: Math.round(totalFixedCost),
+    netProfit: Math.round(netProfit),
+    netProfitRate: Math.round(netProfitRate * 10000) / 10000,
+  };
+}
+
+/* ─── 真实经营财务指标（基于 DailyOperationEntry，非假设模型） ─── */
+
+export interface OperatingFinanceResult {
+  totalRevenue: number;
+  totalVariableCost: number;
+  totalFixedCost: number;
+  totalCost: number;
+  netProfit: number;
+  grossMarginRate: number;
+  netProfitRate: number;
+  dailyRevenue: number;
+  dailyNetProfit: number;
+  estimatedMonthlyNetProfit: number;
+  paybackMonths: number | null;
+  paybackDate: string | null;
+  safetyMarginRate: number | null;
+  dailyBreakeven: number | null;
+  days: number;
+  dataSufficient: boolean;
+  confidence: "low" | "medium" | "high";
+}
+
+export function calcOperatingFinance(
+  entries: Array<{
+    food_cost: number; packaging_cost?: number; labor: number;
+    rent_allocated: number; utility: number; other_cost: number;
+    platform_fee: number; marketing_cost: number; inventory_loss: number;
+    revenue: number; actual_revenue?: number; revenue_basis?: "net_settlement" | "gross_sales";
+  }>,
+  days: number,
+  transferFee: number,
+): OperatingFinanceResult | null {
+  if (entries.length === 0 || days <= 0) return null;
+
+  const totalRevenue = entries.reduce((s, e) => s + (e.actual_revenue ?? e.revenue), 0);
+  const totalCost = entries.reduce((s, e) => s + calcEntryTotalCost(e), 0);
+  const totalFixedCost = entries.reduce((s, e) => s + e.labor + e.rent_allocated + e.utility, 0);
+  const totalVariableCost = entries.reduce((s, e) => {
+    const isNetSettlement = e.revenue_basis === "net_settlement" || (e.actual_revenue ?? 0) > 0;
+    return s + e.food_cost + (e.packaging_cost || 0) + e.inventory_loss + e.other_cost
+      + (isNetSettlement ? 0 : e.platform_fee + e.marketing_cost);
+  }, 0);
+
+  const netProfit = totalRevenue - totalCost;
+  const grossMarginRate = totalRevenue > 0 ? (totalRevenue - totalVariableCost) / totalRevenue : 0;
+  const netProfitRate = totalRevenue > 0 ? netProfit / totalRevenue : 0;
+  const dailyRevenue = totalRevenue / days;
+  const dailyNetProfit = netProfit / days;
+  const estimatedMonthlyNetProfit = dailyNetProfit * 30;
+
+  const breakEven = calcBreakEvenAnalysis(entries, days);
+  const dailyBreakeven = breakEven?.daily_breakeven_revenue ?? null;
+  const safetyMarginRate = (dailyBreakeven !== null && dailyBreakeven > 0 && dailyRevenue > dailyBreakeven)
+    ? (dailyRevenue - dailyBreakeven) / dailyBreakeven
+    : null;
+
+  const paybackMonths = (estimatedMonthlyNetProfit > 0 && transferFee > 0)
+    ? transferFee / estimatedMonthlyNetProfit
+    : null;
+
+  let paybackDate: string | null = null;
+  if (paybackMonths !== null) {
+    const date = new Date();
+    date.setMonth(date.getMonth() + Math.ceil(paybackMonths));
+    paybackDate = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+  }
+
+  const dataSufficient = days >= 14;
+  const confidence: "low" | "medium" | "high" = days >= 30 ? "high" : days >= 14 ? "medium" : "low";
+
+  return {
+    totalRevenue: Math.round(totalRevenue),
+    totalVariableCost: Math.round(totalVariableCost),
+    totalFixedCost: Math.round(totalFixedCost),
+    totalCost: Math.round(totalCost),
+    netProfit: Math.round(netProfit),
+    grossMarginRate: Math.round(grossMarginRate * 10000) / 10000,
+    netProfitRate: Math.round(netProfitRate * 10000) / 10000,
+    dailyRevenue: Math.round(dailyRevenue),
+    dailyNetProfit: Math.round(dailyNetProfit),
+    estimatedMonthlyNetProfit: Math.round(estimatedMonthlyNetProfit),
+    paybackMonths: paybackMonths !== null ? Math.round(paybackMonths * 10) / 10 : null,
+    paybackDate,
+    safetyMarginRate: safetyMarginRate !== null ? Math.round(safetyMarginRate * 10000) / 10000 : null,
+    dailyBreakeven,
+    days,
+    dataSufficient,
+    confidence,
+  };
+}

@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { motion } from "framer-motion";
+import { useSearchParams } from "next/navigation";
 import {
   ArrowLeftRight,
+  BarChart3,
   Boxes,
   CalendarCheck,
   Check,
@@ -12,6 +14,7 @@ import {
   ClipboardList,
   CookingPot,
   History,
+  FileText,
   PackageCheck,
   Printer,
   RefreshCw,
@@ -23,9 +26,11 @@ import {
   DEFAULT_PROJECT_ID,
   createInventoryCount,
   createInventoryTransfer,
-  createInventoryUsage,
+  replaceInventoryUsage,
+  createInventoryWaste,
   createProductionBatch,
   getFirstStageInventory,
+  getForecast,
   getInventoryCounts,
   getInventoryEvents,
   getInventorySummary,
@@ -34,8 +39,10 @@ import {
   getPurchases,
   getProductionBatches,
   getSkus,
+  getStoreOperatingFacts,
   receivePurchase,
   type FirstStageInventory,
+  type ForecastItem,
   type InventoryCountRecord,
   type InventoryEvent,
   type InventorySummary,
@@ -44,15 +51,15 @@ import {
   type PurchaseRecord,
   type ProductionBatch,
   type SkuItem,
+  type StoreOperatingFactsV1,
 } from "@/lib/api";
 import { DataSourceTag } from "@/components/ui/data-source-tag";
 import { StatusTag } from "@/components/ui/status-tag";
 
-type InventoryTab = "overview" | "production" | "usage" | "count" | "flow";
+type InventoryTab = "overview" | "usage" | "count" | "flow" | "analysis" | "production" | "forms";
 type PrintSheet = "daily" | "weekly" | null;
 type LocationKey = "store" | "warehouse" | "freezer" | "unallocated";
 
-const CORE_USAGE_NAMES = ["预拌粉", "章鱼烧粉", "调料包", "章鱼粒", "章鱼花", "原味酱", "沙拉酱", "木鱼花", "肉松"];
 const LOCATION_LABELS: Record<LocationKey, string> = { store: "门店", warehouse: "仓库", freezer: "大冰箱", unallocated: "待分配" };
 const EVENT_LABELS: Record<string, string> = {
   receipt: "收货",
@@ -60,8 +67,13 @@ const EVENT_LABELS: Record<string, string> = {
   usage: "开包领用",
   count_adjustment: "盘点校准",
   production_issue: "生产领料",
+  waste: "报损",
 };
 const REAL_FIXTURE_DATE = "2026-07-04";
+const DAILY_USAGE_PRIORITY = [
+  "章鱼预拌粉", "调料包", "原味酱", "香甜酱", "章鱼粒", "章鱼花", "木鱼花", "玉米粒", "海苔肉松",
+  "章鱼烧盒子（6粒）", "章鱼烧盒子（4粒）", "全家福打包盒", "全家福打包盒塑料盖",
+];
 
 function shanghaiDate() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date());
@@ -82,11 +94,6 @@ function displayNumber(value: number) {
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
-function isCoreUsageSku(sku: SkuItem) {
-  const name = `${sku.name} ${sku.hq_name || ""}`;
-  return sku.tracking_mode === "open_pack" || CORE_USAGE_NAMES.some((keyword) => name.includes(keyword));
-}
-
 function skuImage(sku: SkuItem) {
   return sku.hq_image || "";
 }
@@ -101,6 +108,8 @@ export default function InventoryPage() {
   const [firstStageInventory, setFirstStageInventory] = useState<FirstStageInventory | null>(null);
   const [purchases, setPurchases] = useState<PurchaseRecord[]>([]);
   const [productionBatches, setProductionBatches] = useState<ProductionBatch[]>([]);
+  const [operatingFacts, setOperatingFacts] = useState<StoreOperatingFactsV1 | null>(null);
+  const [forecast, setForecast] = useState<ForecastItem[]>([]);
   const [activeTab, setActiveTab] = useState<InventoryTab>("overview");
   const [category, setCategory] = useState("全部");
   const [selectedSkuId, setSelectedSkuId] = useState("");
@@ -112,16 +121,18 @@ export default function InventoryPage() {
   const fetchData = useCallback(async () => {
     setLoadError(null);
     try {
-      const [skuRes, summaryRes, countRes, usageRes, eventRes, varianceRes, purchaseRes, productionRes, firstStageRes] = await Promise.all([
+      const [skuRes, summaryRes, countRes, usageRes, eventRes, varianceRes, purchaseRes, productionRes, firstStageRes, operatingFactRes, forecastRes] = await Promise.all([
         getSkus(DEFAULT_PROJECT_ID),
         getInventorySummary(DEFAULT_PROJECT_ID),
         getInventoryCounts(DEFAULT_PROJECT_ID, 20),
         getInventoryUsageLogs(DEFAULT_PROJECT_ID, 31),
         getInventoryEvents(DEFAULT_PROJECT_ID, 60),
         getInventoryVariance(DEFAULT_PROJECT_ID, 12),
-        getPurchases(DEFAULT_PROJECT_ID, 12),
+        getPurchases(DEFAULT_PROJECT_ID, 50),
         getProductionBatches(DEFAULT_PROJECT_ID, 30),
         getFirstStageInventory(DEFAULT_PROJECT_ID, REAL_FIXTURE_DATE),
+        getStoreOperatingFacts(DEFAULT_PROJECT_ID),
+        getForecast(DEFAULT_PROJECT_ID),
       ]);
       setSkus(skuRes.skus || []);
       setSummary(summaryRes);
@@ -132,7 +143,14 @@ export default function InventoryPage() {
       setFirstStageInventory(firstStageRes);
       setPurchases(purchaseRes.purchases || []);
       setProductionBatches(productionRes.batches || []);
-      if (!selectedSkuId && skuRes.skus?.[0]) setSelectedSkuId(skuRes.skus[0].id);
+      setOperatingFacts(operatingFactRes);
+      setForecast(forecastRes.forecast || []);
+      if (!selectedSkuId) {
+        const firstInventorySku = skuRes.skus?.find(
+          (sku) => sku.active !== false && sku.asset_class !== "equipment" && sku.tracking_mode !== "asset_registry",
+        );
+        if (firstInventorySku) setSelectedSkuId(firstInventorySku.id);
+      }
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : "库存数据加载失败");
     }
@@ -143,13 +161,24 @@ export default function InventoryPage() {
   }, [fetchData]);
 
   const activeSkus = useMemo(() => skus.filter((sku) => sku.active !== false), [skus]);
-  const categories = useMemo(() => ["全部", ...Array.from(new Set(activeSkus.map((sku) => sku.category)))], [activeSkus]);
-  const filteredSkus = useMemo(
-    () => category === "全部" ? activeSkus : activeSkus.filter((sku) => sku.category === category),
-    [activeSkus, category],
+  const inventorySkus = useMemo(() => activeSkus
+    .filter((sku) => sku.asset_class !== "equipment" && sku.tracking_mode !== "asset_registry")
+    .sort((left, right) => {
+      const leftIndex = DAILY_USAGE_PRIORITY.indexOf(left.name);
+      const rightIndex = DAILY_USAGE_PRIORITY.indexOf(right.name);
+      if (leftIndex >= 0 || rightIndex >= 0) return (leftIndex < 0 ? 999 : leftIndex) - (rightIndex < 0 ? 999 : rightIndex);
+      return left.category.localeCompare(right.category, "zh-CN") || left.name.localeCompare(right.name, "zh-CN");
+    }), [activeSkus]);
+  const dailyUsageSkus = useMemo(
+    () => inventorySkus.filter((sku) => sku.tracking_mode === "daily_usage"),
+    [inventorySkus],
   );
-  const coreUsageSkus = useMemo(() => activeSkus.filter(isCoreUsageSku), [activeSkus]);
-  const selectedSku = activeSkus.find((sku) => sku.id === selectedSkuId) || activeSkus[0];
+  const categories = useMemo(() => ["全部", ...Array.from(new Set(inventorySkus.map((sku) => sku.category)))], [inventorySkus]);
+  const filteredSkus = useMemo(
+    () => category === "全部" ? inventorySkus : inventorySkus.filter((sku) => sku.category === category),
+    [inventorySkus, category],
+  );
+  const selectedSku = inventorySkus.find((sku) => sku.id === selectedSkuId) || inventorySkus[0];
 
   async function afterSave(message: string) {
     setNotice(message);
@@ -172,6 +201,7 @@ export default function InventoryPage() {
       <style jsx global>{`
         .inventory-print { display: none; }
         @media print {
+          @page { size: A4 landscape; margin: 8mm; }
           body * { visibility: hidden !important; }
           .inventory-print, .inventory-print * { visibility: visible !important; }
           .inventory-print {
@@ -183,8 +213,8 @@ export default function InventoryPage() {
             background: #fff;
             padding: 20px;
           }
-          .inventory-print table { width: 100%; border-collapse: collapse; font-size: 10px; }
-          .inventory-print th, .inventory-print td { border: 1px solid #777; padding: 5px; height: 25px; }
+          .inventory-print table { width: 100%; border-collapse: collapse; font-size: 8px; }
+          .inventory-print th, .inventory-print td { border: 1px solid #777; padding: 3px; height: 18px; }
         }
       `}</style>
 
@@ -204,14 +234,15 @@ export default function InventoryPage() {
           </motion.div>
         )}
 
-        <InventoryHeader summary={summary} onPrint={print} />
+        <InventoryHeader summary={summary} onPrint={print} compact={activeTab !== "overview"} />
 
-        {firstStageInventory && (
-          <section className="rounded-2xl border border-stone-200 bg-white/80 p-4 shadow-sm">
+        {firstStageInventory && activeTab === "analysis" && (
+          <PendingSection agentKey="warehouse">
+            <section id="pending" className="rounded-2xl border border-stone-200 bg-white/80 p-4 shadow-sm">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <p className="text-sm font-bold text-stone-950">第一阶段关键库存</p>
-                <p className="mt-1 text-xs leading-5 text-stone-500">只盯章鱼粒、粉、酱料、木鱼花、海苔、沙拉酱和包装耗材，先保证明天能卖。</p>
+                <p className="text-sm font-bold text-stone-950">接店基线复核</p>
+                <p className="mt-1 text-xs leading-5 text-stone-500">这是截至 {firstStageInventory.date} 的历史快照，仅用于对照首次盘存和补录 BOM，不代表今日实时库存。</p>
               </div>
               <span className="rounded-full bg-stone-100 px-3 py-1 text-xs font-medium text-stone-600">最近盘点 {firstStageInventory.last_count_date || firstStageInventory.date}</span>
             </div>
@@ -275,15 +306,18 @@ export default function InventoryPage() {
               </div>
             )}
           </section>
+          </PendingSection>
         )}
 
-        <nav aria-label="库存视图" className="flex gap-1 overflow-x-auto rounded-xl border border-stone-200 bg-white/70 p-1">
+        <nav aria-label="库存视图" className="sticky top-14 z-20 flex gap-1 overflow-x-auto rounded-xl border border-stone-200 bg-white/95 p-1 shadow-sm backdrop-blur">
           {([
             ["overview", "库存总览", Boxes],
+            ["usage", "每日使用", ClipboardList],
+            ["count", "阶段盘点", CalendarCheck],
+            ["flow", "进货与流水", ArrowLeftRight],
+            ["analysis", "分析预警", BarChart3],
             ["production", "生产批次", CookingPot],
-            ["usage", "每日开包", ClipboardList],
-            ["count", "周期盘点", CalendarCheck],
-            ["flow", "调拨流水", ArrowLeftRight],
+            ["forms", "门店表单", FileText],
           ] as const).map(([id, label, Icon]) => (
             <button
               key={id}
@@ -314,16 +348,40 @@ export default function InventoryPage() {
 
         {activeTab === "usage" && (
           <UsagePanel
-            skus={coreUsageSkus}
+            skus={dailyUsageSkus}
+            allSkus={inventorySkus}
             logs={usageLogs}
             saving={saving}
-            onSubmit={async (items, notes) => {
+            onSubmit={async (date, items, notes) => {
               setSaving(true);
               try {
-                await createInventoryUsage({ date: shanghaiDate(), location: "store", items, notes });
-                await afterSave("今日开包台账已写入库存流水");
+                await replaceInventoryUsage({
+                  date,
+                  location: "operational",
+                  items,
+                  source: "paper_daily_usage",
+                  notes,
+                });
+                await afterSave(`${date} 的每日使用已覆盖保存，库存流水已同步`);
               } catch (error) {
                 setLoadError(error instanceof Error ? error.message : "开包台账保存失败");
+              } finally {
+                setSaving(false);
+              }
+            }}
+            onWaste={async (skuId, quantity, reason, notes) => {
+              setSaving(true);
+              try {
+                await createInventoryWaste({
+                  date: shanghaiDate(),
+                  location: "store",
+                  items: [{ sku_id: skuId, quantity }],
+                  reason,
+                  notes,
+                });
+                await afterSave("报损已扣减库存并写入流水");
+              } catch (error) {
+                setLoadError(error instanceof Error ? error.message : "报损登记失败");
               } finally {
                 setSaving(false);
               }
@@ -333,7 +391,7 @@ export default function InventoryPage() {
 
         {activeTab === "production" && (
           <ProductionPanel
-            skus={activeSkus}
+            skus={inventorySkus}
             batches={productionBatches}
             saving={saving}
             onSubmit={async (bucketCount, inputs, notes) => {
@@ -362,7 +420,7 @@ export default function InventoryPage() {
 
         {activeTab === "count" && (
           <CountPanel
-            skus={activeSkus}
+            skus={inventorySkus}
             counts={counts}
             variance={variance}
             saving={saving}
@@ -388,7 +446,7 @@ export default function InventoryPage() {
 
         {activeTab === "flow" && (
           <FlowPanel
-            skus={activeSkus}
+            skus={inventorySkus}
             events={events}
             purchases={purchases}
             saving={saving}
@@ -427,14 +485,99 @@ export default function InventoryPage() {
             }}
           />
         )}
+
+        {activeTab === "forms" && operatingFacts && (
+          <FormsPanel forms={operatingFacts.operational_forms} inventoryPolicy={operatingFacts.inventory_policy} />
+        )}
+
+        {activeTab === "analysis" && (
+          <AnalysisPanel forecast={forecast} summary={summary} />
+        )}
       </div>
 
-      <PrintTemplates type={printSheet} dailySkus={coreUsageSkus} allSkus={activeSkus} />
+      <PrintTemplates type={printSheet} dailySkus={inventorySkus} allSkus={inventorySkus} />
     </ModulePage>
   );
 }
 
-function InventoryHeader({ summary, onPrint }: { summary: InventorySummary | null; onPrint: (type: "daily" | "weekly") => void }) {
+function FormsPanel({ forms, inventoryPolicy }: { forms: StoreOperatingFactsV1["operational_forms"]; inventoryPolicy: StoreOperatingFactsV1["inventory_policy"] }) {
+  return <section className="space-y-4">
+    <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4">
+      <p className="text-xs font-semibold text-emerald-700">已按真实门店操作拆分</p>
+      <h2 className="mt-1 text-base font-bold text-emerald-950">每日记使用，阶段盘结余，进货单独记台账</h2>
+      <p className="mt-2 text-xs leading-5 text-emerald-800">{inventoryPolicy.employee_action} {inventoryPolicy.exception}</p>
+    </div>
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      {forms.map((form) => <article key={form.id} className="rounded-2xl border border-stone-200 bg-white/80 p-4">
+        <div className="flex items-start justify-between gap-3"><div><p className="text-sm font-bold text-stone-950">{form.name}</p><p className="mt-1 text-[11px] text-stone-500">填写频率：{form.frequency}</p></div><FileText className="h-4 w-4 shrink-0 text-octo-700" /></div>
+        <div className="mt-3 flex flex-wrap gap-1.5">{form.fields.map((field) => <span key={field} className="rounded-md bg-stone-100 px-2 py-1 text-[11px] text-stone-600">{field}</span>)}</div>
+      </article>)}
+    </div>
+    <div className="flex flex-wrap justify-end gap-2">
+      <a href="/downloads/商品档案_来源副本_2026-07-26.xlsx" download className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-stone-300 bg-white px-4 text-sm font-semibold text-stone-800">商品档案来源副本</a>
+      <a href="/downloads/大口章鱼烧_库存线下表格_2026-07-27.xlsx" download className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-stone-900 px-4 text-sm font-semibold text-white"><FileText className="h-4 w-4" />下载最新 Excel 线下表格</a>
+    </div>
+  </section>;
+}
+
+function AnalysisPanel({ forecast, summary }: { forecast: ForecastItem[]; summary: InventorySummary | null }) {
+  const actionable = forecast.filter((item) => item.action === "urgent" || item.action === "recommend");
+  const unknown = forecast.filter((item) => item.action === "not_enough_data");
+  const known = forecast.filter((item) => item.days_remaining != null);
+  const recommendedAmount = actionable.reduce((sum, item) => sum + (item.recommend_amount || 0), 0);
+  return (
+    <div className="space-y-4">
+      <section className="flex flex-col gap-3 rounded-2xl border border-stone-200 bg-white/85 p-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <p className="text-sm font-semibold text-stone-950">库存不是孤立模块</p>
+          <p className="mt-1 text-xs leading-5 text-stone-500">进货对应财务凭证，每日使用形成成本估算，商品毛利必须继续结合 BOM 与真实销量。</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <a href="/finance/profit" className="inline-flex min-h-10 items-center rounded-lg border border-stone-200 bg-white px-3 text-xs font-semibold text-stone-800 hover:bg-stone-50">去财务成本与利润</a>
+          <a href="/products" className="inline-flex min-h-10 items-center rounded-lg border border-stone-200 bg-white px-3 text-xs font-semibold text-stone-800 hover:bg-stone-50">去商品/BOM</a>
+          <a href="/finance/reports" className="inline-flex min-h-10 items-center rounded-lg border border-stone-200 bg-white px-3 text-xs font-semibold text-stone-800 hover:bg-stone-50">去凭证与报表</a>
+          <a href="/reports" className="inline-flex min-h-10 items-center rounded-lg bg-stone-900 px-3 text-xs font-semibold text-white">去经营周报月报</a>
+        </div>
+      </section>
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Metric label="可计算覆盖" value={`${known.length}/${forecast.length}`} hint="有连续使用记录的库存物料" icon={<BarChart3 className="h-5 w-5" />} />
+        <Metric label="需要采购" value={`${actionable.length} 项`} hint="由现有库存、日均使用和提前期计算" tone={actionable.length ? "warning" : "default"} icon={<PackageCheck className="h-5 w-5" />} />
+        <Metric label="建议采购金额" value={actionable.length ? `¥${recommendedAmount.toFixed(2)}` : "—"} hint={actionable.length ? "按当前单位成本估算" : "暂无可核验建议"} icon={<Boxes className="h-5 w-5" />} />
+        <Metric label="数据不足" value={`${unknown.length} 项`} hint="需继续录入每日使用和首次实盘" tone={unknown.length ? "warning" : "default"} icon={<ClipboardList className="h-5 w-5" />} />
+      </section>
+
+      <section className="overflow-hidden rounded-2xl border border-stone-200 bg-white/85">
+        <div className="flex flex-col gap-2 border-b border-stone-200 p-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-stone-950">补货预测与证据</h2>
+            <p className="mt-1 text-xs leading-5 text-stone-500">没有连续使用记录时只显示“数据不足”；系统不会用目录报价或单次进货间隔冒充消耗速度。</p>
+          </div>
+          <DataSourceTag sourceLabel="库存实盘 + 每日使用 + 采购提前期" confidence={summary?.data_status === "ready" ? "high" : "medium"} />
+        </div>
+        <div className="divide-y divide-stone-100">
+          {forecast.map((item) => (
+            <div key={item.sku_id} className="grid gap-3 px-4 py-3.5 md:grid-cols-[minmax(180px,1fr)_110px_110px_130px] md:items-center">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="truncate text-sm font-semibold text-stone-900">{item.name}</p>
+                  <StatusTag type={item.risk_level === "high" ? "danger" : item.risk_level === "medium" ? "warning" : item.risk_level === "unknown" ? "neutral" : "success"}>
+                    {item.action === "not_enough_data" ? "数据不足" : item.action === "urgent" ? "立即采购" : item.action === "recommend" ? "建议采购" : "库存正常"}
+                  </StatusTag>
+                </div>
+                <p className="mt-1 text-xs text-stone-500">门店 {displayNumber(item.store_stock)} · 仓库 {displayNumber(item.warehouse_stock)} · 待分配 {displayNumber(item.unallocated_stock)} {item.unit}</p>
+              </div>
+              <div><p className="text-[10px] text-stone-400">实测日均</p><p className="mt-0.5 text-sm font-semibold tabular-nums text-stone-800">{item.observed_daily_consumption > 0 ? `${displayNumber(item.observed_daily_consumption)}${item.unit}/天` : "—"}</p></div>
+              <div><p className="text-[10px] text-stone-400">可售天数</p><p className="mt-0.5 text-sm font-semibold tabular-nums text-stone-800">{item.days_remaining == null ? "—" : `${item.days_remaining} 天`}</p></div>
+              <div className="md:text-right"><p className="text-[10px] text-stone-400">建议采购</p><p className="mt-0.5 text-sm font-semibold tabular-nums text-stone-900">{item.recommend_qty == null ? "—" : `${displayNumber(item.recommend_qty)}${item.unit} · ¥${(item.recommend_amount || 0).toFixed(2)}`}</p></div>
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function InventoryHeader({ summary, onPrint, compact = false }: { summary: InventorySummary | null; onPrint: (type: "daily" | "weekly") => void; compact?: boolean }) {
   return (
     <section className="rounded-2xl border border-stone-200 bg-white/85 p-5 shadow-sm">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -446,27 +589,31 @@ function InventoryHeader({ summary, onPrint }: { summary: InventorySummary | nul
             </StatusTag>
           </div>
           <h1 className="mt-2 text-2xl font-bold tracking-tight text-stone-950">门店与仓库库存</h1>
-          <p className="mt-1 text-sm leading-6 text-stone-600">
-            真实收货、调拨、每日开包和周期实盘共同形成库存账。销售推算只做对照，不覆盖实盘。
-          </p>
+          {!compact && (
+            <p className="mt-1 text-sm leading-6 text-stone-600">
+              真实入库、位置调拨、每日物料使用和阶段实盘共同形成库存账。销售推算只做对照，不覆盖实盘。
+            </p>
+          )}
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
           <button onClick={() => onPrint("daily")} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 text-sm font-medium text-stone-700 hover:bg-stone-50">
-            <Printer className="h-4 w-4" />每日台账
+            <Printer className="h-4 w-4" />每日使用表
           </button>
           <button onClick={() => onPrint("weekly")} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-stone-900 px-3 text-sm font-medium text-white hover:bg-stone-800">
-            <Printer className="h-4 w-4" />周盘表
+            <Printer className="h-4 w-4" />阶段盘点表
           </button>
         </div>
       </div>
 
-      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Metric label="门店已分配SKU" value={`${summary?.allocated_skus ?? 0}`} hint={`共 ${summary?.sku_count ?? 0} 项`} icon={<Store className="h-5 w-5" />} />
-        <Metric label="待分配SKU" value={`${summary?.unallocated_skus ?? 0}`} hint="需要首次门店/仓库盘点" tone="warning" icon={<Boxes className="h-5 w-5" />} />
-        <Metric label="最近盘点" value="2026-07-04" hint="7/4 盘点表手写字段待确认" icon={<CalendarCheck className="h-5 w-5" />} />
-        <Metric label="库存账面金额" value="¥5040" hint="按最近采购价估算，盘点待确认" icon={<PackageCheck className="h-5 w-5" />} />
-      </div>
-      <div className="mt-3"><DataSourceTag sourceLabel="库存API与接店盘存" confidence={summary?.data_status === "ready" ? "high" : "medium"} /></div>
+      {!compact && <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <Metric label="库存物料" value={`${summary?.sku_count ?? 0} 项`} hint={`商品档案共 ${summary?.catalog_sku_count ?? 0} 项，设备 ${summary?.equipment_count ?? 0} 项`} icon={<Store className="h-5 w-5" />} />
+        <Metric label="盘点覆盖" value={`${summary?.counted_sku_count ?? 0}/${summary?.sku_count ?? 0}`} hint={summary?.data_status === "ready" ? "全部库存物料已有实盘基线" : "未覆盖的 SKU 仍属待校准"} tone={summary?.data_status === "ready" ? "default" : "warning"} icon={<Boxes className="h-5 w-5" />} />
+        <Metric label="最近盘点" value={summary?.last_count?.date || "尚未盘点"} hint={summary?.last_count ? `${summary.last_count.lines.length} 项 · ${LOCATION_LABELS[summary.last_count.location as LocationKey] || summary.last_count.location}` : "先建立首次实盘基线"} icon={<CalendarCheck className="h-5 w-5" />} />
+        <Metric label="库存账面金额" value={summary && summary.inventory_value > 0 ? `¥${summary.inventory_value.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : "待校准"} hint="实盘数量 × 当前单位成本；目录报价仅补缺" icon={<PackageCheck className="h-5 w-5" />} />
+        <Metric label="今日已用" value={`${summary?.today_usage_sku_count ?? 0} 项`} hint="按开封/领用整数次数记录" icon={<ClipboardList className="h-5 w-5" />} />
+        <Metric label="今日库存耗用成本" value={summary?.today_usage_cost ? `¥${summary.today_usage_cost.toFixed(2)}` : "—"} hint="移动加权单位成本估算，不等于已确认商品毛利" icon={<BarChart3 className="h-5 w-5" />} />
+      </div>}
+      {!compact && <div className="mt-3"><DataSourceTag sourceLabel="库存API与接店盘存" confidence={summary?.data_status === "ready" ? "high" : "medium"} /></div>}
     </section>
   );
 }
@@ -664,7 +811,7 @@ function AgentActions({ actions }: { actions: NonNullable<InventorySummary["acti
     <section className="rounded-2xl border border-stone-200 bg-stone-950 p-4 text-white">
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-orange-300">库存 Agent</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-orange-300">仓管</p>
           <h2 className="mt-1 text-base font-semibold">当前闭环</h2>
         </div>
         <span className="rounded-full bg-white/10 px-2.5 py-1 text-xs text-stone-300">{actions.length} 项</span>
@@ -723,76 +870,159 @@ function SkuDetail({ sku, events }: { sku: SkuItem; events: InventoryEvent[] }) 
   );
 }
 
-function UsagePanel({ skus, logs, saving, onSubmit }: {
+function UsagePanel({ skus, allSkus, logs, saving, onSubmit, onWaste }: {
   skus: SkuItem[];
+  allSkus: SkuItem[];
   logs: InventoryUsageLog[];
   saving: boolean;
-  onSubmit: (items: Array<{ sku_id: string; quantity: number; name: string; unit: string }>, notes: string) => Promise<void>;
+  onSubmit: (date: string, items: Array<{ sku_id: string; quantity: number; name: string; unit: string }>, notes: string) => Promise<void>;
+  onWaste: (skuId: string, quantity: number, reason: string, notes: string) => Promise<void>;
 }) {
+  const [date, setDate] = useState(shanghaiDate());
   const [values, setValues] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState("");
+  const [query, setQuery] = useState("");
+  const [wasteSkuId, setWasteSkuId] = useState("");
+  const [wasteQuantity, setWasteQuantity] = useState("");
+  const [wasteReason, setWasteReason] = useState("撒漏");
+  const [wasteNotes, setWasteNotes] = useState("");
+  const savedLog = logs.find((log) => log.date === date && log.source === "paper_daily_usage")
+    || logs.find((log) => log.date === date);
+  useEffect(() => {
+    const nextValues: Record<string, string> = {};
+    for (const item of savedLog?.items || []) {
+      if (item.quantity > 0) nextValues[item.sku_id] = String(item.quantity);
+    }
+    setValues(nextValues);
+    setNotes(savedLog?.notes || "");
+  }, [date, savedLog?.id, savedLog?.created_at]);
+  const visibleSkus = skus.filter((sku) => `${sku.name}${sku.hq_name || ""}${sku.category}`.toLowerCase().includes(query.trim().toLowerCase()));
+  const groupedVisibleSkus = [
+    { category: "常温食材", label: "常温食材", tone: "border-emerald-200 bg-emerald-50 text-emerald-900" },
+    { category: "冷链食材", label: "冷链食材", tone: "border-sky-200 bg-sky-50 text-sky-900" },
+    { category: "包装耗材", label: "营业包装", tone: "border-amber-200 bg-amber-50 text-amber-900" },
+  ].map((group) => ({ ...group, items: visibleSkus.filter((sku) => sku.category === group.category) }))
+    .filter((group) => group.items.length > 0);
   const items = skus
     .map((sku) => ({ sku_id: sku.id, quantity: Number(values[sku.id] || 0), name: sku.name, unit: unitOf(sku) }))
     .filter((item) => item.quantity > 0);
+  const usageCost = items.reduce((sum, item) => {
+    const sku = skus.find((candidate) => candidate.id === item.sku_id);
+    return sum + item.quantity * (sku?.unit_cost || 0);
+  }, 0);
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
       <section className="rounded-2xl border border-stone-200 bg-white/85 p-5">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-base font-semibold text-stone-950">今日核心物料开包</h2>
-            <p className="mt-1 text-sm text-stone-500">登记新领用或新拆封的整包数量；盒子、盖子和袋子不在这里登记。</p>
+            <h2 className="text-base font-semibold text-stone-950">今日物料使用</h2>
+            <p className="mt-1 text-sm text-stone-500">只填今天实际开封或领用的高频营业物料；低频耗材放在阶段盘点中管理。</p>
           </div>
-          <StatusTag type="neutral">{shanghaiDate()}</StatusTag>
+          <label className="text-xs font-medium text-stone-600">营业日期
+            <input type="date" max={shanghaiDate()} value={date} onChange={(event) => setDate(event.target.value)} className="mt-1 block h-10 rounded-lg border border-stone-200 bg-white px-3 text-sm text-stone-900" />
+          </label>
         </div>
-        <div className="mt-5 grid gap-3 sm:grid-cols-2">
-          {skus.map((sku) => (
-            <label key={sku.id} className="flex items-center gap-3 rounded-xl border border-stone-200 p-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-orange-50 text-orange-700"><PackageCheck className="h-5 w-5" /></div>
-              <div className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium text-stone-900">{sku.hq_name || sku.name}</span>
-                <span className="text-xs text-stone-500">单位：{unitOf(sku)}</span>
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+          <input value={query} onChange={(event) => setQuery(event.target.value)} aria-label="搜索物料" className="h-10 w-full rounded-lg border border-stone-200 px-3 text-sm outline-none focus:border-orange-500 sm:max-w-xs" placeholder="搜索品名或类别" />
+          <span className="text-xs text-stone-500">共 {skus.length} 项，已填写 {items.length} 项{savedLog ? " · 正在修改已保存记录" : ""}</span>
+        </div>
+        <div className="mt-3 max-h-[620px] space-y-3 overflow-y-auto pr-1">
+          {groupedVisibleSkus.map((group) => (
+            <section key={group.category} className="overflow-hidden rounded-xl border border-stone-200 bg-stone-50/45">
+              <div className={`flex items-center justify-between border-b px-3 py-2 ${group.tone}`}>
+                <h3 className="text-xs font-semibold">{group.label}</h3>
+                <span className="text-[11px] opacity-70">{group.items.length} 项</span>
               </div>
-              <input
-                aria-label={`${sku.name}开包数量`}
-                type="number"
-                min="0"
-                step="1"
-                value={values[sku.id] || ""}
-                onChange={(event) => setValues((current) => ({ ...current, [sku.id]: event.target.value }))}
-                className="h-10 w-20 rounded-lg border border-stone-200 px-2 text-right text-sm tabular-nums outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
-                placeholder="0"
-              />
-            </label>
+              <div className="grid gap-2 p-2 sm:grid-cols-2">
+                {group.items.map((sku) => (
+                  <label key={sku.id} className="flex items-center gap-3 rounded-lg border border-stone-200 bg-white p-3">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-orange-50 text-orange-700"><PackageCheck className="h-4 w-4" /></div>
+                    <div className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium text-stone-900">{sku.hq_name || sku.name}</span>
+                      <span className="text-xs text-stone-500">{sku.spec || "规格待补"} · {unitOf(sku)}</span>
+                    </div>
+                    <input
+                      aria-label={`${sku.name}今日使用数量`}
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={values[sku.id] || ""}
+                      onChange={(event) => {
+                        const nextValue = event.target.value;
+                        if (nextValue === "" || /^\d+$/.test(nextValue)) {
+                          setValues((current) => ({ ...current, [sku.id]: nextValue }));
+                        }
+                      }}
+                      inputMode="numeric"
+                      className="h-10 w-20 rounded-lg border border-stone-200 px-2 text-right text-sm tabular-nums outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
+                      placeholder="0"
+                    />
+                  </label>
+                ))}
+              </div>
+            </section>
           ))}
         </div>
         <label className="mt-4 block text-sm font-medium text-stone-700">
           备注
           <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={2} placeholder="只写发酸报废、特殊大单、临时补货等重要情况" className="mt-2 w-full rounded-xl border border-stone-200 p-3 text-sm outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100" />
         </label>
+        <div className="mt-4 flex flex-col gap-3 rounded-xl border border-stone-200 bg-stone-50/80 p-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-xs text-stone-500">本日库存耗用成本估算</p>
+            <p className="mt-0.5 text-lg font-bold tabular-nums text-stone-950">{usageCost > 0 ? `¥${usageCost.toFixed(2)}` : "—"}</p>
+          </div>
+          <p className="max-w-md text-[11px] leading-5 text-stone-500">只是当前移动加权成本的库存耗用估算；商品毛利要结合完整 BOM、销量与实盘差异核对。</p>
+        </div>
         <button
           type="button"
           disabled={saving || items.length === 0}
           onClick={async () => {
-            await onSubmit(items, notes);
-            setValues({});
-            setNotes("");
+            await onSubmit(date, items, notes);
           }}
           className="mt-4 inline-flex min-h-11 items-center justify-center rounded-lg bg-stone-900 px-5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
         >
-          {saving ? "保存中…" : `确认写入 ${items.length} 项`}
+          {saving ? "保存中…" : savedLog ? `覆盖保存 ${items.length} 项` : `确认写入 ${items.length} 项`}
         </button>
       </section>
-      <HistoryList title="最近开包台账" empty="还没有开包记录">
-        {logs.slice(0, 12).map((log) => (
-          <div key={log.id} className="border-b border-stone-100 py-3 last:border-0">
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-medium text-stone-900">{log.date}</p>
-              <span className="text-xs text-stone-400">{log.items.length}项</span>
+      <div className="space-y-4">
+        <section className="rounded-2xl border border-rose-200 bg-rose-50/55 p-4">
+          <h3 className="text-sm font-semibold text-rose-950">单独报损</h3>
+          <p className="mt-1 text-xs leading-5 text-rose-700">撒漏、变质、过期或破损不算正常使用，单独登记才能看到真实耗损。</p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
+            <select aria-label="报损物料" value={wasteSkuId} onChange={(event) => setWasteSkuId(event.target.value)} className="h-10 rounded-lg border border-rose-200 bg-white px-3 text-sm outline-none focus:border-rose-400">
+              <option value="">选择报损物料</option>
+              {allSkus.map((sku) => <option key={sku.id} value={sku.id}>{sku.hq_name || sku.name} / {unitOf(sku)}</option>)}
+            </select>
+            <div className="grid grid-cols-2 gap-2">
+              <input aria-label="报损数量" type="number" min="0" step="0.1" value={wasteQuantity} onChange={(event) => setWasteQuantity(event.target.value)} placeholder="数量" className="h-10 rounded-lg border border-rose-200 bg-white px-3 text-sm outline-none focus:border-rose-400" />
+              <select aria-label="报损原因" value={wasteReason} onChange={(event) => setWasteReason(event.target.value)} className="h-10 rounded-lg border border-rose-200 bg-white px-3 text-sm outline-none focus:border-rose-400">
+                {["撒漏", "变质", "过期", "破损", "操作失误", "其他"].map((reason) => <option key={reason}>{reason}</option>)}
+              </select>
             </div>
-            <p className="mt-1 text-xs leading-5 text-stone-500">{log.items.filter((item) => item.quantity > 0).map((item) => `${item.name} ${displayNumber(item.quantity)}${item.unit}`).join("、")}</p>
+            <input aria-label="报损备注" value={wasteNotes} onChange={(event) => setWasteNotes(event.target.value)} placeholder="可选：简要说明" className="h-10 rounded-lg border border-rose-200 bg-white px-3 text-sm outline-none focus:border-rose-400" />
           </div>
-        ))}
-      </HistoryList>
+          <button type="button" disabled={saving || !wasteSkuId || Number(wasteQuantity) <= 0} onClick={async () => {
+            await onWaste(wasteSkuId, Number(wasteQuantity), wasteReason, wasteNotes);
+            setWasteSkuId("");
+            setWasteQuantity("");
+            setWasteNotes("");
+          }} className="mt-3 inline-flex min-h-10 items-center justify-center rounded-lg bg-rose-700 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40">
+            确认报损
+          </button>
+        </section>
+        <HistoryList title="最近使用台账" empty="还没有使用记录">
+          {logs.slice(0, 12).map((log) => (
+            <div key={log.id} className="border-b border-stone-100 py-3 last:border-0">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium text-stone-900">{log.date}</p>
+                <span className="text-xs text-stone-400">{log.items.length}项</span>
+              </div>
+              <p className="mt-1 text-xs leading-5 text-stone-500">{log.items.filter((item) => item.quantity > 0).map((item) => `${item.name} ${displayNumber(item.quantity)}${item.unit}`).join("、")}</p>
+            </div>
+          ))}
+        </HistoryList>
+      </div>
     </div>
   );
 }
@@ -1068,21 +1298,31 @@ function FlowPanel({ skus, events, purchases, saving, onReceive, onSubmit }: {
         <HistoryList title="采购与收货" empty="暂无采购记录">
           {purchases.map((purchase) => (
             <div key={purchase.id} className="border-b border-stone-100 py-3 last:border-0">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-medium text-stone-900">{purchase.date} · {purchase.supplier}</p>
-                <span className="text-sm font-semibold text-stone-900">¥{purchase.total_cost.toFixed(0)}</span>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-stone-900">{purchase.date} · {purchase.platform || purchase.supplier}</p>
+                  <p className="mt-0.5 truncate text-[11px] text-stone-500">{purchase.supplier}{purchase.external_order_id ? ` · ${purchase.external_order_id}` : ""}</p>
+                </div>
+                <span className={`text-sm font-semibold tabular-nums ${purchase.refund_amount ? "text-emerald-700" : "text-stone-900"}`}>¥{purchase.total_cost.toFixed(2)}</span>
               </div>
-              <p className="mt-1 text-xs text-stone-500">
-                {purchase.items.length}项 · {purchase.fulfillment_status === "ordered"
+              <p className="mt-2 text-xs leading-5 text-stone-700">{purchase.items.map((item) => `${item.name} ${displayNumber(item.quantity)}${item.unit || ""}`).join("、")}</p>
+              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-stone-500">
+                <span>{purchase.items.length}个 SKU · {purchase.fulfillment_status === "ordered"
                   ? "已付款，待到货清点"
+                  : purchase.fulfillment_status === "refunded"
+                  ? "已退款，未计入库存"
                   : purchase.payment_status === "接店盘存"
                   ? "接店盘存"
                   : purchase.location === "store"
                     ? "门店收货"
                     : purchase.location === "warehouse"
                       ? "仓库收货"
-                      : "收货地点待确认"}
-              </p>
+                      : "收货地点待确认"}</span>
+                {(purchase.freight || 0) > 0 && <span>运费 ¥{purchase.freight?.toFixed(2)}</span>}
+                {(purchase.discount_amount || 0) > 0 && <span>优惠 ¥{purchase.discount_amount?.toFixed(2)}</span>}
+                {(purchase.refund_amount || 0) > 0 && <span>退款 ¥{purchase.refund_amount?.toFixed(2)}</span>}
+                {purchase.evidence_file && <a href={`/downloads/inventory-evidence/${purchase.evidence_file}`} target="_blank" rel="noreferrer" className="font-semibold text-octo-700 hover:underline">查看原始凭证</a>}
+              </div>
             </div>
           ))}
         </HistoryList>
@@ -1203,18 +1443,23 @@ function PrintTemplates({ type, dailySkus, allSkus }: { type: PrintSheet; dailyS
     <div className="inventory-print">
       {type === "daily" && (
         <>
-          <h1 style={{ textAlign: "center", fontSize: 18, marginBottom: 8 }}>大口章鱼烧每日核心物料领用表</h1>
-          <p style={{ marginBottom: 12 }}>月份：________　门店：新余恒太城五楼　负责人：________</p>
-          <table>
-            <thead><tr><th>日期</th>{dailySkus.slice(0, 8).map((sku) => <th key={sku.id}>{sku.hq_name || sku.name}<br />/{unitOf(sku)}</th>)}<th>备注</th></tr></thead>
-            <tbody>{Array.from({ length: 31 }, (_, index) => <tr key={index}><td>{index + 1}日</td>{dailySkus.slice(0, 8).map((sku) => <td key={sku.id} />)}<td /></tr>)}</tbody>
-          </table>
+          <h1 style={{ textAlign: "center", fontSize: 16, marginBottom: 4 }}>新余恒太城五楼大口章鱼烧｜每日物料使用登记表</h1>
+          <p style={{ marginBottom: 7 }}>日期：____年__月__日　　只填写今天实际开封/领用数量，未使用留空；单位已固定。</p>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            {[dailySkus.slice(0, Math.ceil(dailySkus.length / 2)), dailySkus.slice(Math.ceil(dailySkus.length / 2))].map((items, panel) => (
+              <table key={panel}>
+                <thead><tr><th style={{ width: "13%" }}>类别</th><th>品名 / 规格</th><th style={{ width: "12%" }}>单位</th><th style={{ width: "17%" }}>今日使用</th></tr></thead>
+                <tbody>{items.map((sku) => <tr key={sku.id}><td>{sku.category.replace("食材", "")}</td><td>{sku.hq_name || sku.name}<br /><span style={{ color: "#666" }}>{sku.spec || "规格待补"}</span></td><td style={{ textAlign: "center" }}>{unitOf(sku)}</td><td /></tr>)}</tbody>
+              </table>
+            ))}
+          </div>
+          <p style={{ marginTop: 6 }}>特殊情况（报损、撒漏、过期等）：________________________________________________________________________________</p>
         </>
       )}
       {type === "weekly" && (
         <>
-          <h1 style={{ textAlign: "center", fontSize: 18, marginBottom: 8 }}>大口章鱼烧库存盲盘表</h1>
-          <p style={{ marginBottom: 12 }}>位置：□门店　□仓库　日期：________　开始：____　结束：____　盘点人：________</p>
+          <h1 style={{ textAlign: "center", fontSize: 18, marginBottom: 8 }}>大口章鱼烧阶段总库存盲盘表</h1>
+          <p style={{ marginBottom: 12 }}>位置：□门店　□仓库　□店内冰箱　日期：________　盘点范围：本页全部物料</p>
           <table>
             <thead><tr><th>分类</th><th>品名</th><th>总部/采购规格</th><th>整箱/件</th><th>整包/袋/捆</th><th>零散估数</th><th>备注</th></tr></thead>
             <tbody>{allSkus.map((sku) => <tr key={sku.id}><td>{sku.category}</td><td>{sku.hq_name || sku.name}</td><td>{sku.spec || "待确认"}</td><td /><td /><td /><td /></tr>)}</tbody>
@@ -1222,5 +1467,46 @@ function PrintTemplates({ type, dailySkus, allSkus }: { type: PrintSheet; dailyS
         </>
       )}
     </div>
+  );
+}
+
+function PendingSection({ agentKey, children }: { agentKey: string; children: React.ReactNode }) {
+  const searchParams = useSearchParams();
+  const [highlight, setHighlight] = useState(false);
+
+  useEffect(() => {
+    const pending = searchParams.get("pending");
+    if (pending === agentKey) {
+      setHighlight(true);
+      const timer = setTimeout(() => setHighlight(false), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [searchParams, agentKey]);
+
+  useEffect(() => {
+    if (highlight) {
+      setTimeout(() => {
+        const el = document.getElementById("pending");
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      }, 100);
+    }
+  }, [highlight]);
+
+  return (
+    <motion.div
+      animate={highlight ? {
+        boxShadow: [
+          "0 0 0 0 rgba(249, 115, 22, 0)",
+          "0 0 0 4px rgba(249, 115, 22, 0.3), 0 0 20px rgba(249, 115, 22, 0.15)",
+          "0 0 0 0 rgba(249, 115, 22, 0)",
+        ],
+      } : {}}
+      transition={{ duration: 1.5, repeat: highlight ? 2 : 0 }}
+      className="rounded-2xl"
+    >
+      {children}
+    </motion.div>
   );
 }

@@ -288,6 +288,27 @@ async def operation_summary(project_id: str, days: int = Query(7, ge=1, le=366))
     return memory.operation_summary(days=days)
 
 
+@router.get("/{project_id}/financial-context")
+async def get_financial_context(project_id: str, days: int = Query(30, ge=1, le=366)):
+    """所有 Agent 共用的门店财务上下文：收入、对账、现金流和缺口。"""
+    memory = _get_or_create_project(project_id)
+    from models.operating_ledger import OperatingLedger
+
+    ledger = OperatingLedger.load(project_id)
+    return {
+        "project_id": project_id,
+        "period_days": days,
+        "operations": memory.operation_summary(days=days),
+        "platform_reconciliations": ledger.reconciliation_view(),
+        "cash_flow": ledger.cash_flow_view(),
+        "accounting_rules": [
+            "客如云日报作为已确认门店收入主表；平台明细仅用于对账，不重复加收入。",
+            "前老板代收先记为应收前老板，收到转账后再核销，不把代收金额当作当前现金。",
+            "缺少现金盘点、支出或平台结算凭证时显示未知，不填充为零。",
+        ],
+    }
+
+
 @router.get("/{project_id}/capture-audit-log")
 async def get_capture_audit_log(project_id: str, limit: int = Query(50, ge=1, le=200)):
     """获取录入操作审计日志。"""

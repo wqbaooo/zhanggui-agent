@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from models.operating_ledger import OperatingLedger, REAL_FIXTURE_DATE
+from models.operating_ledger import OperatingLedger, today
 
 
 router = APIRouter(prefix="/projects", tags=["operating-ledger"])
@@ -31,6 +31,15 @@ class FactPatch(BaseModel):
 
 class MarkFactRequest(BaseModel):
     action: str = Field(..., description="former_owner_collected / former_owner_transfer / platform_unsettled / refund / purchase / non_operating / defer")
+
+
+class CaptureFactImportRequest(BaseModel):
+    file_name: str = ""
+    source_type: str
+    fields: list[dict[str, Any]] = Field(default_factory=list)
+    structured_artifact: dict[str, Any] = Field(default_factory=dict)
+    raw_text: str = ""
+    evidence_image_url: str = ""
 
 
 @router.get("/{project_id}/operating-ledger")
@@ -95,10 +104,46 @@ async def mark_business_fact(project_id: str, fact_id: str, req: MarkFactRequest
     return {"success": True, "fact": fact}
 
 
+@router.post("/{project_id}/business-facts/from-capture")
+async def create_business_facts_from_capture(project_id: str, req: CaptureFactImportRequest):
+    ledger = OperatingLedger.load(project_id)
+    result = ledger.ingest_capture_artifact(
+        source_type=req.source_type,
+        fields=req.fields,
+        structured_artifact=req.structured_artifact,
+        file_name=req.file_name,
+        raw_text=req.raw_text,
+        evidence_image_url=req.evidence_image_url,
+    )
+    return {"success": True, **result}
+
+
 @router.get("/{project_id}/money-view")
 async def get_money_view(project_id: str, date: str | None = Query(None)):
     ledger = OperatingLedger.load(project_id)
     return ledger.money_view(date=date)
+
+
+@router.get("/{project_id}/platform-reconciliations")
+async def get_platform_reconciliations(
+    project_id: str,
+    start: str | None = Query(None),
+    end: str | None = Query(None),
+):
+    """渠道对账明细；仅用于核对和资金追踪，不重复计入主营业收入。"""
+    ledger = OperatingLedger.load(project_id)
+    return ledger.reconciliation_view(start=start, end=end)
+
+
+@router.get("/{project_id}/cash-flow")
+async def get_cash_flow(
+    project_id: str,
+    start: str | None = Query(None),
+    end: str | None = Query(None),
+):
+    """现金流视图；缺少现金输入时返回未知，不用 0 伪造余额。"""
+    ledger = OperatingLedger.load(project_id)
+    return ledger.cash_flow_view(start=start, end=end)
 
 
 @router.get("/{project_id}/first-stage-inventory")
@@ -110,7 +155,7 @@ async def get_first_stage_inventory(project_id: str, date: str | None = Query(No
 @router.get("/{project_id}/today-operating-card")
 async def get_today_operating_card(project_id: str, date: str | None = Query(None)):
     ledger = OperatingLedger.load(project_id)
-    return ledger.today_card(date=date or REAL_FIXTURE_DATE)
+    return ledger.today_card(date=date or today())
 
 
 @router.get("/{project_id}/cost-question")

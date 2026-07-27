@@ -1,0 +1,32 @@
+model:
+  provider: deepseek
+  default: deepseek-chat
+  base_url: ''
+  api_mode: chat_completions
+
+# The product-facing API runtime receives only read-only store tools. Hermes'
+# terminal, file-write, browser, delegation and cron toolsets are deliberately
+# excluded from this surface.
+platform_toolsets:
+  api_server:
+    - zhanggui-store
+
+plugins:
+  enabled:
+    - zhanggui-store
+
+agent:
+  max_turns: 12
+  gateway_timeout: 120
+  disabled_toolsets:
+    - terminal
+    - file
+    - browser
+    - code_execution
+    - delegation
+    - cronjob
+    - skills
+
+platforms:
+  api_server:
+    max_concurrent_runs: 4

@@ -8,7 +8,7 @@ import { GridComponent, TooltipComponent } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
 import { ChefHat, Package, ReceiptText, Sparkles } from "lucide-react";
 import { ModulePage, getModule } from "@/components/agent-os/ModulePage";
-import { DEFAULT_PROJECT_ID, getOperationSummary, type OperationSummary } from "@/lib/api";
+import { DEFAULT_PROJECT_ID, getOperationSummary, getStoreOperatingFacts, type OperationSummary, type StoreOperatingFactsV1 } from "@/lib/api";
 import { apiGet } from "@/lib/api";
 
 echarts.use([BarChart, GridComponent, TooltipComponent, CanvasRenderer]);
@@ -30,18 +30,21 @@ interface MenuItem {
 export default function ProductsPage() {
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [summary, setSummary] = useState<OperationSummary | null>(null);
+  const [facts, setFacts] = useState<StoreOperatingFactsV1 | null>(null);
   const [initialized, setInitialized] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
-      const [analysisRes, operationSummary] = await Promise.all([
+      const [analysisRes, operationSummary, operatingFacts] = await Promise.all([
         apiGet<{ items: MenuItem[]; total: number }>(
           `/api/projects/${DEFAULT_PROJECT_ID}/skus/menu-analysis`,
         ),
         getOperationSummary(DEFAULT_PROJECT_ID, 30),
+        getStoreOperatingFacts(DEFAULT_PROJECT_ID),
       ]);
       setMenuItems(analysisRes.items);
       setSummary(operationSummary);
+      setFacts(operatingFacts);
     } catch { /* offline */ }
     setInitialized(true);
   }, []);
@@ -101,43 +104,63 @@ export default function ProductsPage() {
 
         <section className="rounded-3xl border border-stone-200 bg-white/85 p-5 shadow-sm">
           <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-            <div>
+            <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <ReceiptText className="h-4 w-4 text-octo-600" />
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-stone-500">真实商品经营</p>
               </div>
               <h1 className="mt-2 text-xl font-bold text-stone-950">卖了什么，贡献了多少，再关联怎么做</h1>
-              <p className="mt-1 max-w-2xl text-sm leading-6 text-stone-600">
+              <p className="mt-1 w-full max-w-[42rem] text-sm leading-6 text-stone-600">
                 商品销量来自客如云，物料成本来自配方与生产记录。当前只展示已经识别的商品，不再用预设“爆品梯队”冒充真实结论。
               </p>
             </div>
             <span className="w-fit rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800">
-              {summary?.product_sales.length ? "已有部分商品明细" : "等待商品销售明细"}
+              {facts?.product_sales.ranked_products.length ? "已接入客如云商品前20" : "等待商品销售明细"}
             </span>
           </div>
 
-          {summary?.product_sales.length ? (
+          {facts?.product_sales.ranked_products.length ? (
+            <>
+            <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <ProductLoopCard title="商品销售原价" body={`¥${(facts.product_sales.gross_sales_minor / 100).toLocaleString("zh-CN", { minimumFractionDigits: 2 })} · ${facts.product_sales.total_quantity}份`} status="客如云商品口径" />
+              <ProductLoopCard title="退款" body={`¥${(facts.product_sales.refund_minor / 100).toFixed(2)} · ${facts.product_sales.refund_quantity}份`} status="单独扣减" />
+              <ProductLoopCard title="营业收入" body={`¥${(facts.product_sales.recognized_revenue_minor / 100).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}`} status="优惠退款后主账" />
+              <ProductLoopCard title="两口径差额" body={`¥${(facts.product_sales.gross_to_recognized_difference_minor / 100).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}`} status="优惠/退款等，不重复相加" />
+            </div>
             <div className="mt-5 grid gap-3 md:grid-cols-3">
-              {summary.product_sales.map((product, index) => (
+              {facts.product_sales.ranked_products.map((product) => (
                 <div key={product.name} className="rounded-2xl border border-stone-200 bg-stone-50/75 p-4">
                   <div className="flex items-center justify-between gap-3">
-                    <span className="text-xs font-semibold text-stone-400">#{index + 1}</span>
+                    <span className="text-xs font-semibold text-stone-400">#{product.rank}</span>
                     <span className="text-xs text-stone-500">{product.quantity} 份</span>
                   </div>
                   <p className="mt-3 text-base font-bold text-stone-950">{product.name}</p>
-                  <p className="mt-1 text-xl font-bold tabular-nums text-octo-700">¥{product.amount.toLocaleString()}</p>
+                  <p className="mt-1 text-xl font-bold tabular-nums text-octo-700">¥{(product.amount_minor / 100).toLocaleString()}</p>
                   <p className="mt-2 text-[11px] leading-5 text-stone-500">
-                    单份收入约 ¥{(product.amount / Math.max(product.quantity, 1)).toFixed(1)} · BOM与贡献利润待完整商品明细
+                    {product.official_spec ? `官方/多平台共识规格：${product.official_spec.replace("_两盒四粒", "，两盒四粒")}` : "官方规格仍待映射"} · 商品原价均价 ¥{(product.amount_minor / 100 / Math.max(product.quantity, 1)).toFixed(1)}
                   </p>
                 </div>
               ))}
             </div>
+            </>
           ) : (
             <div className="mt-5 rounded-2xl border border-dashed border-stone-300 p-6 text-center text-sm text-stone-500">
               上传客如云“商品销售统计”完整截图后开始建立商品基准。
             </div>
           )}
         </section>
+
+        {facts && <section className="rounded-2xl border border-sky-200 bg-sky-50/65 p-5">
+          <div className="flex items-start justify-between gap-4"><div><p className="text-xs font-semibold text-sky-700">销量 → 包装需求（管理估算）</p><h2 className="mt-1 text-base font-bold text-sky-950">只对官方名称或多平台官方共识已确认的规格推算</h2></div><span className="rounded-full bg-white px-2 py-1 text-[10px] text-sky-700">不直接扣库存</span></div>
+          <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+            <Estimate label="6粒标准盒" value={facts.packaging_estimate.standard_six_box} />
+            <Estimate label="9粒全家福盒" value={facts.packaging_estimate.family_nine_box} />
+            <Estimate label="4粒盒（DIY两盒）" value={facts.packaging_estimate.four_piece_box} />
+            <Estimate label="3粒大丸子盒" value={facts.packaging_estimate.large_three_box} />
+            <Estimate label="规格未映射" value={facts.packaging_estimate.unmapped_quantity} warning />
+          </div>
+          <p className="mt-3 text-xs leading-5 text-sky-800">这组数字用于和员工开封记录、包装库存和每周实盘交叉核验；出现差异时提示复核，不会代替真实出库。</p>
+        </section>}
 
         <section className="grid gap-3 md:grid-cols-3">
           <ProductLoopCard title="销售事实" body="每个商品的份数、金额、退款和销售时段" status="已开始" />
@@ -239,4 +262,8 @@ function ProductLoopCard({ title, body, status }: { title: string; body: string;
       <p className="mt-2 text-xs leading-5 text-stone-500">{body}</p>
     </article>
   );
+}
+
+function Estimate({ label, value, warning }: { label: string; value: number; warning?: boolean }) {
+  return <div className={`rounded-xl border bg-white/80 p-3 ${warning ? "border-amber-200" : "border-sky-100"}`}><p className="text-[11px] text-stone-500">{label}</p><p className={`mt-1 text-xl font-bold tabular-nums ${warning ? "text-amber-800" : "text-sky-950"}`}>{value}</p></div>;
 }

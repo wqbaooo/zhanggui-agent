@@ -23,6 +23,7 @@ def test_wage_rules_cover_hourly_monthly_overtime_and_owner_cost(tmp_path, monke
         pay_type="monthly",
         monthly_base=5200,
         standard_monthly_work_days=26,
+        overtime_hourly_rate=16,
     ))
     owner = tracking.add_staff(StaffMember(
         name="老板",
@@ -52,9 +53,14 @@ def test_wage_rules_cover_hourly_monthly_overtime_and_owner_cost(tmp_path, monke
 
     monthly_wage = tracking.monthly_wage(monthly.id, "2026-06")
     assert monthly_wage["attendance_ratio"] == 0.5
-    assert monthly_wage["base_pay"] == 2600
-    assert monthly_wage["overtime_pay"] == 75
-    assert monthly_wage["total_wage"] == 2675
+    assert monthly_wage["base_pay"] == 5200
+    assert monthly_wage["overtime_pay"] == 32
+    assert monthly_wage["total_wage"] == 5232
+
+    summary = tracking.wage_summary("2026-06")
+    assert summary["staff_count"] == 2
+    assert summary["total_wage"] == 5452
+    assert summary["owner_opportunity_cost"] == 6000
 
     owner_wage = tracking.monthly_wage(owner.id, "2026-06")
     assert owner_wage["cost_basis"] == "owner_opportunity_cost"

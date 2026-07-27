@@ -27,6 +27,7 @@ class StaffMember:
     pay_type: str = "auto"
     standard_monthly_work_days: int = 26
     overtime_multiplier: float = 1.5
+    overtime_hourly_rate: float = 0.0
     hire_date: str = ""
     status: str = "在岗"
     notes: str = ""
@@ -43,6 +44,7 @@ class StaffMember:
             "health_cert_expiry": "", "skills": [], "hourly_wage": 0.0,
             "monthly_base": 0.0, "pay_type": "auto",
             "standard_monthly_work_days": 26, "overtime_multiplier": 1.5,
+            "overtime_hourly_rate": 0.0,
             "hire_date": "", "status": "在岗",
             "notes": "", "created_at": 0.0, "updated_at": 0.0,
         }
@@ -191,6 +193,7 @@ class LaborTracking:
             pay_type = "monthly" if monthly_base > 0 else "hourly"
         standard_days = max(int(member.get("standard_monthly_work_days", 26) or 26), 1)
         overtime_multiplier = max(float(member.get("overtime_multiplier", 1.5) or 1.5), 1)
+        overtime_hourly_rate = max(float(member.get("overtime_hourly_rate", 0) or 0), 0)
         work_days = len(records)
 
         attendance_ratio = min(work_days / standard_days, 1.0)
@@ -206,11 +209,14 @@ class LaborTracking:
             attendance_ratio = 1.0
             cost_basis = "owner_opportunity_cost"
         elif pay_type == "monthly":
-            base_pay = monthly_base * attendance_ratio
+            # 固定月薪是本月应付底薪；考勤用于展示和后续缺勤扣款，不能因尚未录满考勤就把工资算少。
+            base_pay = monthly_base
+            cost_basis = "fixed_monthly_salary"
         else:
             regular_pay = hourly_wage * total_hours
 
-        overtime_pay = total_overtime * effective_hourly_wage * overtime_multiplier
+        applied_overtime_rate = overtime_hourly_rate or (effective_hourly_wage * overtime_multiplier)
+        overtime_pay = total_overtime * applied_overtime_rate
         total_wage = base_pay + regular_pay + overtime_pay
 
         return {
@@ -228,6 +234,7 @@ class LaborTracking:
             "regular_pay": round(regular_pay, 2),
             "base_pay": round(base_pay, 2),
             "overtime_pay": round(overtime_pay, 2),
+            "overtime_hourly_rate": round(applied_overtime_rate, 2),
             "cost_basis": cost_basis,
             "total_wage": round(total_wage, 2),
             "records": records,
@@ -237,19 +244,24 @@ class LaborTracking:
         """整店月度工资汇总。"""
         staff_wages = []
         total = 0.0
+        owner_opportunity_cost = 0.0
         for s in self.staff:
             if s.get("status") != "在岗":
                 continue
             try:
                 wage = self.monthly_wage(s["id"], year_month)
                 staff_wages.append(wage)
-                total += wage["total_wage"]
+                if wage["pay_type"] == "owner":
+                    owner_opportunity_cost += wage["total_wage"]
+                else:
+                    total += wage["total_wage"]
             except KeyError:
                 pass
         return {
             "year_month": year_month,
-            "staff_count": len(staff_wages),
+            "staff_count": sum(1 for wage in staff_wages if wage["pay_type"] != "owner"),
             "total_wage": round(total, 2),
+            "owner_opportunity_cost": round(owner_opportunity_cost, 2),
             "breakdown": staff_wages,
         }
 

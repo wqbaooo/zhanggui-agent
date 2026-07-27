@@ -9,9 +9,30 @@ from server.routes.capture import (
     _enrich_capture_result,
     _normalize_result_shape,
     _redact_sensitive_text,
+    _source_type_to_platform,
 )
 import server.routes.capture as capture_route
 from server.model_routing import ModelRoute
+from models.finance_ledger import FinanceLedger
+from models.operating_ledger import OperatingLedger
+from models.project import ProjectMemory
+import config
+import models.project as project_model
+
+
+def test_all_store_revenue_platform_screenshots_keep_distinct_sources():
+    cases = {
+        "客如云 营业收入 128.50": ("客如云日报", "keyun"),
+        "美团外卖 当日实收 88.20": ("美团外卖后台", "meituan_delivery"),
+        "美团团购 商家实收 75.00": ("美团团购后台", "meituan_group"),
+        "淘宝闪购 外卖实收 96.00": ("淘宝闪购后台", "taobao_flash"),
+        "京东外卖 当日营业额 59.30": ("京东外卖后台", "jd_delivery"),
+        "抖音团购 核销实收 120.00": ("抖音团购后台", "douyin_group"),
+    }
+    for raw_text, (source_type, platform) in cases.items():
+        detected = _detect_source_type(raw_text)
+        assert detected == source_type
+        assert _source_type_to_platform(detected) == platform
 
 
 def test_contract_capture_builds_review_artifact_and_redacts_id():
@@ -139,6 +160,61 @@ def test_common_image_types_use_universal_template():
         assert target in artifact["write_targets"]
 
 
+def test_keruyun_daily_report_extracts_finance_fields_for_pending_facts():
+    raw_text = """
+    客如云 营业日报 2026-07-09
+    订单金额 1119.83 营业收入 882.89
+    订单数 56 店内营业收入 704.88 第三方营业收入 178.01
+    商户优惠 91.76 订单配送支出 36.45 服务费 91.89 补贴 -16.84
+    微信 513 现金 77 支付宝 32 美团外卖 97.25 淘宝闪购餐饮 80.76 抖音团购券 69.01
+    """
+
+    result = _enrich_capture_result({
+        "source_type": _detect_source_type(raw_text),
+        "fields": [],
+        "raw_text": raw_text,
+    })
+
+    assert result["source_type"] == "客如云日报"
+    assert result["capture_kind"] == "operation"
+    artifact = result["structured_artifact"]
+    assert artifact["schema_version"] == "capture_artifact_v1"
+    assert artifact["type"] == "operation_record"
+    assert artifact["write_payloads"]["business_fact_source"] == "keruyun_daily_report"
+    fields = {field["key"]: field["value"] for field in result["fields"]}
+    assert fields["order_amount"] == 1119.83
+    assert fields["operating_income"] == 882.89
+    assert fields["delivery_fee"] == 36.45
+    assert fields["cash_amount"] == 77
+    assert fields["taobao_flash_amount"] == 80.76
+
+
+def test_supplier_credit_receipt_routes_to_payable_not_cash_spend():
+    raw_text = """
+    客户名称：章鱼烧
+    商品名 下单数 实际出货 销售单价 小计
+    包菜 6斤 6斤 7.50 11.55
+    大葱 1个 1个 2.50 3.60
+    合计：15.15
+    挂账 未结账
+    """
+
+    result = _enrich_capture_result({
+        "source_type": _detect_source_type(raw_text),
+        "fields": [],
+        "raw_text": raw_text,
+    })
+
+    assert result["source_type"] == "菜场挂账小票"
+    assert result["capture_kind"] == "document"
+    artifact = result["structured_artifact"]
+    assert artifact["type"] == "supplier_credit_receipt"
+    assert artifact["document_class"] == "采购/应付"
+    assert "应付账款" in artifact["write_targets"]
+    assert artifact["write_payloads"]["supplier_credit"]["amount"] == 15.15
+    assert artifact["write_payloads"]["supplier_credit"]["cash_impact"] == 0
+
+
 def test_material_count_sheet_routes_to_inventory_review():
     raw_text = """
     大口章鱼烧物料盘点表
@@ -243,3 +319,89 @@ def test_recognition_shape_normalizes_model_object_fields_and_preserves_line_ite
     ]
     assert result["document_facts"][0]["label"] == "供应商"
     assert result["line_items"][0]["total"] == 3180
+
+
+def test_confirmed_utility_bill_posts_once_to_finance_ledger(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "PROJECT_DATA_DIR", tmp_path)
+    monkeypatch.setattr(project_model, "PROJECT_DATA_DIR", tmp_path)
+    project_id = "capture-finance-store"
+    memory = ProjectMemory.create(project_id)
+    memory.update_profile({"store_name": "测试门店", "transfer_date": "2026-07-01"})
+    payload = {
+        "file_name": "7月电费.png",
+        "source_type": "水电单",
+        "capture_kind": "document",
+        "recognized_fields": [
+            {"key": "date", "value": "2026-07-10"},
+            {"key": "utility", "value": 12.34},
+        ],
+        "write_target": "资料箱 + 成本记录",
+        "date": "2026-07-10",
+    }
+
+    client = TestClient(app)
+    first = client.post(f"/api/capture/confirm/{project_id}", json=payload)
+    ledger = FinanceLedger.for_project(project_id)
+    entries_after_first = ledger.count_posted_entries(project_id)
+    second = client.post(f"/api/capture/confirm/{project_id}", json=payload)
+    entries_after_second = ledger.count_posted_entries(project_id)
+
+    assert first.status_code == 200
+    assert first.json()["posted_expenses"][0]["amount_minor"] == 1234
+    assert first.json()["posted_expenses"][0]["business_fact_id"]
+    assert second.json()["posted_expenses"][0]["journal_entry_id"] == first.json()["posted_expenses"][0]["journal_entry_id"]
+    assert second.json()["posted_expenses"][0]["business_fact_id"] == first.json()["posted_expenses"][0]["business_fact_id"]
+    operating = OperatingLedger.load(project_id)
+    expense_fact = operating.find_fact(first.json()["posted_expenses"][0]["business_fact_id"])
+    assert expense_fact["fact_type"] == "operating_expense"
+    assert expense_fact["ledger_status"] == "posted"
+    assert expense_fact["metadata"]["finance_account_code"] == "6003"
+    assert entries_after_second == entries_after_first
+    assert ledger.overview(project_id, "2026-07-10", "2026-07-10")["costs_minor"]["utility"] == 1234
+
+
+def test_confirmed_purchase_order_is_not_expensed_as_period_cost(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "PROJECT_DATA_DIR", tmp_path)
+    monkeypatch.setattr(project_model, "PROJECT_DATA_DIR", tmp_path)
+    project_id = "capture-purchase-store"
+    memory = ProjectMemory.create(project_id)
+    memory.update_profile({"store_name": "测试门店", "transfer_date": "2026-07-01"})
+    operating = OperatingLedger(project_id)
+    operating.seed_real_store()
+    operating.save()
+
+    response = TestClient(app).post(
+        f"/api/capture/confirm/{project_id}",
+        json={
+            "file_name": "进货单.png",
+            "source_type": "进货单",
+            "capture_kind": "document",
+            "recognized_fields": [{"key": "food_cost", "value": 300}],
+            "write_target": "采购记录 + 库存入库 + 应付账款",
+            "date": "2026-07-10",
+            "structured_artifact": {
+                "type": "purchase_order",
+                "write_payloads": {
+                    "purchase_order": {
+                        "date": "2026-07-10",
+                        "supplier": "大口供应链",
+                        "items": [{"name": "章鱼粒", "quantity": 2, "unit_cost": 60}],
+                    }
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["posted_expenses"] == []
+    assert {item["fact_type"] for item in response.json()["posted_business_facts"]} == {
+        "purchase_confirmation",
+        "stock_in",
+    }
+    assert not any(
+        fact["fact_type"] == "operating_expense"
+        for fact in OperatingLedger.load(project_id).business_facts
+    )
+    ledger = FinanceLedger.for_project(project_id)
+    assert ledger.overview(project_id, "2026-07-10", "2026-07-10")["costs_minor"]["food_cost"] == 0
+    assert ledger.overview(project_id, "2026-07-10", "2026-07-10")["assets_minor"]["inventory"] == 12000

@@ -10,6 +10,7 @@ import uuid
 from typing import Dict
 
 from main import 掌柜Agent
+from core.agent_runtime import build_reasoning_runtime
 
 logger = logging.getLogger(__name__)
 
@@ -35,9 +36,14 @@ def get_agent(project_id: str = "", session_id: str = "") -> 掌柜Agent:
     project_id 降级：用于项目级别的会话隔离。
     """
     _cleanup()
-    key = session_id or project_id or f"anon_{uuid.uuid4().hex[:8]}"
+    resolved_project = project_id or "anonymous"
+    resolved_session = session_id or f"anon_{uuid.uuid4().hex[:8]}"
+    key = f"{resolved_project}:{resolved_session}"
     if key not in _sessions:
-        _sessions[key] = 掌柜Agent(project_id=project_id if project_id else None)
+        _sessions[key] = 掌柜Agent(
+            project_id=project_id if project_id else None,
+            reasoning_runtime=build_reasoning_runtime(resolved_project, resolved_session),
+        )
         logger.info("Agent 实例已创建: session=%s project=%s", session_id or "auto", project_id or "anonymous")
     _sessions_last_access[key] = _time.time()
     return _sessions[key]
@@ -45,12 +51,9 @@ def get_agent(project_id: str = "", session_id: str = "") -> 掌柜Agent:
 
 def reset_agent(project_id: str = "") -> bool:
     """重置指定项目的 Agent 会话。"""
-    key = project_id or ""
-    if key in _sessions:
-        _sessions[key].reset_conversation()
-        return True
+    prefix = f"{project_id}:" if project_id else ""
     for k in list(_sessions.keys()):
-        if k.startswith(key):
+        if not prefix or k.startswith(prefix):
             _sessions[k].reset_conversation()
             return True
     return False

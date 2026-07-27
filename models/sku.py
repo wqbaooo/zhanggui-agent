@@ -4,8 +4,9 @@
 
 from __future__ import annotations
 
+import copy
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -54,6 +55,13 @@ class SkuItem:
     display_unit: str = ""
     store_target_days: float = 0.0
     supplier_lead_days: int = 3
+    reorder_enabled: bool = True
+    usage_integer_only: bool = True
+    asset_class: str = "inventory"
+    master_source: str = ""
+    master_source_row: int = 0
+    master_data_status: str = "needs_review"
+    unit_cost_source: str = ""
     active: bool = True
     created_at: float = 0.0
     updated_at: float = 0.0
@@ -73,6 +81,9 @@ class SkuItem:
             "stock_by_location": {}, "count_units": [],
             "tracking_mode": "periodic_count", "display_unit": "", "active": True,
             "store_target_days": 0.0, "supplier_lead_days": 3,
+            "reorder_enabled": True, "usage_integer_only": True,
+            "asset_class": "inventory", "master_source": "", "master_source_row": 0,
+            "master_data_status": "needs_review", "unit_cost_source": "",
             "created_at": 0.0, "updated_at": 0.0,
         }
         return cls(**{key: data.get(key, default) for key, default in defaults.items()})
@@ -106,6 +117,12 @@ class PurchaseRecord:
     location: str = "warehouse"
     received_at: str = ""
     notes: str = ""
+    platform: str = ""
+    freight: float = 0.0
+    discount_amount: float = 0.0
+    refund_amount: float = 0.0
+    evidence_file: str = ""
+    accounting_status: str = "inventory_asset"
     created_at: float = 0.0
 
     def to_dict(self) -> Dict[str, Any]:
@@ -274,6 +291,8 @@ class SkuCatalog:
     inventory_counts: List[Dict[str, Any]] = field(default_factory=list)
     usage_logs: List[Dict[str, Any]] = field(default_factory=list)
     production_batches: List[Dict[str, Any]] = field(default_factory=list)
+    imports: List[Dict[str, Any]] = field(default_factory=list)
+    integrity_repairs: List[Dict[str, Any]] = field(default_factory=list)
     updated_at: float = field(default_factory=time.time)
 
     @property
@@ -291,7 +310,13 @@ class SkuCatalog:
         if not path.exists():
             return None
         data = load_json(path)
-        return cls(**data) if data is not None else None
+        if data is None:
+            return None
+        # Inventory archives evolve independently from the application binary.
+        # Ignore forward-compatible top-level metadata instead of making the
+        # whole store catalogue unreadable after a schema extension.
+        supported = {item.name for item in fields(cls)}
+        return cls(**{key: value for key, value in data.items() if key in supported})
 
     @classmethod
     def create(cls, project_id: str) -> "SkuCatalog":
@@ -483,7 +508,7 @@ class SkuCatalog:
             item.get("sku_id", ""): item
             for item in purchase.get("items", [])
         }
-        prepared: List[Tuple[Dict[str, Any], Dict[str, Any], float, Dict[str, float]]] = []
+        prepared: List[Tuple[Dict[str, Any], Dict[str, Any], float, Dict[str, float], float, float]] = []
         for line in items:
             sku_id = line.get("sku_id", "")
             sku = self.get_sku(sku_id)
@@ -500,13 +525,20 @@ class SkuCatalog:
                 raise ValueError("实收数量不能小于 0")
             if abs(sum(allocations.values()) - received) > 0.0001:
                 raise ValueError(f"{sku.get('name')} 的位置分配合计必须等于实收数量")
-            prepared.append((sku, ordered, received, allocations))
+            prepared.append((
+                sku,
+                ordered,
+                received,
+                allocations,
+                round(float(sku.get("current_stock", 0) or 0), 4),
+                round(float(sku.get("unit_cost", 0) or 0), 6),
+            ))
 
-        received_skus = {sku.get("id") for sku, _, _, _ in prepared}
+        received_skus = {sku.get("id") for sku, _, _, _, _, _ in prepared}
         if received_skus != set(ordered_by_sku):
             raise ValueError("必须逐项确认进货单中的所有物料；缺货项请填写实收 0")
 
-        for sku, ordered, received, allocations in prepared:
+        for sku, ordered, received, allocations, previous_quantity, previous_unit_cost in prepared:
             for location, quantity in allocations.items():
                 if quantity <= 0:
                     continue
@@ -528,8 +560,17 @@ class SkuCatalog:
             )
             ordered["allocations"] = allocations
             sku["last_purchase_date"] = date
-            if float(ordered.get("unit_cost", 0) or 0) > 0:
-                sku["unit_cost"] = float(ordered["unit_cost"])
+            receipt_unit_cost = float(ordered.get("unit_cost", 0) or 0)
+            if receipt_unit_cost > 0 and received > 0:
+                # 小店可能多次进货、更换平台供应商，单位库存成本不能被“最后一次价格”直接覆盖。
+                # 按入库前库存与本次实收做移动加权平均，供后续库存金额和毛利核算使用。
+                denominator = previous_quantity + received
+                if denominator > 0:
+                    sku["unit_cost"] = round(
+                        (previous_quantity * previous_unit_cost + received * receipt_unit_cost) / denominator,
+                        6,
+                    )
+                    sku["unit_cost_source"] = "移动加权平均（库存账）"
 
         purchase["fulfillment_status"] = "received"
         purchase["received_at"] = date
@@ -766,7 +807,15 @@ class SkuCatalog:
         self,
         log: UsageLog,
     ) -> UsageLog:
-        log.location = self._validate_location(log.location, allow_unallocated=False)
+        operational = log.location == "operational"
+        if not operational:
+            log.location = self._validate_location(log.location, allow_unallocated=False)
+        duplicate = next((
+            item for item in self.usage_logs
+            if item.get("date") == log.date and item.get("source") == log.source
+        ), None)
+        if duplicate is not None:
+            raise ValueError("该日期的每日物料使用记录已存在；如需改错请使用覆盖保存")
         if not log.id:
             log.id = self._next_id("usage")
         log.created_at = time.time()
@@ -779,6 +828,8 @@ class SkuCatalog:
                 raise ValueError(f"sku not found: {item.get('sku_id', '')}")
             if qty < 0:
                 raise ValueError("领用数量不能小于 0")
+            if sku.get("usage_integer_only", True) and abs(qty - round(qty)) > 0.0001:
+                raise ValueError(f"{sku.get('name')} 按开封/领用次数登记，只能填写整数")
             prepared.append((sku, item, qty))
 
         for sku, item, qty in prepared:
@@ -786,28 +837,202 @@ class SkuCatalog:
             item["unit"] = item.get("unit") or sku.get("display_unit") or sku.get("unit", "")
             if qty <= 0:
                 continue
-            available = self._stock_map(sku).get(log.location, 0)
-            deducted = min(available, qty)
-            if deducted > 0:
-                self._change_stock(sku, log.location, -deducted)
+            deductions: List[Dict[str, Any]] = []
+            remaining = qty
+            locations = ["store", "freezer", "warehouse", "unallocated"] if operational else [log.location]
+            for location in locations:
+                available = float(self._stock_map(sku).get(location, 0) or 0)
+                deducted = min(available, remaining)
+                if deducted <= 0:
+                    continue
+                self._change_stock(sku, location, -deducted)
+                deductions.append({"location": location, "quantity": round(deducted, 4)})
+                remaining = round(remaining - deducted, 4)
+                if remaining <= 0:
+                    break
+            deducted_total = round(qty - remaining, 4)
             self._append_event(InventoryEvent(
                 date=log.date,
                 event_type="usage",
                 sku_id=sku.get("id", ""),
                 quantity=qty,
-                from_location=log.location,
+                from_location="operational" if operational else log.location,
                 source=log.source,
                 notes=log.notes,
                 metadata={
                     "usage_log_id": log.id,
-                    "deducted_quantity": deducted,
-                    "shortfall": round(max(0.0, qty - deducted), 4),
+                    "deducted_quantity": deducted_total,
+                    "deductions": deductions,
+                    "shortfall": round(max(0.0, remaining), 4),
+                    "unit_cost_snapshot": round(float(sku.get("unit_cost", 0) or 0), 6),
+                    "usage_cost_snapshot": round(qty * float(sku.get("unit_cost", 0) or 0), 2),
+                    "cost_source": sku.get("unit_cost_source") or sku.get("latest_unit_cost_source") or "sku_unit_cost",
                 },
             ))
 
         self.usage_logs.append(log.to_dict())
         self.save()
         return log
+
+    def replace_daily_usage(self, log: UsageLog) -> UsageLog:
+        """覆盖某天纸质日用表，并把上一版扣减完整冲回后重新入账。"""
+        snapshot = {
+            "skus": copy.deepcopy(self.skus),
+            "inventory_events": copy.deepcopy(self.inventory_events),
+            "usage_logs": copy.deepcopy(self.usage_logs),
+        }
+        old_logs = [
+            item for item in self.usage_logs
+            if item.get("date") == log.date and item.get("source") == log.source
+        ]
+        old_ids = {item.get("id") for item in old_logs}
+        try:
+            for event in self.inventory_events:
+                metadata = event.get("metadata") or {}
+                if event.get("event_type") != "usage" or metadata.get("usage_log_id") not in old_ids:
+                    continue
+                sku = self.get_sku(event.get("sku_id", ""))
+                if sku is None:
+                    continue
+                deductions = metadata.get("deductions") or []
+                if not deductions and float(metadata.get("deducted_quantity", 0) or 0) > 0:
+                    deductions = [{
+                        "location": event.get("from_location") or "store",
+                        "quantity": float(metadata.get("deducted_quantity", 0) or 0),
+                    }]
+                for deduction in deductions:
+                    location = deduction.get("location", "")
+                    if location in INVENTORY_LOCATIONS:
+                        self._change_stock(sku, location, float(deduction.get("quantity", 0) or 0))
+            self.inventory_events = [
+                event for event in self.inventory_events
+                if not (
+                    event.get("event_type") == "usage"
+                    and (event.get("metadata") or {}).get("usage_log_id") in old_ids
+                )
+            ]
+            self.usage_logs = [item for item in self.usage_logs if item.get("id") not in old_ids]
+            return self.record_usage(log)
+        except Exception:
+            self.skus = snapshot["skus"]
+            self.inventory_events = snapshot["inventory_events"]
+            self.usage_logs = snapshot["usage_logs"]
+            raise
+
+    def daily_usage_summary(self, date: str) -> Dict[str, Any]:
+        sku_map = {sku.get("id"): sku for sku in self.skus}
+        rows: List[Dict[str, Any]] = []
+        usage_cost = 0.0
+        shortfall_count = 0
+        for event in self.inventory_events:
+            if event.get("event_type") != "usage" or event.get("date") != date:
+                continue
+            sku = sku_map.get(event.get("sku_id"), {})
+            quantity = float(event.get("quantity", 0) or 0)
+            metadata = event.get("metadata") or {}
+            unit_cost = float(metadata.get("unit_cost_snapshot", sku.get("unit_cost", 0)) or 0)
+            shortfall = float(metadata.get("shortfall", 0) or 0)
+            if shortfall > 0:
+                shortfall_count += 1
+            cost = round(float(metadata.get("usage_cost_snapshot", quantity * unit_cost) or 0), 2)
+            usage_cost += cost
+            rows.append({
+                "sku_id": event.get("sku_id", ""),
+                "name": sku.get("name", ""),
+                "category": sku.get("category", ""),
+                "quantity": quantity,
+                "unit": sku.get("display_unit") or sku.get("unit", ""),
+                "unit_cost": unit_cost,
+                "usage_cost": cost,
+                "shortfall": shortfall,
+            })
+        return {
+            "date": date,
+            "rows": rows,
+            "recorded_sku_count": len(rows),
+            "usage_cost": round(usage_cost, 2),
+            "shortfall_sku_count": shortfall_count,
+            "cost_basis": "按使用发生时的移动加权单位成本快照估算；属于库存耗用成本，不等于已确认商品毛利。",
+        }
+
+    def period_usage_cost_summary(self, start: str, end: str) -> Dict[str, Any]:
+        """Aggregate cost snapshots for finance without posting accounting entries."""
+        sku_map = {sku.get("id"): sku for sku in self.skus}
+        categories: Dict[str, float] = {}
+        evidence_event_ids: List[str] = []
+        for event in self.inventory_events:
+            event_date = str(event.get("date") or "")
+            if event.get("event_type") != "usage" or not (start <= event_date <= end):
+                continue
+            sku = sku_map.get(event.get("sku_id"), {})
+            metadata = event.get("metadata") or {}
+            quantity = float(event.get("quantity", 0) or 0)
+            unit_cost = float(metadata.get("unit_cost_snapshot", sku.get("unit_cost", 0)) or 0)
+            usage_cost = round(float(metadata.get("usage_cost_snapshot", quantity * unit_cost) or 0), 2)
+            category = str(sku.get("category") or "未分类")
+            categories[category] = round(categories.get(category, 0) + usage_cost, 2)
+            if event.get("id"):
+                evidence_event_ids.append(str(event["id"]))
+        food = round(categories.get("常温食材", 0) + categories.get("冷链食材", 0), 2)
+        packaging = round(categories.get("包装耗材", 0), 2)
+        other_consumables = round(sum(
+            value for category, value in categories.items()
+            if category not in {"常温食材", "冷链食材", "包装耗材"}
+        ), 2)
+        return {
+            "period_start": start,
+            "period_end": end,
+            "food_cost": food,
+            "packaging_cost": packaging,
+            "other_consumables_cost": other_consumables,
+            "total_usage_cost": round(food + packaging + other_consumables, 2),
+            "categories": categories,
+            "evidence_event_ids": evidence_event_ids,
+            "status": "estimated_from_daily_usage" if evidence_event_ids else "not_enough_data",
+            "accounting_boundary": "仅作暂估成本桥接；不自动过账，不覆盖已过账实际成本",
+        }
+
+    def record_waste(
+        self,
+        *,
+        date: str,
+        location: str,
+        items: List[Dict[str, Any]],
+        reason: str,
+        source: str = "owner_confirmed",
+        notes: str = "",
+    ) -> List[Dict[str, Any]]:
+        """登记撒漏、变质、过期等报损，并从指定位置扣减库存。"""
+        location = self._validate_location(location, allow_unallocated=False)
+        if not reason.strip():
+            raise ValueError("报损原因不能为空")
+        prepared: List[Tuple[Dict[str, Any], float]] = []
+        for item in items:
+            sku = self.get_sku(item.get("sku_id", ""))
+            quantity = round(float(item.get("quantity", 0) or 0), 4)
+            if sku is None:
+                raise ValueError(f"sku not found: {item.get('sku_id', '')}")
+            if quantity <= 0:
+                raise ValueError("报损数量必须大于 0")
+            if quantity > self._stock_map(sku).get(location, 0) + 0.0001:
+                raise ValueError(f"{sku.get('name')} 在{LOCATION_LABELS[location]}库存不足")
+            prepared.append((sku, quantity))
+
+        events: List[Dict[str, Any]] = []
+        for sku, quantity in prepared:
+            self._change_stock(sku, location, -quantity)
+            events.append(self._append_event(InventoryEvent(
+                date=date,
+                event_type="waste",
+                sku_id=sku.get("id", ""),
+                quantity=quantity,
+                from_location=location,
+                source=source,
+                notes=notes,
+                metadata={"reason": reason},
+            )))
+        self.save()
+        return events
 
     def record_count(self, count: InventoryCount) -> InventoryCount:
         count.location = self._validate_location(count.location, allow_unallocated=False)
@@ -943,7 +1168,8 @@ class SkuCatalog:
         allocated_skus = 0
         unallocated_skus = 0
         inventory_value = 0.0
-        active_skus = [sku for sku in self.skus if sku.get("active", True)]
+        active_catalog = [sku for sku in self.skus if sku.get("active", True)]
+        active_skus = [sku for sku in active_catalog if sku.get("asset_class") != "equipment"]
         for sku in active_skus:
             stock_map = self._stock_map(sku)
             for location in INVENTORY_LOCATIONS:
@@ -956,6 +1182,21 @@ class SkuCatalog:
 
         recent_count = self.get_counts(limit=1)
         recent_usage = self.get_usage_logs(limit=1)
+        today = datetime.now().strftime("%Y-%m-%d")
+        today_usage = self.daily_usage_summary(today)
+        today_waste_cost = 0.0
+        sku_map = {sku.get("id"): sku for sku in self.skus}
+        for event in self.inventory_events:
+            if event.get("event_type") == "waste" and event.get("date") == today:
+                sku = sku_map.get(event.get("sku_id"), {})
+                today_waste_cost += float(event.get("quantity", 0) or 0) * float(sku.get("unit_cost", 0) or 0)
+        active_sku_ids = {sku.get("id") for sku in active_skus}
+        counted_sku_ids = {
+            line.get("sku_id")
+            for count in self.inventory_counts
+            for line in count.get("lines", [])
+            if line.get("sku_id") in active_sku_ids
+        }
         actions: List[Dict[str, Any]] = []
         if unallocated_skus:
             actions.append({
@@ -979,9 +1220,9 @@ class SkuCatalog:
             actions.append({
                 "id": "first-usage-log",
                 "level": "info",
-                "title": "每日开包台账尚未录入",
+                "title": "今日物料使用尚未录入",
                 "reason": "预拌粉、调料包和章鱼粒等核心物料还没有连续耗用记录。",
-                "action": "录入今天的员工纸质台账",
+                "action": "录入今天的每日物料使用表",
                 "confidence": "high",
             })
 
@@ -1018,9 +1259,19 @@ class SkuCatalog:
                 for location, total in location_totals.items()
             },
             "sku_count": len(active_skus),
+            "catalog_sku_count": len(active_catalog),
+            "equipment_count": len([sku for sku in active_catalog if sku.get("asset_class") == "equipment"]),
+            "daily_usage_sku_count": len([sku for sku in active_skus if sku.get("tracking_mode") == "daily_usage"]),
+            "master_verified_sku_count": len([sku for sku in active_catalog if sku.get("master_data_status") == "complete"]),
+            "master_gap_sku_count": len([sku for sku in active_catalog if sku.get("master_data_status") in {"needs_review", "legacy_not_in_product_archive"}]),
+            "counted_sku_count": len(counted_sku_ids),
             "allocated_skus": allocated_skus,
             "unallocated_skus": unallocated_skus,
             "inventory_value": round(inventory_value, 2),
+            "today_usage_cost": today_usage["usage_cost"],
+            "today_usage_sku_count": today_usage["recorded_sku_count"],
+            "today_waste_cost": round(today_waste_cost, 2),
+            "cost_basis": today_usage["cost_basis"],
             "last_count": recent_count[0] if recent_count else None,
             "last_usage_log": recent_usage[0] if recent_usage else None,
             "work_in_process": {
@@ -1034,7 +1285,7 @@ class SkuCatalog:
                 ],
             },
             "actions": actions,
-            "data_status": "calibrating" if unallocated_skus or not recent_count else "ready",
+            "data_status": "calibrating" if unallocated_skus or len(counted_sku_ids) < len(active_skus) else "ready",
         }
 
     def variance_analysis(self, limit: int = 12) -> Dict[str, Any]:
@@ -1078,7 +1329,8 @@ class SkuCatalog:
     ) -> Dict[str, Any]:
         """SKU 期间实际消耗 vs 理论消耗差异。
 
-        实际消耗 = 期初库存 + 采购 - 领用 - 损耗 - 期末盘点
+        实际消耗 = 期初库存 + 期间入库 - 期末库存。
+        日常使用与报损已改变账面库存，只作为耗用结构证据，不再二次扣减。
         理论消耗 = 商品销量 × BOM（BOM 或销量缺失时标记为暂不可核验）。
         """
         bom = bom or {}
@@ -1143,8 +1395,11 @@ class SkuCatalog:
                     pass
 
             has_count_pair = bool(opening_by_loc) and bool(closing_by_loc)
+            # 实际耗用由两个实盘端点闭合：期初 + 期间入库 - 期末。
+            # 每日开包/领用和报损是解释实际耗用组成的经营信号，库存数量已在
+            # 记录事件时扣减；若在这里再次扣除，会把同一耗用重复计算。
             actual_consumption = (
-                round(opening + purchases_qty - usage_qty - waste_qty - closing, 4)
+                round(opening + purchases_qty - closing, 4)
                 if has_count_pair
                 else None
             )
@@ -1227,7 +1482,7 @@ class SkuCatalog:
             "total_theoretical_consumption": round(total_theoretical, 4) if rows_with_bom else None,
             "total_variance_value": round(total_variance_value, 2),
             "verification_coverage": verification_coverage,
-            "method": "实际消耗 = 期初 + 采购 - 领用 - 损耗 - 期末；理论消耗 = 销量 × BOM；缺少 BOM 时明确标记为暂不可核验。",
+            "method": "实际耗用 = 期初实盘 + 期间入库 - 期末实盘；每日领用与报损用于解释耗用组成，不重复扣减；理论耗用 = 销量 × BOM。",
         }
 
     def forecast(self, revenue_growth_factor: float = 1.0) -> List[Dict[str, Any]]:
@@ -1241,7 +1496,11 @@ class SkuCatalog:
         today = today_date.strftime("%Y-%m-%d")
         result = []
         for sku in self.skus:
-            if not sku.get("active", True):
+            if (
+                not sku.get("active", True)
+                or sku.get("asset_class") == "equipment"
+                or not sku.get("reorder_enabled", True)
+            ):
                 continue
             sku_id = sku.get("id", "")
             stock_by_location = self._stock_map(sku)
@@ -1253,6 +1512,8 @@ class SkuCatalog:
             user_daily = float(sku.get("consumption_per_day", 0))
             unit_cost = float(sku.get("unit_cost", 0))
             batch = int(sku.get("batch_cycle_days", 14))
+            lead_days = int(sku.get("supplier_lead_days", 0) or 0)
+            target_days = float(sku.get("store_target_days", 0) or 0)
 
             observed_daily = self._observed_consumption(sku_id)
             daily = (observed_daily if observed_daily > 0 else user_daily) * revenue_growth_factor
@@ -1276,12 +1537,12 @@ class SkuCatalog:
                     "recommend_amount": None,
                     "risk_level": "unknown",
                     "action": "not_enough_data",
+                    "missing_inputs": ["连续每日使用记录"],
                     "estimated_date": today,
                 })
                 continue
 
-            usable = max(0.0, current - safety)
-            days_remaining = usable / daily
+            days_remaining = current / daily
             days_remaining_val = round(days_remaining, 1)
 
             # 断货日期
@@ -1299,20 +1560,21 @@ class SkuCatalog:
                 risk_level = "high"
             elif current <= safety:
                 risk_level = "medium"
-            elif days_remaining <= 7:
+            elif days_remaining <= max(lead_days, 1):
                 risk_level = "medium"
             else:
                 risk_level = "low"
 
             # 建议采购量 & 金额
-            fill_to = daily * batch + safety
+            coverage_days = target_days if target_days > 0 else batch
+            fill_to = daily * (coverage_days + lead_days) + safety
             gap = max(0.0, fill_to - current)
 
             if current <= safety:
                 recommend_qty = round(gap, 2)
                 action = "urgent"
-            elif days_remaining <= batch:
-                recommend_qty = round(daily * batch, 2)
+            elif days_remaining <= lead_days + coverage_days:
+                recommend_qty = round(gap, 2)
                 action = "recommend"
             else:
                 recommend_qty = None
@@ -1338,6 +1600,9 @@ class SkuCatalog:
                 "recommend_amount": recommend_amount,
                 "risk_level": risk_level,
                 "action": action,
+                "supplier_lead_days": lead_days,
+                "target_coverage_days": coverage_days,
+                "missing_inputs": [],
                 "estimated_date": today,
             })
         risk_order = {"high": 0, "medium": 1, "low": 2, "unknown": 3}

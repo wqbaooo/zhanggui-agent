@@ -6,6 +6,7 @@ from __future__ import annotations
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -92,6 +93,70 @@ class ReportArchive:
             prev_first = (first - timedelta(days=1)).replace(day=1)
             prev_last = first - timedelta(days=1)
             return first.strftime("%Y-%m-%d"), last.strftime("%Y-%m-%d"), prev_first.strftime("%Y-%m-%d"), prev_last.strftime("%Y-%m-%d")
+
+    def finance_period(self, report_type: str) -> tuple[str, str, str, str]:
+        today = datetime.now(ZoneInfo("Asia/Shanghai")).date()
+        if report_type == "daily":
+            previous = today - timedelta(days=1)
+            return today.isoformat(), today.isoformat(), previous.isoformat(), previous.isoformat()
+        if report_type == "weekly":
+            start = today - timedelta(days=today.weekday())
+            previous_start = start - timedelta(days=7)
+            return start.isoformat(), today.isoformat(), previous_start.isoformat(), (start - timedelta(days=1)).isoformat()
+        start = today.replace(day=1)
+        previous_end = start - timedelta(days=1)
+        return start.isoformat(), today.isoformat(), previous_end.replace(day=1).isoformat(), previous_end.isoformat()
+
+    def generate_from_finance(self, report_type: str, finance: Any) -> Report:
+        start, end, prev_start, prev_end = self.finance_period(report_type)
+        current = finance.finance_overview(self.project_id, start, end)
+        previous = finance.finance_overview(self.project_id, prev_start, prev_end)
+        if current.get("profit_status") != "confirmed":
+            missing = "、".join(current.get("missing_inputs") or [])
+            raise ValueError(f"当前周期还不能发布正式利润报告，缺少：{missing}")
+
+        revenue = current["revenue_minor"] / 100
+        net_profit = current["net_profit_minor"] / 100
+        orders = current["orders"]
+        sales_days = current["sales_days"]
+        costs = {key: value / 100 for key, value in current["costs_minor"].items()}
+        previous_revenue = (previous.get("revenue_minor") or 0) / 100
+        previous_profit_minor = previous.get("net_profit_minor")
+        previous_profit = previous_profit_minor / 100 if previous_profit_minor is not None else 0
+        revenue_change = round((revenue - previous_revenue) / previous_revenue * 100, 1) if previous_revenue else 0
+        profit_change = round((net_profit - previous_profit) / abs(previous_profit) * 100, 1) if previous_profit else 0
+        food = costs["food_cost"] + costs["packaging_cost"] + costs["waste_cost"]
+        variable = food + costs["platform_cost"] + costs["marketing_cost"]
+        findings: list[dict[str, Any]] = []
+        if current.get("closed_days", 0) < current.get("sales_days", 0):
+            findings.append({"type": "close_gap", "level": "risk", "title": "存在未关账营业日", "body": "报告只使用已确认财务事实。", "target": "/profit"})
+
+        report = Report(
+            id=f"finance-{report_type}-{start}-{end}", report_type=report_type,
+            period_start=start, period_end=end,
+            generated_at=datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d %H:%M"),
+            status="finance_confirmed", total_days=sales_days,
+            total_revenue=round(revenue, 2), avg_daily_revenue=round(revenue / max(sales_days, 1), 2),
+            total_orders=orders, avg_order_value=round(revenue / orders, 2) if orders else 0,
+            net_profit=round(net_profit, 2), food_cost_rate=round(food / revenue, 4) if revenue else 0,
+            labor_cost_rate=round(costs["labor"] / revenue, 4) if revenue else 0,
+            platform_fee_total=round(costs["platform_cost"], 2),
+            prev_revenue=round(previous_revenue, 2), revenue_change_pct=revenue_change,
+            prev_net_profit=round(previous_profit, 2), profit_change_pct=profit_change,
+            findings=findings,
+            sections={
+                "revenue": {"title": "营收与订单", "metrics": {"total_revenue": revenue, "total_orders": orders, "avg_daily_revenue": revenue / max(sales_days, 1)}},
+                "profit": {"title": "利润", "metrics": {"net_profit": net_profit, "net_margin": current.get("net_margin"), "contribution_margin": (revenue - variable)}},
+                "cost": {"title": "成本结构", "metrics": costs},
+                "cash": {"title": "资金与应收", "metrics": current["funds_minor"]},
+                "data_quality": {"title": "数据质量", "metrics": {"closed_days": current["closed_days"], "sales_days": current["sales_days"], "missing_inputs": current["missing_inputs"]}},
+            },
+            narrative=f"本期已确认营收 ¥{revenue:,.2f}，经营净利润 ¥{net_profit:,.2f}。所有数字来自统一财务底账。",
+        )
+        self.reports = [item for item in self.reports if item.get("id") != report.id]
+        self.reports.append(report.to_dict())
+        self.save()
+        return report
 
     def generate(self, report_type: str, project_memory: Any, sku_catalog: Any = None, labor_tracking: Any = None) -> Report:
         start, end, prev_start, prev_end = self._period(report_type)
@@ -259,13 +324,46 @@ class ReportArchive:
         r = self.reports
         if report_type:
             r = [x for x in r if x.get("report_type") == report_type]
-        return sorted(r, key=lambda x: x.get("generated_at", ""), reverse=True)[:limit]
+        return [
+            self._public_report(item)
+            for item in sorted(r, key=lambda x: x.get("generated_at", ""), reverse=True)[:limit]
+        ]
 
     def get(self, rid: str) -> Optional[Dict[str, Any]]:
         for r in self.reports:
             if r.get("id") == rid:
-                return r
+                return self._public_report(r)
         return None
+
+    @staticmethod
+    def _public_report(item: Dict[str, Any]) -> Dict[str, Any]:
+        if item.get("status") != "generated" or str(item.get("id", "")).startswith("finance-"):
+            return item
+        # Preserve the original JSON archive for audit, but never expose
+        # unsupported legacy calculations as current facts or downloadable
+        # report values.
+        return {
+            **item,
+            "status": "legacy_unverified",
+            "total_revenue": None,
+            "avg_daily_revenue": None,
+            "total_orders": None,
+            "avg_order_value": None,
+            "net_profit": None,
+            "food_cost_rate": None,
+            "labor_cost_rate": None,
+            "takeout_ratio": None,
+            "platform_fee_total": None,
+            "prev_revenue": None,
+            "revenue_change_pct": None,
+            "prev_net_profit": None,
+            "profit_change_pct": None,
+            "changes": [],
+            "findings": [],
+            "sections": {},
+            "actions": [],
+            "narrative": "旧口径报告，未经统一财务底账验证，不可作为正式利润结论。",
+        }
 
 
 def _build_narrative(findings: List[Dict[str, Any]], total_rev: float, net: float,

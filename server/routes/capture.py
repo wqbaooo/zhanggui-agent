@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import logging
 import re
@@ -13,13 +14,18 @@ import subprocess
 import tempfile
 import urllib.error
 import urllib.request
+import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from config import DEEPSEEK_API_KEY
+from config import DEEPSEEK_API_KEY, PROJECT_DATA_DIR
+from core.finance_intake import classify_finance_transaction
+from models.finance_ledger import FinanceLedger, money_to_minor
 from server.model_routing import local_vision_route, paid_vision_route
 
 logger = logging.getLogger(__name__)
@@ -31,12 +37,67 @@ MAX_IMAGE_BYTES = 5 * 1024 * 1024  # 5MB
 
 class CaptureConfirmRequest(BaseModel):
     file_name: str = ""
+    image_url: str = ""
     source_type: str
     capture_kind: str = "document"
     recognized_fields: list[dict[str, Any]] = Field(default_factory=list)
     human_modified_fields: list[str] = Field(default_factory=list)
     write_target: str
     date: str = ""
+    structured_artifact: dict[str, Any] = Field(default_factory=dict)
+
+
+FINANCE_FIELD_ACCOUNTS = {
+    "food_cost": "5001",
+    "packaging_cost": "5002",
+    "platform_fee": "5003",
+    "service_fee": "5003",
+    "delivery_fee": "5003",
+    "marketing_cost": "5004",
+    "merchant_discount": "5004",
+    "inventory_loss": "5005",
+    "labor": "6001",
+    "rent_allocated": "6002",
+    "utility": "6003",
+}
+
+
+def _confirmed_capture_expenses(req: CaptureConfirmRequest) -> list[tuple[str, int, str]]:
+    """Return confirmed expense lines without treating inventory purchases as period cost."""
+    source = req.source_type.strip()
+    target = req.write_target.strip()
+    if any(token in source or token in target for token in ("进货", "采购", "供应商", "库存入库", "应付账款")):
+        return []
+
+    expenses: list[tuple[str, int, str]] = []
+    explicit_cost_found = False
+    for field in req.recognized_fields:
+        key = str(field.get("key") or "").strip()
+        account = FINANCE_FIELD_ACCOUNTS.get(key)
+        if not account:
+            continue
+        try:
+            amount_minor = money_to_minor(field.get("value"))
+        except Exception:
+            continue
+        if amount_minor <= 0:
+            continue
+        explicit_cost_found = True
+        expenses.append((account, amount_minor, key))
+
+    # 水电单经常只识别为“金额”；只有来源明确时才允许自动归类。
+    if not explicit_cost_found and any(token in source for token in ("水电", "电费", "水费", "燃气")):
+        for field in req.recognized_fields:
+            if str(field.get("key") or "").strip() != "amount":
+                continue
+            try:
+                amount_minor = money_to_minor(field.get("value"))
+            except Exception:
+                continue
+            if amount_minor > 0:
+                expenses.append(("6003", amount_minor, "amount"))
+                break
+    return expenses
 
 CAPTURE_SYSTEM_PROMPT = """你是一个经营数据提取助手。用户会上传一张餐饮经营相关的截图或照片（客如云日报、美团后台、进货单、库存照片、水电单等）。
 
@@ -44,7 +105,7 @@ CAPTURE_SYSTEM_PROMPT = """你是一个经营数据提取助手。用户会上�
 
 返回格式：
 {
-  "source_type": "识别到的来源类型（如：客如云日报/美团后台/进货单/库存照片/水电单/未知）",
+  "source_type": "识别到的来源类型（如：客如云日报/美团后台/进货单/库存照片/水电单/投诉异常截图/未知）",
   "fields": [
     {"key": "date", "label": "日期", "value": "2026-01-15", "confidence": "high"},
     {"key": "revenue", "label": "营收", "value": 1234, "confidence": "high"}
@@ -67,6 +128,11 @@ CAPTURE_SYSTEM_PROMPT = """你是一个经营数据提取助手。用户会上�
 - platform_fee: 平台扣点/佣金/服务费/抽成（数字）
 - marketing_cost: 营销/满减/推广费/推广通/美团券（数字）
 - inventory_loss: 损耗/报损（数字）
+- amount: 转账、账单或票据金额（数字）
+- transaction_direction: 资金方向，只能是 inflow、outflow 或 unknown
+- counterparty: 交易对方、收款人或付款人
+- transaction_reference: 流水号、订单号或凭证号
+- balance: 交易后余额
 - bad_reviews: 差评数（整数）
 - repeat_orders: 复购订单数（整数）
 - new_members: 新增会员数（整数）
@@ -77,6 +143,7 @@ CAPTURE_SYSTEM_PROMPT = """你是一个经营数据提取助手。用户会上�
 - 有效订单 = delivery_orders，平台总金额 = delivery_revenue，佣金 = platform_fee
 - 满减补贴/推广通/美团券费用 = marketing_cost
 - 餐盒/打包耗材 = packaging_cost
+- 经营日报中的"退款"是正常业务字段，不是投诉异常；只有当图片明确是差评、投诉、罚款、整改等风险事件时才返回"投诉异常截图"
 
 confidence 标注：
 - high: 数字清晰可读，确定正确
@@ -85,19 +152,24 @@ confidence 标注：
 
 只返回 JSON 对象，不要额外文字或 markdown 代码块。"""
 
-LOCAL_VISION_PROMPT = """请识别这张餐饮门店图片，只返回 JSON，不要解释。
+LOCAL_VISION_PROMPT = """你是新余恒太城五楼大口章鱼烧的多模态经营 Agent。请直接理解这张图片，只返回 JSON。
 
 要求：
 - 只返回图片里真实可见的字段，不要猜测，不要使用示例值。
-- 先判断 source_type，可选：客如云日报、美团后台、淘宝闪购后台、抖音后台、银行转账凭证、
-  POS销售小票、进货单、出餐标签、水电单、合同/协议资料、总部/SOP资料、证照资料、库存照片、未知。
+- 先理解这是什么经营证据、对应哪个营业日、能证明什么、不能证明什么。
+- 金额必须保留图中口径：营业收入、订单金额、实收、优惠、退款、平台费不得混为同一数。
+- 如果日期、合计或口径不确定，在 questions 中给出最少数量、可以直接问老板的问题。
+- 先判断 source_type，可选：客如云日报、美团外卖后台、美团团购后台、淘宝闪购后台、京东外卖后台、抖音团购后台、银行转账凭证、
+  POS销售小票、进货单、出餐标签、水电单、合同/协议资料、总部/SOP资料、证照资料、库存照片、
+  投诉异常截图、未知。
 - 单笔 POS 小票、出餐标签和转账凭证不是当日经营汇总，不能把单笔金额写成 revenue。
 - document_facts 返回清晰可见的关键事实；表格或商品明细放入 line_items。
 - 如果图片包含多个月份的营业额、利润或成本，source_type 返回“历史月度经营表”，fields 留空，
   raw_text 按“年份/月份/指标/金额/置信度”转写可辨认内容，parse_error 返回“需要人工确认月度数据”。
 - 如果没有看到经营数据，返回 {"source_type":"未知","fields":[],"raw_text":"","parse_error":"未识别到经营数据"}。
-- fields 中只允许这些 key：date, revenue, orders, delivery_revenue, delivery_orders, dine_in_revenue, dine_in_orders, food_cost, packaging_cost, labor, rent_allocated, utility, platform_fee, marketing_cost, inventory_loss, bad_reviews, repeat_orders, new_members, notes。
+- fields 中只允许这些 key：date, revenue, orders, delivery_revenue, delivery_orders, dine_in_revenue, dine_in_orders, food_cost, packaging_cost, labor, rent_allocated, utility, platform_fee, marketing_cost, inventory_loss, bad_reviews, repeat_orders, new_members, amount, transaction_direction, counterparty, transaction_reference, balance, notes。
 - confidence 只能是 high、medium、low。
+- 经营日报中的"退款"是正常业务字段，不是投诉异常；只有当图片明确是差评、投诉、罚款、整改等风险事件时才返回"投诉异常截图"。
 
 返回结构：
 {
@@ -105,6 +177,8 @@ LOCAL_VISION_PROMPT = """请识别这张餐饮门店图片，只返回 JSON，�
   "fields": [],
   "document_facts": [{"label":"单据日期","value":"2026-06-21","confidence":"medium"}],
   "line_items": [{"name":"商品名","quantity":1,"unit_cost":10,"total":10}],
+  "analysis_summary": "这张图能确认的经营事实和口径",
+  "questions": ["只在必须确认时提问"],
   "raw_text": "图片中可辨认的原文",
   "parse_error": null
 }
@@ -112,6 +186,8 @@ LOCAL_VISION_PROMPT = """请识别这张餐饮门店图片，只返回 JSON，�
 
 FIELD_LABELS = {
     "date": "日期",
+    "order_amount": "订单金额",
+    "operating_income": "营业收入",
     "revenue": "营收",
     "orders": "订单数",
     "takeout_orders": "外卖订单",
@@ -125,13 +201,29 @@ FIELD_LABELS = {
     "rent_allocated": "房租",
     "utility": "水电费",
     "platform_fee": "平台费",
+    "service_fee": "服务费",
+    "delivery_fee": "配送支出",
+    "merchant_discount": "商户优惠",
+    "subsidy": "补贴",
     "marketing_cost": "营销成本",
     "inventory_loss": "损耗",
+    "transaction_direction": "资金方向",
+    "counterparty": "交易对方",
+    "transaction_reference": "流水号/凭证号",
+    "balance": "交易后余额",
     "bad_reviews": "差评数",
     "repeat_orders": "复购单",
     "new_members": "新会员",
     "notes": "备注",
     "amount": "金额",
+    "cash_amount": "现金",
+    "wechat_amount": "微信",
+    "alipay_amount": "支付宝",
+    "meituan_amount": "美团",
+    "taobao_flash_amount": "淘宝闪购",
+    "douyin_coupon_amount": "抖音团购券",
+    "customer_count": "来客数",
+    "avg_ticket": "客单价",
 }
 
 FIELD_PATTERNS: list[tuple[str, str]] = [
@@ -282,60 +374,124 @@ def _select_vision_provider() -> tuple[str, str, str]:
 def _detect_source_type(text: str) -> str:
     lowered = text.lower()
     compact = re.sub(r"\s+", "", text)
-    if "物料盘点表" in compact or (
-        "盘点表" in compact and all(token in compact for token in ["品名", "数量", "总数量"])
+
+    BUSINESS_KEYWORDS = [
+        "营收", "营业额", "流水", "订单数", "订单", "收款", "支付",
+        "微信", "支付宝", "现金", "外卖", "堂食", "营业收入",
+        "当日", "今日", "日报", "报表", "成交", "销售", "实收",
+        "订单金额", "来客人数", "客单价", "营业时长", "销售额",
+    ]
+    business_count = sum(1 for kw in BUSINESS_KEYWORDS if kw in text)
+
+    RISK_KEYWORDS = ["差评", "投诉", "罚款", "整改", "纠纷"]
+    risk_count = sum(1 for kw in RISK_KEYWORDS if kw in text)
+
+    PLATFORM_KEYWORDS = {
+        "客如云": "客如云日报",
+        "美团团购": "美团团购后台",
+        "美团外卖": "美团外卖后台",
+        "京东外卖": "京东外卖后台",
+        "京东秒送": "京东外卖后台",
+        "抖音团购": "抖音团购后台",
+        "淘宝闪购": "淘宝闪购后台",
+        "闪购": "淘宝闪购后台",
+        "美团": "美团外卖后台",
+        "京东": "京东外卖后台",
+        "抖音": "抖音团购后台",
+    }
+
+    if (
+        "境内汇款电子回单" in compact
+        or (
+            "回单编号" in compact
+            and any(token in compact for token in ["收款卡号", "付款卡号", "收款金额"])
+        )
     ):
-        return "库存盘点表"
-    if "转账汇款" in compact or ("交易成功" in compact and any(token in compact for token in ["卡(账)号", "卡(帐)号", "付款人", "收款人"])):
         return "银行转账凭证"
+
+    for platform, source_type in PLATFORM_KEYWORDS.items():
+        if platform in text or (platform.lower() in lowered):
+            if business_count >= 1:
+                return source_type
+            if risk_count >= 2:
+                return "投诉异常截图"
+            return source_type
+
+    if "交易成功" in compact and any(token in compact for token in ["卡(账)号", "卡(帐)号", "付款人", "收款人", "交易时间", "转账汇款"]):
+        return "银行转账凭证"
+
     if "销售订单" in compact or ("单据编号" in compact and any(token in compact for token in ["供应链", "商品名称", "规格型号"])):
         return "进货单"
+
     if "取餐号" in compact or "内用POS" in compact or (
         re.search(r"\bT\d{4,}\b", compact, re.IGNORECASE) and any(token in compact for token in ["1/1", "购物中心", "商品"])
     ):
         if len(compact) > 350 or any(token in compact for token in ["实付金额", "订单号", "扫码团购券", "应付金额", "商户收银终"]):
             return "POS销售小票"
         return "出餐标签"
+
     if any(token in text for token in ["实付金额", "应付金额"]) and any(token in text for token in ["商品", "订单号", "合计"]):
         return "POS销售小票"
+
+    if "物料盘点表" in compact or ("盘点表" in compact and all(token in compact for token in ["品名", "数量", "总数量"])):
+        return "库存盘点表"
+
     if "大口效期管理" in text or "效期管理" in text or ("开封" in text and ("常温" in text or "冷藏" in text)):
         return "效期管理表"
+
     if "出餐岗前培训" in text or ("口味" in text and "步骤" in text and "注意事项" in text):
         return "总部/SOP资料"
+
     if any(token in text for token in ["营业执照", "食品经营许可证", "食品经营许可", "健康证", "许可证"]):
         return "证照资料"
+
     if "店铺转让协议" in text or ("店铺转让" in text and "协议" in text):
         return "店铺转让协议"
+
     if any(token in text for token in ["转让协议", "转让合同", "租赁合同", "合同"]):
         return "合同/协议资料"
-    if any(token in text for token in ["客如云", "客如雲"]) or "keruyun" in lowered:
+
+    if any(token in text for token in ["挂账", "赊账", "应付"]) and any(token in compact for token in ["商品名", "下单数", "实际出货", "销售单价", "小计"]):
+        return "菜场挂账小票"
+
+    if business_count >= 3:
         return "客如云日报"
-    if any(token in text for token in ["差评", "投诉", "退款", "罚款", "整改", "聊天记录", "顾客反馈"]):
+
+    if risk_count >= 2:
         return "投诉异常截图"
-    if "美团" in text or "meituan" in lowered:
-        return "美团后台"
-    if "抖音" in text or "douyin" in lowered:
-        return "抖音后台"
-    if "淘宝闪购" in text or "闪购" in text:
-        return "淘宝闪购后台"
+
     if any(token in text for token in ["进货", "采购", "供货", "货单"]):
         return "进货单"
+
     if any(token in text for token in ["库存", "冰柜", "货架"]):
         return "库存照片"
+
     if any(token in text for token in ["水电", "电费", "水费"]):
         return "水电单"
+
     if any(token in text for token in ["排班", "班次", "工时", "工资表", "薪资", "提成"]):
         return "排班工资表"
-    if any(token in text for token in ["小票", "收据", "付款", "支付成功", "微信支付", "支付宝", "发票"]):
+
+    if any(token in text for token in ["小票", "收据", "发票"]):
         return "票据单据"
+
+    if business_count >= 2:
+        return "客如云日报"
+
+    if risk_count == 1 and business_count >= 2:
+        return "客如云日报"
+
     return "本地 OCR"
 
 
 def _capture_kind(source_type: str, text: str, fields: list[dict[str, Any]]) -> str:
+    if source_type == "客如云日报":
+        return "operation"
     if source_type in {
         "店铺转让协议", "合同/协议资料", "效期管理表", "总部/SOP资料",
         "证照资料", "进货单", "库存照片", "库存盘点表", "水电单", "排班工资表",
         "投诉异常截图", "票据单据", "银行转账凭证", "POS销售小票", "出餐标签",
+        "菜场挂账小票",
     }:
         return "document"
     if any(hint in text for hint in DOCUMENT_HINTS):
@@ -347,6 +503,149 @@ def _capture_kind(source_type: str, text: str, fields: list[dict[str, Any]]) -> 
 
 def _normalize_ocr_number(value: str) -> str:
     return value.translate(str.maketrans({"O": "0", "o": "0", "I": "1", "l": "1"})).replace("_", "")
+
+
+def _parse_amount(value: str) -> float:
+    normalized = (
+        value.replace(",", "")
+        .replace("，", "")
+        .replace("￥", "")
+        .replace("¥", "")
+        .replace("元", "")
+        .strip()
+    )
+    return round(float(normalized), 2)
+
+
+def _find_money_after_labels(text: str, labels: list[str]) -> float | None:
+    for label in labels:
+        patterns = [
+            rf"{re.escape(label)}[^0-9\-￥¥]{{0,24}}[￥¥]?\s*(-?[0-9]+(?:\.[0-9]{{1,2}})?)",
+            rf"{re.escape(label)}\s*[：:]\s*[￥¥]?\s*(-?[0-9]+(?:\.[0-9]{{1,2}})?)",
+            rf"{re.escape(label)}\s+(-?[0-9]+(?:\.[0-9]{{1,2}})?)\s*[元块]",
+            rf"(-?[0-9]+(?:\.[0-9]{{1,2}})?)\s*[元块]\s*{re.escape(label)}",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, text)
+            if match:
+                try:
+                    return _parse_amount(match.group(1))
+                except ValueError:
+                    continue
+    return None
+
+
+def _find_int_after_labels(text: str, labels: list[str]) -> int | None:
+    for label in labels:
+        patterns = [
+            rf"{re.escape(label)}[^0-9]{{0,24}}([0-9]+)\s*(?:笔|单|人|个)?",
+            rf"{re.escape(label)}\s*[：:]\s*([0-9]+)\s*(?:笔|单|人|个)?",
+            rf"([0-9]+)\s*(?:笔|单|人|个)?\s*{re.escape(label)}",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, text)
+            if match:
+                return int(match.group(1))
+    return None
+
+
+def _field(key: str, value: float | int | str, confidence: str = "medium") -> dict[str, Any]:
+    return {"key": key, "label": FIELD_LABELS.get(key, key), "value": value, "confidence": confidence}
+
+
+def _parse_keruyun_fields_from_text(text: str, existing: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Extract the stable business fields visible in Keruyun daily screenshots."""
+    fields = list(existing)
+    seen = {str(field.get("key")) for field in fields}
+
+    def add_money(key: str, labels: list[str], confidence: str = "medium") -> None:
+        if key in seen:
+            return
+        value = _find_money_after_labels(text, labels)
+        if value is not None:
+            fields.append(_field(key, value, confidence))
+            seen.add(key)
+
+    def add_int(key: str, labels: list[str], confidence: str = "medium") -> None:
+        if key in seen:
+            return
+        value = _find_int_after_labels(text, labels)
+        if value is not None:
+            fields.append(_field(key, value, confidence))
+            seen.add(key)
+
+    add_money("order_amount", ["订单金额", "订单总金额"])
+    add_money("operating_income", ["营业收入", "当日已收到款"])
+    add_money("revenue", ["营业收入", "当日已收到款"])
+    add_int("orders", ["订单数", "销售 退货", "总订单数"])
+    add_int("customer_count", ["来客人数", "今日来客数", "就餐人数"])
+    add_money("avg_ticket", ["折后客单价", "今日客单价"])
+    add_money("dine_in_revenue", ["店内营业收入", "堂食收入"])
+    add_money("delivery_revenue", ["第三方营业收入", "外卖收入"])
+    add_int("dine_in_orders", ["店内订单数"])
+    add_int("delivery_orders", ["第三方订单数", "外卖订单"])
+    add_money("merchant_discount", ["商户优惠"])
+    add_money("delivery_fee", ["订单配送支出"])
+    add_money("service_fee", ["服务费"])
+    add_money("subsidy", ["补贴"])
+    add_money("cash_amount", ["现金"])
+    add_money("wechat_amount", ["微信"])
+    add_money("alipay_amount", ["支付宝"])
+    add_money("meituan_amount", ["美团外卖", "美团"])
+    add_money("taobao_flash_amount", ["淘宝闪购餐饮", "淘宝闪购"])
+    add_money("douyin_coupon_amount", ["抖音团购券"])
+
+    if len(fields) < 2:
+        money_matches = re.findall(r"[￥¥]?\s*([0-9]{2,}(?:\.[0-9]{1,2})?)\s*[元块]?", text)
+        int_matches = re.findall(r"([0-9]{2,})\s*(?:笔|单|人|个|份)", text)
+
+        if money_matches:
+            large_amounts = sorted([float(m) for m in money_matches], reverse=True)
+            if "revenue" not in seen and large_amounts:
+                fields.append(_field("revenue", large_amounts[0], "medium"))
+                seen.add("revenue")
+            if "order_amount" not in seen and len(large_amounts) > 1:
+                fields.append(_field("order_amount", large_amounts[1], "medium"))
+                seen.add("order_amount")
+
+        if int_matches and "orders" not in seen:
+            order_counts = sorted([int(m) for m in int_matches], reverse=True)
+            if order_counts:
+                fields.append(_field("orders", order_counts[0], "medium"))
+                seen.add("orders")
+
+    return fields
+
+
+def _parse_supplier_credit_receipt(text: str, line_items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], float | None]:
+    """Parse local market credit receipts. These create payables, not cash spend."""
+    compact = re.sub(r"\s+", "", text)
+    facts: list[dict[str, Any]] = [
+        {"label": "资料类型", "value": "供应商挂账小票", "confidence": "high", "evidence": "识别到挂账/赊账与商品明细结构。"},
+        {"label": "账务口径", "value": "采购入库 + 应付账款；未结账前不减少现金", "confidence": "high", "evidence": "用户说明菜场叫菜通常最后一起结账。"},
+    ]
+    supplier_match = re.search(r"(?:客户名称|供应商|商户名称)[：:\s]*([^\n\s]{2,20})", text)
+    if supplier_match:
+        facts.append({"label": "供应商/客户", "value": supplier_match.group(1), "confidence": "medium", "evidence": "OCR 识别"})
+    date_match = re.search(r"(20\d{2})[-年/.](\d{1,2})[-月/.](\d{1,2})", text)
+    if date_match:
+        facts.append({"label": "单据日期", "value": f"{date_match.group(1)}-{int(date_match.group(2)):02d}-{int(date_match.group(3)):02d}", "confidence": "medium", "evidence": "OCR 识别"})
+
+    items = list(line_items)
+    row_pattern = re.compile(r"([\u4e00-\u9fff]{1,8})\s+([0-9]+(?:\.[0-9]+)?)\s*(?:个|斤|kg|袋|份)?\s+([0-9]+(?:\.[0-9]+)?)\s+([0-9]+(?:\.[0-9]+)?)")
+    for name, qty, price, total in row_pattern.findall(text):
+        if not any(item.get("name") == name for item in items):
+            items.append({"name": name, "quantity": float(qty), "unit_cost": float(price), "total": float(total)})
+    total = _find_money_after_labels(text, ["合计", "总计", "小计"])
+    if total is None:
+        totals = [float(item.get("total") or 0) for item in items]
+        if totals:
+            total = round(sum(totals), 2)
+    if total is not None:
+        facts.append({"label": "挂账金额", "value": total, "confidence": "medium", "evidence": "按小票合计或明细合计"})
+    if items:
+        facts.append({"label": "采购品项", "value": f"{len(items)} 项", "confidence": "medium", "evidence": "识别到商品明细"})
+    return facts, items, total
 
 
 def _redact_sensitive_text(text: str) -> str:
@@ -386,6 +685,10 @@ def _parse_document_facts(text: str, source_type: str) -> list[dict[str, Any]]:
         total_matches = re.findall(r"(?:合计|总计)[^0-9]{0,12}([0-9]+(?:\.[0-9]{1,3})?)", text)
         if total_matches:
             facts.append({"label": "单据总额", "value": total_matches[-1], "confidence": "low", "evidence": "OCR 识别，必须与原图和明细合计核对"})
+
+    if source_type == "菜场挂账小票":
+        supplier_facts, _, _ = _parse_supplier_credit_receipt(text, [])
+        facts.extend(supplier_facts)
 
     if source_type == "店铺转让协议" or "店铺转让协议" in text:
         facts.append({
@@ -502,7 +805,9 @@ def _build_structured_artifact(
 ) -> dict[str, Any]:
     fields = fields or []
     line_items = line_items or []
-    if source_type in {"客如云日报", "美团后台", "淘宝闪购后台", "抖音后台"} or (
+    if source_type == "客如云日报":
+        fields = _parse_keruyun_fields_from_text(raw_text, fields)
+    if source_type in {"客如云日报", "美团后台", "美团外卖后台", "美团团购后台", "淘宝闪购后台", "京东外卖后台", "抖音后台", "抖音团购后台"} or (
         fields and source_type not in {
             "店铺转让协议", "合同/协议资料", "效期管理表", "总部/SOP资料",
             "证照资料", "进货单", "库存照片", "水电单", "排班工资表",
@@ -512,17 +817,22 @@ def _build_structured_artifact(
         return _with_universal_template({
             "type": "operation_record",
             "title": f"{source_type}经营数据草稿",
-            "confidence": "medium" if fields else "low",
-            "summary": "识别为经营数据截图。数字字段必须由店主确认后，才能写入经营日报和渠道分析。",
+            "confidence": "high" if source_type == "客如云日报" and len(fields) >= 4 else "medium" if fields else "low",
+            "summary": "识别为经营数据截图。客如云订单金额、营业收入、优惠、扣费、支付方式和商品销量必须分口径确认，避免把订单金额误当实收利润。",
             "fields": fields,
+            "write_payloads": {
+                "business_fact_source": "keruyun_daily_report" if source_type == "客如云日报" else "operation_record",
+                "fields": fields,
+            },
             "required_manual_fields": [
                 {"key": "date", "label": "日期", "reason": "经营数据必须确认归属日期。"},
                 {"key": "source_platform", "label": "来源平台", "reason": "同一订单可能同时出现在收银和平台后台，需避免重复入账。"},
+                {"key": "revenue_basis", "label": "收入口径", "reason": "订单金额、营业收入、收款金额必须分开。"},
             ],
             "ai_next_actions": [
-                "生成经营日报草稿",
-                "检查营收、订单、平台费和差评是否缺字段",
-                "确认后写入利润看板",
+                "生成待确认经营事实",
+                "检查订单金额、营业收入、扣费、现金和平台结算是否缺字段",
+                "确认后写入财务经营台、资金对账和商品销量",
             ],
             "risks": risks,
         }, source_type)
@@ -597,6 +907,42 @@ def _build_structured_artifact(
                 "创建设备交接清单",
             ],
             "risks": risks,
+        }, source_type)
+
+    if source_type == "菜场挂账小票":
+        supplier_facts, supplier_items, payable_total = _parse_supplier_credit_receipt(raw_text, line_items)
+        facts = supplier_facts
+        return _with_universal_template({
+            "type": "supplier_credit_receipt",
+            "title": "菜场挂账采购草稿",
+            "confidence": "medium",
+            "summary": "识别为菜场/供应商挂账小票。它表示采购入库和应付账款增加，未结账前不能写成现金支出。",
+            "facts": facts,
+            "items": supplier_items,
+            "write_payloads": {
+                "supplier_credit": {
+                    "amount": payable_total,
+                    "items": supplier_items,
+                    "payment_status": "unpaid",
+                    "cash_impact": 0,
+                },
+            },
+            "required_manual_fields": [
+                {"key": "date", "label": "采购日期", "reason": "用于归入库存和应付账款。"},
+                {"key": "amount", "label": "挂账金额", "reason": "需要核对小票合计。"},
+                {"key": "supplier_or_payee", "label": "菜场/供应商", "reason": "用于月底统一结账。"},
+                {"key": "payment_status", "label": "是否已结账", "reason": "未结账只记应付，不减少现金。"},
+            ],
+            "ai_next_actions": [
+                "生成供应商应付账款",
+                "生成采购入库草稿",
+                "等实际结账时再冲减应付并记录现金/银行卡付款",
+            ],
+            "risks": risks or [{
+                "level": "medium",
+                "title": "挂账采购不能当现金支出",
+                "detail": "菜场票据先进入应付账款；实际付款日再影响现金流。",
+            }],
         }, source_type)
 
     if source_type in {"进货单", "水电单", "票据单据"}:
@@ -886,6 +1232,7 @@ def _with_universal_template(artifact: dict[str, Any], source_type: str) -> dict
         "payment_voucher": "财务/付款",
         "sale_receipt": "销售/订单",
         "purchase_order": "进货/库存",
+        "supplier_credit_receipt": "采购/应付",
         "kitchen_ticket": "出餐/订单",
     }.get(str(artifact.get("type")), "通用资料")
 
@@ -913,6 +1260,8 @@ def _with_universal_template(artifact: dict[str, Any], source_type: str) -> dict
         write_targets = ["资料箱", "交易凭证", "商品销量", "POS对账"]
     elif artifact.get("type") == "purchase_order":
         write_targets = ["资料箱", "采购记录", "库存入库", "成本记录"]
+    elif artifact.get("type") == "supplier_credit_receipt":
+        write_targets = ["资料箱", "采购记录", "库存入库", "应付账款"]
     elif artifact.get("type") == "kitchen_ticket":
         write_targets = ["资料箱", "出餐记录", "商品销量"]
     else:
@@ -1004,9 +1353,13 @@ def _document_risk_flags(text: str, facts: list[dict[str, Any]]) -> list[dict[st
 def _source_type_to_platform(source_type: str) -> str:
     """将来源类型映射为标准渠道标识。"""
     mapping = {
-        "美团后台": "meituan",
+        "美团后台": "meituan_delivery",
+        "美团外卖后台": "meituan_delivery",
+        "美团团购后台": "meituan_group",
         "淘宝闪购后台": "taobao_flash",
-        "抖音后台": "douyin",
+        "京东外卖后台": "jd_delivery",
+        "抖音后台": "douyin_group",
+        "抖音团购后台": "douyin_group",
         "客如云日报": "keyun",
         "客如云": "keyun",
         "进货单": "supply",
@@ -1023,14 +1376,25 @@ def _source_type_to_platform(source_type: str) -> str:
 
 def _enrich_capture_result(result: Dict[str, Any]) -> Dict[str, Any]:
     result = _normalize_result_shape(result)
-    source_type = str(result.get("source_type") or "未知")
+    llm_source_type = str(result.get("source_type") or "未知")
     fields = list(result.get("fields") or [])
     raw_text = str(result.get("raw_text") or "")
-    if source_type in {"", "未知", "本地 OCR", "Ollama 本地视觉"} and raw_text:
-        detected_source_type = _detect_source_type(raw_text)
-        if detected_source_type != "本地 OCR":
+
+    detected_source_type = _detect_source_type(raw_text) if raw_text else "本地 OCR"
+
+    if llm_source_type not in {"", "未知", "本地 OCR", "Ollama 本地视觉"}:
+        if detected_source_type in {"客如云日报", "美团后台", "美团外卖后台", "美团团购后台", "淘宝闪购后台", "京东外卖后台", "抖音后台", "抖音团购后台"}:
             source_type = detected_source_type
-            result["source_type"] = source_type
+        elif llm_source_type in {"客如云日报", "美团后台", "美团外卖后台", "美团团购后台", "淘宝闪购后台", "京东外卖后台", "抖音后台", "抖音团购后台"}:
+            source_type = llm_source_type
+        elif detected_source_type != "本地 OCR":
+            source_type = detected_source_type
+        else:
+            source_type = llm_source_type
+    else:
+        source_type = detected_source_type if detected_source_type != "本地 OCR" else llm_source_type
+
+    result["source_type"] = source_type
     kind = _capture_kind(source_type, raw_text, fields)
     inferred_facts = _parse_document_facts(raw_text, source_type) if kind in {"document", "unknown"} else []
     supplied_facts = list(result.get("document_facts") or [])
@@ -1047,6 +1411,9 @@ def _enrich_capture_result(result: Dict[str, Any]) -> Dict[str, Any]:
         fields,
         list(result.get("line_items") or []),
     )
+    if structured_artifact.get("type") == "operation_record" and structured_artifact.get("fields"):
+        fields = list(structured_artifact.get("fields") or [])
+        result["fields"] = fields
 
     result["capture_kind"] = kind
     result["document_facts"] = facts
@@ -1059,7 +1426,7 @@ def _enrich_capture_result(result: Dict[str, Any]) -> Dict[str, Any]:
     elif source_type == "库存盘点表":
         destination = "库存盘点/补货任务"
     elif kind == "document":
-        destination = "合同/风险档案"
+        destination = "采购/应付账款" if source_type == "菜场挂账小票" else "合同/风险档案"
     else:
         destination = "经营日报" if kind == "operation" else "待人工确认"
     result["recommended_destination"] = destination
@@ -1084,6 +1451,58 @@ def _parse_fields_from_text(text: str) -> list[dict[str, Any]]:
             "confidence": "medium",
         })
         seen.add("date")
+
+    if _detect_source_type(text) == "银行转账凭证":
+        amount_match = re.search(
+            r"(?:收款金额|转账金额|交易金额|金额)\s*(?:是|为|:|：|¥|￥)?\s*"
+            r"([0-9][0-9,]*\.[0-9]{2})",
+            compact,
+        )
+        if not amount_match:
+            # Bank OCR often reads the amount while garbling the small label.
+            # Requiring the RMB suffix avoids accepting an arbitrary number.
+            amount_match = re.search(
+                r"([0-9][0-9,]*\.[0-9]{2})\s*元\s*[（(]?人民币",
+                compact,
+            )
+        if amount_match:
+            fields.append({
+                "key": "amount",
+                "label": FIELD_LABELS["amount"],
+                "value": float(amount_match.group(1).replace(",", "")),
+                "confidence": "medium",
+            })
+            seen.add("amount")
+        reference_match = re.search(
+            r"(?:回单编号|交易流水号|凭证号)\s*(?:是|为|:|：)?\s*"
+            r"([A-Z0-9][A-Z0-9-]{8,})",
+            compact,
+            re.IGNORECASE,
+        )
+        if reference_match:
+            fields.append({
+                "key": "transaction_reference",
+                "label": FIELD_LABELS["transaction_reference"],
+                "value": reference_match.group(1),
+                "confidence": "medium",
+            })
+            seen.add("transaction_reference")
+        payee_match = re.search(r"收款户名\s*([^\s]{2,20})", text)
+        if payee_match:
+            fields.append({
+                "key": "counterparty",
+                "label": FIELD_LABELS["counterparty"],
+                "value": payee_match.group(1),
+                "confidence": "medium",
+            })
+            seen.add("counterparty")
+        fields.append({
+            "key": "transaction_direction",
+            "label": FIELD_LABELS["transaction_direction"],
+            "value": "inflow",
+            "confidence": "medium",
+        })
+        seen.add("transaction_direction")
 
     for key, pattern in FIELD_PATTERNS:
         match = re.search(pattern, compact, re.IGNORECASE)
@@ -1191,13 +1610,19 @@ def _make_local_ocr_call(contents: bytes, suffix: str) -> Optional[Dict[str, Any
 
     fields = _parse_fields_from_text(raw_text)
     source_type = _detect_source_type(raw_text)
-    if source_type in {"银行转账凭证", "POS销售小票", "进货单", "出餐标签"}:
+    if source_type in {"POS销售小票", "进货单", "出餐标签"}:
         # These are individual documents, not daily summaries. Never promote a
         # single receipt amount or quantity into daily revenue/orders.
         fields = [
             {**field, "confidence": "low"}
             for field in fields
             if field.get("key") == "date"
+        ]
+    elif source_type == "银行转账凭证":
+        fields = [
+            {**field, "confidence": "medium"}
+            for field in fields
+            if field.get("key") in {"date", "amount", "transaction_reference", "counterparty", "transaction_direction"}
         ]
     return _enrich_capture_result({
         "source_type": source_type,
@@ -1346,7 +1771,7 @@ def _parse_llm_json(content: str) -> Optional[Dict[str, Any]]:
 
 
 @router.post("/recognize")
-async def recognize_capture(image: UploadFile = File(...)):
+async def recognize_capture(project_id: str = "xinyu-hengtai-dakou", image: UploadFile = File(...)):
     """上传经营截图，调用 LLM 视觉提取结构化字段。
 
     返回字段列表，前端可填入 DraftModal 供用户确认后写入。
@@ -1357,6 +1782,15 @@ async def recognize_capture(image: UploadFile = File(...)):
     contents = await image.read()
     if len(contents) > MAX_IMAGE_BYTES:
         raise HTTPException(status_code=400, detail=f"图片不能超过 {MAX_IMAGE_BYTES // (1024*1024)}MB")
+
+    # 持久化原图，供待确认页对照
+    capture_dir = PROJECT_DATA_DIR / project_id / "captures"
+    capture_dir.mkdir(parents=True, exist_ok=True)
+    file_ext = Path(image.filename or "capture.png").suffix or ".png"
+    capture_filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}{file_ext}"
+    capture_path = capture_dir / capture_filename
+    capture_path.write_bytes(contents)
+    image_url = f"/api/capture/captures/{project_id}/{capture_filename}"
 
     original_suffix = Path(image.filename or "capture.png").suffix or ".png"
     local_result = _make_local_ocr_call(contents, original_suffix)
@@ -1372,13 +1806,11 @@ async def recognize_capture(image: UploadFile = File(...)):
         "证照资料",
         "库存照片",
     }
-    if local_result and (
-        len(local_result.get("fields") or []) >= 2
-        or local_source_type in fast_document_sources
-    ):
+    if local_result and local_source_type in fast_document_sources:
         _enrich_capture_result(local_result)
         return {
             "success": True,
+            "image_url": image_url,
             "source_type": local_result.get("source_type", "本地 OCR"),
             "source_platform": _source_type_to_platform(local_result.get("source_type", "")),
             "capture_kind": local_result.get("capture_kind", "unknown"),
@@ -1401,8 +1833,8 @@ async def recognize_capture(image: UploadFile = File(...)):
 
         img = PILImage.open(BytesIO(contents)).convert("RGB")
         # 长票据和表格缩到 768 会丢失小字；保留足够分辨率给本地视觉模型。
-        if max(img.size) > 1024:
-            img.thumbnail((1024, 1024), PILImage.LANCZOS)
+        if max(img.size) > 2048:
+            img.thumbnail((2048, 2048), PILImage.LANCZOS)
         buf = BytesIO()
         img.save(buf, format="JPEG", quality=88)
         vision_contents = buf.getvalue()
@@ -1415,15 +1847,10 @@ async def recognize_capture(image: UploadFile = File(...)):
     if result is not None:
         result = _normalize_result_shape(result)
     if result is not None and local_result and local_result.get("raw_text"):
-        proposed_fields = list(result.get("fields") or [])
-        if proposed_fields:
-            verified_fields = _filter_fields_by_evidence(
-                proposed_fields,
-                str(local_result.get("raw_text") or ""),
-            )
-            result["fields"] = verified_fields
-            if not verified_fields and not str(result.get("raw_text") or "").strip():
-                result = local_result
+        # OCR is corroborating evidence, not a veto. Complex tables often use
+        # spacing or punctuation that differs from the vision model output.
+        result["ocr_raw_text"] = local_result.get("raw_text", "")
+        result["ocr_fields"] = local_result.get("fields", [])
         local_source = str(local_result.get("source_type") or "")
         model_source = str(result.get("source_type") or "")
         if model_source in {"", "未知", "本地 OCR", "Ollama 本地视觉"} and local_source not in {"", "未知", "本地 OCR"}:
@@ -1449,6 +1876,7 @@ async def recognize_capture(image: UploadFile = File(...)):
 
     return {
         "success": True,
+        "image_url": image_url,
         "source_type": result.get("source_type", "未知"),
         "source_platform": _source_type_to_platform(result.get("source_type", "")),
         "capture_kind": result.get("capture_kind", "unknown"),
@@ -1460,15 +1888,169 @@ async def recognize_capture(image: UploadFile = File(...)):
         "can_write_operation": result.get("can_write_operation", False),
         "raw_text": _redact_sensitive_text(str(result.get("raw_text", ""))),
         "parse_error": result.get("parse_error"),
+        "analysis_summary": result.get("analysis_summary", ""),
+        "questions": result.get("questions", []),
     }
+
+
+@router.get("/captures/{project_id}/{filename}")
+async def serve_capture(project_id: str, filename: str):
+    """提供已持久化的经营截图，供待确认页对照原图。"""
+    if "/" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="非法文件名")
+    capture_path = PROJECT_DATA_DIR / project_id / "captures" / filename
+    if not capture_path.exists():
+        raise HTTPException(status_code=404, detail="图片不存在")
+    return FileResponse(capture_path)
 
 
 @router.post("/confirm/{project_id}")
 async def confirm_capture(project_id: str, req: CaptureConfirmRequest):
-    """Record a human-confirmed capture after the target write succeeds."""
+    """Archive a confirmed capture and post reviewed costs through business facts."""
     from models.project import ProjectMemory
+    from models.operating_ledger import OperatingLedger
 
     memory = ProjectMemory.load(project_id) or ProjectMemory.create(project_id)
+    operating = OperatingLedger.load(project_id)
+    posted_business_facts: list[dict[str, Any]] = []
+    pending_business_facts: list[dict[str, Any]] = []
+    if req.source_type in {"进货单", "菜场挂账小票", "库存照片", "库存盘点表"}:
+        capture_fields = list(req.recognized_fields)
+        if req.date and not any(field.get("key") == "date" for field in capture_fields):
+            capture_fields.append({"key": "date", "value": req.date})
+        imported = operating.ingest_capture_artifact(
+            source_type=req.source_type,
+            fields=capture_fields,
+            structured_artifact=req.structured_artifact,
+            file_name=req.file_name,
+        )
+        for candidate in imported["facts"]:
+            if candidate.get("missing_fields"):
+                pending_business_facts.append(candidate)
+                continue
+            result = operating.confirm_fact(candidate["id"])
+            posted_business_facts.append(result["fact"])
+    expense_lines = _confirmed_capture_expenses(req)
+    posted_expenses: list[dict[str, Any]] = []
+    if expense_lines:
+        field_date = next(
+            (str(field.get("value")) for field in req.recognized_fields if field.get("key") == "date"),
+            "",
+        )
+        entry_date = req.date or field_date or datetime.now().date().isoformat()
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", entry_date):
+            raise HTTPException(status_code=400, detail="确认入账需要有效日期")
+        document_key = hashlib.sha256(
+            json.dumps(
+                {
+                    "project_id": project_id,
+                    "file_name": req.file_name,
+                    "source_type": req.source_type,
+                    "date": entry_date,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            ).encode()
+        ).hexdigest()[:20]
+        candidates = operating.ingest_expense_candidates(
+            document_key=document_key,
+            source_type=req.source_type,
+            file_name=req.file_name,
+            date=entry_date,
+            expenses=[{
+                "field": field_key,
+                "account": account,
+                "amount_minor": amount_minor,
+                "title": f"{req.source_type}确认入账：{FIELD_LABELS.get(field_key, field_key)}",
+            } for account, amount_minor, field_key in expense_lines],
+        )
+        for candidate in candidates:
+            result = operating.confirm_fact(candidate["id"])
+            finance_entries = result.get("finance_entries") or []
+            metadata = result["fact"].get("metadata") or {}
+            posted_expenses.append({
+                "field": metadata.get("source_field"),
+                "account": metadata.get("finance_account_code"),
+                "amount_minor": money_to_minor(result["fact"].get("amount")),
+                "business_fact_id": result["fact"]["id"],
+                "journal_entry_id": finance_entries[0] if finance_entries else None,
+            })
+    voucher_id: str | None = None
+    pending_bookkeeping_records: list[str] = []
+    capture_filename = req.image_url.rstrip("/").split("/")[-1] if req.image_url else ""
+    capture_path = PROJECT_DATA_DIR / project_id / "captures" / capture_filename if capture_filename else None
+    if capture_path and capture_path.exists() and capture_path.is_file():
+        contents = capture_path.read_bytes()
+        digest = hashlib.sha256(contents).hexdigest()
+        field_map = {str(field.get("key") or ""): field.get("value") for field in req.recognized_fields}
+        business_date = req.date or str(field_map.get("date") or "")
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", business_date):
+            business_date = None
+        amount_minor = 0
+        for key in ("amount", "utility", "food_cost", "packaging_cost", "platform_fee", "marketing_cost"):
+            try:
+                amount_minor = money_to_minor(field_map.get(key))
+            except Exception:
+                amount_minor = 0
+            if amount_minor > 0:
+                break
+        ledger = FinanceLedger.for_project(project_id)
+        profile = memory.profile or {}
+        ledger.ensure_store(
+            project_id,
+            str(profile.get("store_name") or profile.get("name") or project_id),
+            str(profile.get("transfer_date") or business_date or datetime.now().date().isoformat()),
+        )
+        voucher_id = ledger.register_evidence_voucher(
+            project_id,
+            voucher_key=f"capture:{digest}",
+            business_date=business_date,
+            evidence_type=req.source_type or "经营图片",
+            channel=req.source_type,
+            amount_minor=amount_minor or None,
+            original_filename=req.file_name or capture_filename,
+            original_path=str(Path("captures") / capture_filename),
+            sha256=digest,
+            status="confirmed",
+            notes=f"图片识别确认；人工修改字段：{','.join(req.human_modified_fields) or '无'}",
+        )
+        direction = str(field_map.get("transaction_direction") or "").lower()
+        financial_tokens = ("转账", "付款凭证", "收款凭证", "支付凭证", "账单", "结算", "支付宝", "微信支付", "银行流水")
+        if (
+            not posted_expenses
+            and amount_minor > 0
+            and direction in {"inflow", "outflow"}
+            and any(token in req.source_type for token in financial_tokens)
+        ):
+            counterparty = str(field_map.get("counterparty") or "").strip()
+            summary = str(field_map.get("notes") or req.source_type).strip()
+            classification = classify_finance_transaction(
+                direction=direction,
+                counterparty=counterparty,
+                summary=summary,
+                account_owner_kind="unknown",
+            )
+            record_id = ledger.create_bookkeeping_record(
+                project_id,
+                transaction_date=business_date or datetime.now().date().isoformat(),
+                direction=direction,
+                amount_minor=amount_minor,
+                transaction_kind=classification["transaction_kind"],
+                business_scope=classification["business_scope"],
+                category_code=classification["category_code"],
+                category_name=classification["category_name"],
+                account_key=None,
+                counterparty=counterparty or None,
+                summary=summary,
+                source_type="image_capture",
+                source_reference=f"voucher:{voucher_id}",
+                voucher_id=voucher_id,
+                confidence=classification["confidence"],
+                classification_reason=classification["classification_reason"],
+                raw_data={"recognized_fields": req.recognized_fields, "structured_artifact": req.structured_artifact},
+                status="needs_review",
+            )
+            pending_bookkeeping_records.append(record_id)
     memory.add_capture_audit_log({
         "source_type": req.source_type,
         "file_name": req.file_name,
@@ -1478,5 +2060,16 @@ async def confirm_capture(project_id: str, req: CaptureConfirmRequest):
         "review_status": "written",
         "write_target": req.write_target,
         "date": req.date,
+        "finance_postings": posted_expenses,
+        "voucher_id": voucher_id,
+        "pending_bookkeeping_record_ids": pending_bookkeeping_records,
+        "business_fact_ids": [item["id"] for item in posted_business_facts + pending_business_facts],
     })
-    return {"success": True}
+    return {
+        "success": True,
+        "posted_expenses": posted_expenses,
+        "posted_business_facts": posted_business_facts,
+        "pending_business_facts": pending_business_facts,
+        "voucher_id": voucher_id,
+        "pending_bookkeeping_record_ids": pending_bookkeeping_records,
+    }

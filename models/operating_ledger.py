@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Any, Literal
@@ -36,7 +38,9 @@ FactType = Literal[
     "former_owner_transfer",
     "purchase",
     "supplier_invoice",
+    "supplier_credit_purchase",
     "purchase_confirmation",
+    "operating_expense",
     "stock_in",
     "inventory_count_photo",
     "stock_count",
@@ -74,7 +78,9 @@ MONEY_FACT_TYPES = {
     "former_owner_transfer",
     "purchase",
     "supplier_invoice",
+    "supplier_credit_purchase",
     "purchase_confirmation",
+    "operating_expense",
     "non_operating",
 }
 INVENTORY_FACT_TYPES = {"stock_in", "inventory_count_photo", "stock_count", "stock_usage", "stock_adjustment", "stock_loss"}
@@ -93,6 +99,10 @@ def today() -> str:
 
 def project_path(project_id: str):
     return config.PROJECT_DATA_DIR / project_id / "operating_ledger.json"
+
+
+def reconciliation_path(project_id: str):
+    return config.PROJECT_DATA_DIR / project_id / "platform_reconciliations.json"
 
 
 @dataclass
@@ -147,6 +157,8 @@ class BusinessFact:
     affects_accounts: list[str] = field(default_factory=list)
     affects_inventory_items: list[str] = field(default_factory=list)
     source_group: str = ""
+    anomaly_reason: str = ""
+    auto_posted: bool = False
 
 
 @dataclass
@@ -242,11 +254,9 @@ class OperatingLedger:
         self.product_variants: list[dict[str, Any]] = []
         self.channel_prices: list[dict[str, Any]] = []
         self.product_boms: list[dict[str, Any]] = []
+        self.platform_reconciliations: dict[str, Any] = {}
+        self.cash_movements: list[dict[str, Any]] = []
         if payload:
-            if payload.get("fixture_version") != FIXTURE_VERSION:
-                self.seed_real_store()
-                self.save()
-                return
             for key in [
                 "raw_materials",
                 "business_facts",
@@ -259,9 +269,12 @@ class OperatingLedger:
                 "product_boms",
             ]:
                 setattr(self, key, payload.get(key, []))
+        reconciliation = load_json(reconciliation_path(project_id), expected_type=dict)
+        if reconciliation:
+            self.platform_reconciliations = reconciliation
 
     @classmethod
-    def load(cls, project_id: str, seed_if_missing: bool = True) -> "OperatingLedger":
+    def load(cls, project_id: str, seed_if_missing: bool = False) -> "OperatingLedger":
         payload = load_json(project_path(project_id), expected_type=dict)
         if payload is None:
             ledger = cls(project_id)
@@ -275,7 +288,7 @@ class OperatingLedger:
         return {
             "project_id": self.project_id,
             "fixture_version": FIXTURE_VERSION,
-            "default_date": REAL_FIXTURE_DATE,
+            "default_date": today(),
             "raw_materials": self.raw_materials,
             "business_facts": self.business_facts,
             "ledger_entries": self.ledger_entries,
@@ -289,6 +302,56 @@ class OperatingLedger:
 
     def save(self) -> None:
         atomic_write_json(project_path(self.project_id), self.to_dict())
+
+    def reconciliation_view(self, start: str | None = None, end: str | None = None) -> dict[str, Any]:
+        """Return platform reconciliation facts without adding them to store revenue."""
+        records = list(self.platform_reconciliations.get("records") or [])
+        if start:
+            records = [item for item in records if item.get("business_date", "") >= start]
+        if end:
+            records = [item for item in records if item.get("business_date", "") <= end]
+        by_platform: dict[str, dict[str, Any]] = {}
+        for item in records:
+            platform = str(item.get("platform") or "unknown")
+            summary = by_platform.setdefault(platform, {"platform": platform, "amount": 0.0, "records": 0, "counted_in_store_revenue": 0.0})
+            amount = float(item.get("amount") or 0)
+            summary["amount"] += amount
+            summary["records"] += 1
+            if item.get("counted_in_store_revenue"):
+                summary["counted_in_store_revenue"] += amount
+        return {
+            "source_file": self.platform_reconciliations.get("source_file", ""),
+            "source_period": self.platform_reconciliations.get("source_period", {}),
+            "aggregation_rule": self.platform_reconciliations.get("aggregation_rule", ""),
+            "records": records,
+            "by_platform": [
+                {**item, "amount": round(item["amount"], 2), "counted_in_store_revenue": round(item["counted_in_store_revenue"], 2)}
+                for item in by_platform.values()
+            ],
+            "missing_platform_evidence": self.platform_reconciliations.get("missing_platform_evidence", []),
+            "not_a_second_revenue_total": True,
+        }
+
+    def cash_flow_view(self, start: str | None = None, end: str | None = None) -> dict[str, Any]:
+        """Return cash-flow readiness without treating missing cash input as zero."""
+        movements = list(self.cash_movements)
+        if start:
+            movements = [item for item in movements if item.get("date", "") >= start]
+        if end:
+            movements = [item for item in movements if item.get("date", "") <= end]
+        return {
+            "status": "awaiting_cash_inputs" if not movements else "partial",
+            "movements": movements,
+            "cash_balance": None,
+            "known_accounts": ["platform_unsettled", "former_owner_account", "owner_cash", "owner_bank"],
+            "missing_inputs": ["opening_cash", "daily_cash_count", "cash_expenses", "owner_bank_balance", "former_owner_transfer_receipts"],
+            "rules": [
+                "平台经营收入不等于已到账现金",
+                "前老板代收不等于当前老板已收款",
+                "没有现金盘点证据时不显示现金余额为 0",
+                "现金流按经营、投资、筹资三类归集",
+            ],
+        }
 
     def next_id(self, prefix: str, collection: list[dict[str, Any]]) -> str:
         return f"{prefix}-{len(collection) + 1:04d}"
@@ -400,6 +463,337 @@ class OperatingLedger:
         self.save()
         return self.enrich_fact(fact)
 
+    def ingest_capture_artifact(
+        self,
+        *,
+        source_type: str,
+        fields: list[dict[str, Any]] | None = None,
+        structured_artifact: dict[str, Any] | None = None,
+        file_name: str = "",
+        raw_text: str = "",
+        evidence_image_url: str = "",
+    ) -> dict[str, Any]:
+        """Turn a reviewed capture artifact into pending business facts."""
+        fields = fields or []
+        structured_artifact = structured_artifact or {}
+        payloads = structured_artifact.get("write_payloads") or {}
+        field_map = {str(field.get("key")): field.get("value") for field in fields if isinstance(field, dict)}
+        date = str(field_map.get("date") or "")
+        if not date:
+            date = str((payloads.get("purchase_order") or {}).get("date") or "")
+        if not date:
+            for fact_item in structured_artifact.get("facts") or []:
+                if str(fact_item.get("label")) in {"单据日期", "采购日期", "日期"} and fact_item.get("value"):
+                    date = str(fact_item.get("value"))
+                    break
+        date = date or today()
+        evidence_fingerprint = hashlib.sha256(json.dumps({
+            "source_type": source_type,
+            "file_name": file_name,
+            "fields": fields,
+            "structured_artifact": structured_artifact,
+            "raw_text": raw_text,
+        }, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")).hexdigest()[:20]
+        raw_id = f"raw-capture-{evidence_fingerprint}"
+        if any(item.get("id") == raw_id for item in self.raw_materials):
+            existing = [
+                self.enrich_fact(item)
+                for item in self.business_facts
+                if item.get("raw_material_id") == raw_id
+            ]
+            return {
+                "raw_material": next(item for item in self.raw_materials if item.get("id") == raw_id),
+                "facts": existing,
+                "created": 0,
+                "reused": len(existing),
+            }
+        source_platform = "keruyun" if source_type == "客如云日报" else "supplier" if source_type == "菜场挂账小票" else "unknown"
+        raw = asdict(RawMaterial(
+            id=raw_id,
+            shop_id="xinyu-hengtai-dakou",
+            uploaded_at=now_iso(),
+            source_type="capture_screenshot",
+            source_platform=source_platform,
+            title=file_name or structured_artifact.get("title") or source_type,
+            ocr_text=raw_text[:4000],
+            ai_summary=structured_artifact.get("summary", ""),
+            status="parsed",
+        ))
+        self.raw_materials.append(raw)
+
+        created: list[dict[str, Any]] = []
+
+        def number(key: str) -> float | None:
+            value = field_map.get(key)
+            if value in {"", None}:
+                return None
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return None
+
+        def add_fact(
+            fact_type: FactType,
+            amount: float,
+            platform: str,
+            account_location: str,
+            title: str,
+            metadata: dict[str, Any] | None = None,
+            source_group: str = "",
+            confidence: str = "medium",
+            missing_fields: list[str] | None = None,
+        ) -> None:
+            created.append(fact(
+                self.next_id("fact", self.business_facts + created),
+                raw_id,
+                fact_type,
+                date,
+                round(float(amount), 2),
+                platform,
+                account_location,
+                "my_shop",
+                title,
+                review_status="need_review",
+                ledger_status="not_posted",
+                state="need_review",
+                metadata=metadata or {},
+                source_group=source_group,
+                source_type="capture_screenshot",
+                source_platform=source_platform,
+                confidence=confidence,
+                missing_fields=missing_fields,
+            ))
+
+        if source_type == "客如云日报":
+            op_income = number("operating_income") or number("revenue")
+            if op_income is not None:
+                add_fact("net_operating_income", op_income, "keruyun", "keruyun_pending_settlement", "客如云营业收入", {"revenue_basis": "net_operating_income"}, "daily_report", "high")
+            order_amount = number("order_amount")
+            if order_amount is not None:
+                add_fact("pos_sale", order_amount, "keruyun", "keruyun_pending_settlement", "客如云订单金额", {"revenue_basis": "gross_order_amount"}, "daily_report")
+            dine_in = number("dine_in_revenue")
+            if dine_in is not None:
+                add_fact("dine_in_income", dine_in, "keruyun", "keruyun_pending_settlement", "客如云店内营业收入", {}, "daily_report")
+            third_party = number("delivery_revenue") or number("third_party_income")
+            if third_party is not None:
+                add_fact("third_party_income", third_party, "keruyun", "platform_unsettled", "客如云第三方营业收入", {"requires_platform_bill": True}, "daily_report")
+            deductions = [
+                ("merchant_discount", "merchant_discount", "商户优惠"),
+                ("delivery_fee", "delivery_cost", "订单配送支出"),
+                ("service_fee", "service_fee", "平台/客如云服务费"),
+                ("subsidy", "subsidy_adjustment", "平台补贴调整"),
+            ]
+            for key, fact_type, title in deductions:
+                amount = number(key)
+                if amount is not None:
+                    add_fact(fact_type, amount, "keruyun", "refund_deduction", title, {}, "daily_report")
+            payment_methods = [
+                ("cash_amount", "cash", "owner_cash", "现金收款"),
+                ("wechat_amount", "wechat", "keruyun_pending_settlement", "微信收款"),
+                ("alipay_amount", "alipay", "keruyun_pending_settlement", "支付宝收款"),
+                ("meituan_amount", "meituan", "platform_unsettled", "美团相关收款"),
+                ("taobao_flash_amount", "taobao_flash", "platform_unsettled", "淘宝闪购相关收款"),
+                ("douyin_coupon_amount", "douyin", "platform_unsettled", "抖音团购券收款"),
+            ]
+            for key, platform, account, title in payment_methods:
+                amount = number(key)
+                if amount is not None:
+                    add_fact("payment_method_breakdown", amount, platform, account, title, {"payment_method": platform, "not_new_revenue": True}, "payment_method")
+
+        if source_type == "菜场挂账小票":
+            supplier_credit = payloads.get("supplier_credit") or {}
+            amount = supplier_credit.get("amount")
+            if amount is None:
+                for fact_item in structured_artifact.get("facts") or []:
+                    if str(fact_item.get("label")) == "挂账金额":
+                        amount = fact_item.get("value")
+                        break
+            try:
+                payable_amount = float(amount)
+            except (TypeError, ValueError):
+                payable_amount = 0
+            supplier = "菜场供应商"
+            for fact_item in structured_artifact.get("facts") or []:
+                if str(fact_item.get("label")) in {"供应商/客户", "供应商"} and fact_item.get("value"):
+                    supplier = str(fact_item.get("value"))
+            if payable_amount > 0:
+                add_fact("supplier_invoice", payable_amount, "supplier", "supplier_payable", "菜场挂账采购应付", {"supplier": supplier, "payment_status": "unpaid", "cash_impact": 0}, "supplier_credit", "medium")
+            for item in supplier_credit.get("items") or structured_artifact.get("items") or []:
+                if not isinstance(item, dict) or not item.get("name"):
+                    continue
+                item_name = str(item.get("name") or "")
+                quantity = float(item.get("quantity") or 0)
+                unit_cost = float(item.get("unit_cost") or 0)
+                item_id = item_id_by_name(self.inventory_items, item_name)
+                missing = []
+                if not item_id:
+                    missing.append("item_id")
+                if quantity <= 0:
+                    missing.append("quantity")
+                if unit_cost <= 0:
+                    missing.append("unit_cost")
+                add_fact(
+                    "stock_in",
+                    float(item.get("total") or 0),
+                    "supplier",
+                    "inventory",
+                    f"挂账采购入库：{item.get('name')}",
+                    {
+                        "item_id": item_id or "",
+                        "item_name": item_name,
+                        "quantity": quantity,
+                        "unit_cost": unit_cost,
+                        "supplier": supplier,
+                        "payment_status": "unpaid",
+                    },
+                    "supplier_credit",
+                    "medium",
+                    missing,
+                )
+
+        if source_type == "进货单":
+            purchase_order = payloads.get("purchase_order") or {}
+            supplier = str(purchase_order.get("supplier") or "待确认")
+            purchase_items = [
+                item for item in purchase_order.get("items") or structured_artifact.get("items") or []
+                if isinstance(item, dict) and item.get("name")
+            ]
+            total = round(sum(
+                float(item.get("quantity") or 0) * float(item.get("unit_cost") or 0)
+                for item in purchase_items
+            ), 2)
+            if purchase_items:
+                add_fact(
+                    "purchase_confirmation",
+                    total,
+                    "supplier",
+                    "inventory_pending_receipt",
+                    "进货单采购确认",
+                    {
+                        "supplier": supplier,
+                        "payment_status": "unpaid",
+                        "cash_impact": 0,
+                        "inventory_accounting": "asset_not_period_expense",
+                        "items": purchase_items,
+                    },
+                    "purchase_order",
+                    "medium",
+                )
+            for item in purchase_items:
+                item_name = str(item.get("name") or "")
+                quantity = float(item.get("quantity") or 0)
+                unit_cost = float(item.get("unit_cost") or 0)
+                missing = []
+                item_id = item_id_by_name(self.inventory_items, item_name)
+                if not item_id:
+                    missing.append("item_id")
+                if quantity <= 0:
+                    missing.append("quantity")
+                if unit_cost <= 0:
+                    missing.append("unit_cost")
+                add_fact(
+                    "stock_in",
+                    round(quantity * unit_cost, 2),
+                    "supplier",
+                    "inventory",
+                    f"采购入库：{item_name}",
+                    {
+                        "item_id": item_id or "",
+                        "item_name": item_name,
+                        "quantity": quantity,
+                        "unit_cost": unit_cost,
+                        "supplier": supplier,
+                        "payment_status": "unpaid",
+                        "cash_impact": 0,
+                    },
+                    "purchase_order",
+                    "medium",
+                    missing,
+                )
+
+        if source_type in {"库存照片", "库存盘点表"}:
+            observations = structured_artifact.get("items") or structured_artifact.get("facts") or []
+            add_fact(
+                "inventory_count_photo",
+                0,
+                "manual",
+                "inventory_observation",
+                "库存盘点证据待复核",
+                {
+                    "observations": observations,
+                    "summary": structured_artifact.get("summary") or "",
+                    "evidence_only": True,
+                },
+                "inventory_observation",
+                "low" if source_type == "库存照片" else "medium",
+                ["item_id", "quantity"],
+            )
+
+        self.business_facts.extend(created)
+        self.save()
+        return {"raw_material": raw, "facts": [self.enrich_fact(item) for item in created], "created": len(created)}
+
+    def ingest_expense_candidates(
+        self,
+        *,
+        document_key: str,
+        source_type: str,
+        file_name: str,
+        date: str,
+        expenses: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Create idempotent pending facts for owner-reviewed expense fields."""
+        raw_id = f"raw-capture-expense-{document_key}"
+        if not any(item.get("id") == raw_id for item in self.raw_materials):
+            self.raw_materials.append(asdict(RawMaterial(
+                id=raw_id,
+                shop_id=self.project_id,
+                uploaded_at=now_iso(),
+                source_type="capture_document",
+                source_platform="document",
+                title=file_name or source_type,
+                ocr_text="",
+                ai_summary=f"{source_type}老板已确认费用字段",
+                status="reviewed",
+            )))
+
+        candidates: list[dict[str, Any]] = []
+        for expense in expenses:
+            field_key = str(expense["field"])
+            fact_id = f"fact-capture-expense-{document_key}-{field_key}"
+            existing = next((item for item in self.business_facts if item.get("id") == fact_id), None)
+            if existing:
+                candidates.append(self.enrich_fact(existing))
+                continue
+            candidate = fact(
+                fact_id,
+                raw_id,
+                "operating_expense",
+                date,
+                float(expense["amount_minor"]) / 100,
+                "document",
+                "accrued_payable",
+                "my_shop",
+                str(expense.get("title") or source_type),
+                review_status="need_review",
+                ledger_status="not_posted",
+                state="need_review",
+                metadata={
+                    "finance_account_code": str(expense["account"]),
+                    "source_field": field_key,
+                    "document_key": document_key,
+                },
+                source_group=f"capture_expense:{field_key}",
+                source_type="capture_document",
+                source_platform="document",
+                confidence="high",
+            )
+            candidate["posting_key"] = f"capture:{document_key}:{field_key}"
+            self.business_facts.append(candidate)
+            candidates.append(self.enrich_fact(candidate))
+        self.save()
+        return candidates
+
     def compute_posting_key(self, fact: dict[str, Any]) -> str:
         return compute_posting_key_static(
             shop_id="xinyu-hengtai-dakou",
@@ -465,7 +859,13 @@ class OperatingLedger:
     def confirm_fact(self, fact_id: str) -> dict[str, Any]:
         fact = self.find_fact(fact_id)
         if fact.get("review_status") == "posted" or fact.get("ledger_status") == "posted":
-            return {"fact": self.enrich_fact(fact), "ledger_entries": [], "inventory_movements": []}
+            stored_result = (fact.get("metadata") or {}).get("posting_result") or {}
+            return {
+                "fact": self.enrich_fact(fact),
+                "ledger_entries": [],
+                "inventory_movements": [],
+                **stored_result,
+            }
 
         if fact.get("evidence_role") == "supporting":
             fact["review_status"] = "confirmed"
@@ -508,6 +908,17 @@ class OperatingLedger:
         if fact["fact_type"] in INVENTORY_FACT_TYPES:
             inventory_movements = self.post_inventory_fact(fact)
             fact["affects_inventory_items"] = list({m["item_id"] for m in inventory_movements})
+        from core.posting_coordinator import PostingCoordinator
+
+        finance_result = PostingCoordinator(self.project_id).sync_confirmed_fact(
+            fact=fact,
+            inventory_movements=inventory_movements,
+            inventory_items=self.inventory_items,
+        )
+        fact["metadata"] = {
+            **(fact.get("metadata") or {}),
+            "posting_result": finance_result,
+        }
         fact["ledger_status"] = "posted"
         fact["review_status"] = "posted"
         fact["state"] = "posted"
@@ -517,6 +928,7 @@ class OperatingLedger:
             "fact": self.enrich_fact(fact),
             "ledger_entries": ledger_entries,
             "inventory_movements": inventory_movements,
+            **finance_result,
         }
 
     def post_money_fact(self, fact: dict[str, Any]) -> list[dict[str, Any]]:
@@ -544,7 +956,7 @@ class OperatingLedger:
             entries.append(entry)
 
         if fact_type == "net_operating_income":
-            add("revenue", "keruyun_pending_settlement", amount, "客如云", "7/4 客如云营业收入，资金归属仍需按支付方式复核")
+            add("revenue", "keruyun_pending_settlement", amount, "客如云", "客如云营业收入，资金归属仍需按支付方式复核")
         elif fact_type == "pos_sale":
             add("revenue", "keruyun_pending_settlement", amount, "客如云", "线下销售先进入客如云待结算")
         elif fact_type == "dine_in_income":
@@ -553,6 +965,8 @@ class OperatingLedger:
             add("revenue", fact.get("account_location") or "platform_unsettled", amount, "第三方平台", "第三方平台收入，资金归属待确认")
         elif fact_type == "cash_sale":
             add("revenue", "owner_cash", amount, "现金", "现金当天在老板现金")
+        elif fact_type == "payment_method_breakdown":
+            add("payment_method_breakdown", fact.get("account_location") or "keruyun_pending_settlement", amount, platform, "支付方式明细，只解释资金位置，不重复计营业收入")
         elif fact_type in {"meituan_delivery_sale", "taobao_delivery_sale", "jd_delivery_sale", "douyin_group_sale", "meituan_group_sale"}:
             expected = float(meta.get("expected_settlement") or amount)
             add("revenue", platform_account(platform), amount, platform, "销售发生，不等于老板已到账")
@@ -569,6 +983,16 @@ class OperatingLedger:
             add("internal_transfer", "owner_cmb_bank", amount, "前老板", "前老板代收回款进入老板招商银行卡（资金转移，非营业收入）")
         elif fact_type == "purchase":
             add("purchase_cost", "owner_cmb_bank", -amount, meta.get("supplier", "供应商"), "采购支出")
+        elif fact_type in {"supplier_invoice", "supplier_credit_purchase"}:
+            add("supplier_payable", "supplier_payable", -amount, meta.get("supplier", "供应商"), "挂账采购形成应付账款，未付款前不影响现金")
+        elif fact_type == "operating_expense":
+            add(
+                "operating_expense",
+                str(meta.get("finance_account_code") or "operating_expense"),
+                amount,
+                str(meta.get("counterparty") or fact.get("source_platform") or "经营费用"),
+                "老板确认的费用凭证",
+            )
         elif fact_type == "non_operating":
             add("non_operating", "non_operating", amount, meta.get("counterparty", "未知"), "非经营款不计入销售")
 
@@ -625,6 +1049,7 @@ class OperatingLedger:
             "platform_unsettled": 0.0,
             "refund_deduction": 0.0,
             "purchase_cost": 0.0,
+            "supplier_payable": 0.0,
             "non_operating": 0.0,
         }
         platform_accounts = {
@@ -654,8 +1079,8 @@ class OperatingLedger:
         return {
             "date": date,
             "total_sales": round(total_sales, 2),
-            "fixture_sales": self.fixture_sales_card(date or REAL_FIXTURE_DATE),
-            "former_owner": self.former_owner_summary(date or REAL_FIXTURE_DATE),
+            "fixture_sales": self.fixture_sales_card(date or today()),
+            "former_owner": self.former_owner_summary(date or today()),
             "accounts": {key: round(value, 2) for key, value in buckets.items()},
             "platform_accounts": {key: round(value, 2) for key, value in platform_accounts.items()},
             "platform_costs": round(platform_costs, 2),
@@ -669,7 +1094,7 @@ class OperatingLedger:
         }
 
     def inventory_view(self, date: str | None = None) -> dict[str, Any]:
-        date = date or REAL_FIXTURE_DATE
+        date = date or today()
         movements = [m for m in self.inventory_movements if m["date"] == date]
         by_item: dict[str, dict[str, float]] = {}
         for movement in movements:
@@ -714,11 +1139,19 @@ class OperatingLedger:
                 "inventory_value_basis": f"按{item.get('latest_unit_cost_source', '最近采购价')}估算，非精确成本",
             }
             items.append(item_info)
+        count_dates = [
+            str(fact.get("date"))
+            for fact in self.business_facts
+            if fact.get("fact_type") == "stock_count" and fact.get("date")
+        ]
         return {
             "date": date,
-            "last_count_date": REAL_FIXTURE_DATE,
+            "last_count_date": max(count_dates) if count_dates else None,
             "pending_inventory_facts": len([f for f in self.business_facts if f.get("review_status") == "need_review" and f.get("fact_type") in INVENTORY_FACT_TYPES]),
-            "inventory_value_basis": "库存账面金额按最近采购价估算，7/4 手写盘点和 7/6 进货单低置信度字段仍待老板确认。",
+            "inventory_value_basis": (
+                "库存账面金额按最近采购价估算；低置信度盘点或进货字段仍需老板确认。"
+                if items else "尚无已登记库存资料，不能计算库存金额。"
+            ),
             "bom_cost_status": "BOM 缺粉、酱料、木鱼花、海苔等克重，不允许给出确定单盒成本。",
             "items": items,
             "movements": movements,
@@ -730,7 +1163,7 @@ class OperatingLedger:
         }
 
     def today_card(self, date: str | None = None) -> dict[str, Any]:
-        date = date or REAL_FIXTURE_DATE
+        date = date or today()
         money = self.money_view(date)
         inventory = self.inventory_view(date)
         accounts = money["accounts"]
@@ -753,11 +1186,21 @@ class OperatingLedger:
             tomorrow_actions.append("向前老板核对线上款是否已转")
         if not tomorrow_actions:
             tomorrow_actions.append("继续上传今日销售、到账和复盘库存证据")
+        source_ids = {
+            str(item.get("raw_material_id"))
+            for item in self.business_facts
+            if item.get("date") == date and item.get("raw_material_id")
+        }
+        sources = [
+            str(item.get("title"))
+            for item in self.raw_materials
+            if item.get("id") in source_ids and item.get("title")
+        ]
         return {
             "date": date,
             "sales": self.sales_breakdown(date),
             "fixture_sales": self.fixture_sales_card(date),
-            "sources": ["来源：7/4 客如云营业日报", "来源：7/4 客如云营业概况", "来源：7/4 盘点表", "来源：7/6 进货单", "来源：微信聊天截图"],
+            "sources": sources,
             "money_where": money,
             "today_purchase_spend": money["purchase_spend"],
             "today_inventory_consumption_estimate": round(estimated_inventory_cost, 2),
@@ -937,8 +1380,29 @@ class OperatingLedger:
         )
         if not kyy_daily_posted:
             blocking_reasons.append("客如云营业日报营业收入还未确认入账")
-            next_actions.append("在录入页确认 7/4 客如云营业日报营业收入 1794.8 元")
+            revenue_candidate = next(
+                (
+                    f for f in facts_today
+                    if f.get("fact_type") == "net_operating_income"
+                    and f.get("evidence_role") != "supporting"
+                ),
+                None,
+            )
+            revenue_hint = (
+                f"营业收入 {float(revenue_candidate.get('amount') or 0):g} 元"
+                if revenue_candidate and revenue_candidate.get("amount") is not None
+                else "营业收入"
+            )
+            next_actions.append(f"在录入页确认 {date} 客如云营业日报{revenue_hint}")
 
+        cash_candidate = next(
+            (
+                f for f in facts_today
+                if f.get("fact_type") == "payment_method_breakdown"
+                and f.get("platform") == "cash"
+            ),
+            None,
+        )
         cash_confirmed = any(
             f.get("fact_type") == "payment_method_breakdown"
             and f.get("platform") == "cash"
@@ -947,8 +1411,13 @@ class OperatingLedger:
             for f in facts_today
         )
         if not cash_confirmed:
-            blocking_reasons.append("现金 185 元还未确认是否在店内")
-            next_actions.append("在录入页标记现金为老板已收")
+            if cash_candidate and cash_candidate.get("amount") is not None:
+                cash_amount = float(cash_candidate.get("amount") or 0)
+                blocking_reasons.append(f"{date} 现金 {cash_amount:g} 元还未确认是否在店内")
+                next_actions.append(f"在录入页确认 {date} 现金 {cash_amount:g} 元的实际位置")
+            else:
+                blocking_reasons.append(f"{date} 现金收款和店内实点尚未确认")
+                next_actions.append(f"补录 {date} 现金收款，并确认打烊实点金额")
 
         third_party_settled = all(
             f.get("review_status") in {"confirmed", "posted"}
@@ -966,8 +1435,8 @@ class OperatingLedger:
 
         if low_conf_inv_items:
             low_names = "、".join(item["name"] for item in low_conf_inv_items[:3])
-            blocking_reasons.append(f"7/4 盘点表中 {low_names} 为低置信度，暂不能形成完整复盘")
-            next_actions.append("在录入页或库存页确认低置信度物料的实际数量")
+            blocking_reasons.append(f"最近库存基线中 {low_names} 为低置信度，暂不能形成完整复盘")
+            next_actions.append(f"在录入页或库存页补录 {date} 的实际库存，确认低置信度物料数量并覆盖旧基线")
 
         can_close = len(blocking_reasons) == 0
         close_status = "can_close" if can_close else ("partial" if len(blocking_reasons) <= 2 else "blocked")
@@ -1294,6 +1763,7 @@ def fact(
     affects_accounts: list[str] | None = None,
     affects_inventory_items: list[str] | None = None,
     confidence: str | None = None,
+    evidence_image_url: str = "",
 ) -> dict[str, Any]:
     md = metadata or {}
     if confidence is not None:
@@ -1337,7 +1807,7 @@ def fact(
         source_type=source_type,
         source_platform=source_platform or platform,
         source_date=date,
-        evidence_image_url="",
+        evidence_image_url=evidence_image_url,
         evidence_file_ref="",
         extracted_fields={},
         posted_at="",

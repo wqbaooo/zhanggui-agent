@@ -8,12 +8,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <ToastProvider>
       <FeedbackProvider>
-        <div className="neural-bg" id="neural-bg" />
-        <div className="flex h-screen max-w-full overflow-hidden">
+        <div className="flex h-screen max-w-full overflow-hidden bg-slate-50">
           <SidebarNav />
           <div className="flex min-w-0 max-w-full flex-1 flex-col overflow-hidden">
             <TopBar />
-            <main className="mx-auto w-full max-w-full flex-1 overflow-x-hidden overflow-y-auto p-4 md:max-w-[1440px] md:p-6">
+            <main className="w-full max-w-full flex-1 overflow-x-hidden overflow-y-auto bg-[#f4f7f8] p-3 md:p-4 xl:p-5">
               <PageTransition>{children}</PageTransition>
             </main>
           </div>
