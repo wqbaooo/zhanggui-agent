@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { motion } from "framer-motion";
 import { useSearchParams } from "next/navigation";
@@ -70,14 +70,16 @@ const EVENT_LABELS: Record<string, string> = {
   waste: "报损",
 };
 const REAL_FIXTURE_DATE = "2026-07-04";
-const DAILY_USAGE_PRIORITY = [
-  "章鱼预拌粉", "调料包", "原味酱", "香甜酱", "藤椒酱", "蛋黄酱", "番茄酱", "芥末酱",
-  "木鱼花", "切丝海苔", "青海苔粉", "海苔肉松",
-  "章鱼粒", "章鱼花", "玉米粒", "培根丁", "肉肠", "麻辣鲜蛤", "咸蛋黄", "奶酪酱", "芝士", "蟹柳",
-  "章鱼烧盒子（4粒）", "章鱼烧盒子（6粒）", "全家福打包盒", "全家福打包盒塑料盖",
-  "外卖塑料袋", "外卖无纺布袋", "纸巾", "竹签", "外卖贴纸", "标签纸",
-  "收银纸80*80", "收银纸57*50", "烤肠竹签",
+const DAILY_USAGE_GROUPS = [
+  { label: "基础粉料", names: ["章鱼预拌粉", "调料包"], tone: "border-emerald-200 bg-emerald-50 text-emerald-900", printFill: "#e7f3ef" },
+  { label: "酱料", names: ["原味酱", "香甜酱", "藤椒酱", "蛋黄酱", "番茄酱", "芥末酱", "奶酪酱"], tone: "border-amber-200 bg-amber-50 text-amber-950", printFill: "#fbf1dc" },
+  { label: "撒料", names: ["木鱼花", "切丝海苔", "青海苔粉", "海苔肉松"], tone: "border-lime-200 bg-lime-50 text-lime-950", printFill: "#edf3df" },
+  { label: "冷链配料", names: ["章鱼粒", "章鱼花", "玉米粒", "培根丁", "肉肠", "麻辣鲜蛤", "咸蛋黄", "芝士", "蟹柳"], tone: "border-sky-200 bg-sky-50 text-sky-950", printFill: "#e7f1f7" },
+  { label: "餐盒与袋装", names: ["章鱼烧盒子（4粒）", "章鱼烧盒子（6粒）", "全家福打包盒", "全家福打包盒塑料盖", "外卖塑料袋", "外卖无纺布袋"], tone: "border-orange-200 bg-orange-50 text-orange-950", printFill: "#faeee3" },
+  { label: "出餐辅助耗材", names: ["纸巾", "竹签", "烤肠竹签"], tone: "border-stone-200 bg-stone-100 text-stone-800", printFill: "#f0efec" },
+  { label: "标签与收银耗材", names: ["外卖贴纸", "标签纸", "收银纸80*80", "收银纸57*50"], tone: "border-slate-200 bg-slate-100 text-slate-800", printFill: "#edf0f2" },
 ];
+const DAILY_USAGE_PRIORITY = DAILY_USAGE_GROUPS.flatMap((group) => group.names);
 
 function shanghaiDate() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date());
@@ -900,12 +902,9 @@ function UsagePanel({ skus, allSkus, logs, saving, onSubmit, onWaste }: {
     setValues(nextValues);
     setNotes(savedLog?.notes || "");
   }, [date, savedLog?.id, savedLog?.created_at]);
-  const visibleSkus = skus.filter((sku) => `${sku.name}${sku.hq_name || ""}${sku.category}`.toLowerCase().includes(query.trim().toLowerCase()));
-  const groupedVisibleSkus = [
-    { category: "常温食材", label: "常温食材", tone: "border-emerald-200 bg-emerald-50 text-emerald-900" },
-    { category: "冷链食材", label: "冷链食材", tone: "border-sky-200 bg-sky-50 text-sky-900" },
-    { category: "包装耗材", label: "营业包装", tone: "border-amber-200 bg-amber-50 text-amber-900" },
-  ].map((group) => ({ ...group, items: visibleSkus.filter((sku) => sku.category === group.category) }))
+  const visibleSkus = skus.filter((sku) => `${sku.name}${sku.hq_name || ""}${sku.category}${sku.daily_usage_group || ""}`.toLowerCase().includes(query.trim().toLowerCase()));
+  const groupedVisibleSkus = DAILY_USAGE_GROUPS
+    .map((group) => ({ ...group, items: visibleSkus.filter((sku) => sku.daily_usage_group === group.label || group.names.includes(sku.name)) }))
     .filter((group) => group.items.length > 0);
   const items = skus
     .map((sku) => ({ sku_id: sku.id, quantity: Number(values[sku.id] || 0), name: sku.name, unit: unitOf(sku) }))
@@ -932,7 +931,7 @@ function UsagePanel({ skus, allSkus, logs, saving, onSubmit, onWaste }: {
         </div>
         <div className="mt-3 max-h-[620px] space-y-3 overflow-y-auto pr-1">
           {groupedVisibleSkus.map((group) => (
-            <section key={group.category} className="overflow-hidden rounded-xl border border-stone-200 bg-stone-50/45">
+            <section key={group.label} className="overflow-hidden rounded-xl border border-stone-200 bg-stone-50/45">
               <div className={`flex items-center justify-between border-b px-3 py-2 ${group.tone}`}>
                 <h3 className="text-xs font-semibold">{group.label}</h3>
                 <span className="text-[11px] opacity-70">{group.items.length} 项</span>
@@ -1443,28 +1442,25 @@ function HistoryList({ title, empty, children }: { title: string; empty: string;
 }
 
 function PrintTemplates({ type, dailySkus, allSkus }: { type: PrintSheet; dailySkus: SkuItem[]; allSkus: SkuItem[] }) {
-  const dailyGroups = [
-    { category: "常温食材", label: "常温食材" },
-    { category: "冷链食材", label: "冷链食材" },
-    { category: "包装耗材", label: "营业包装" },
-  ].map((group) => ({ ...group, items: dailySkus.filter((sku) => sku.category === group.category) }));
+  const dailyGroups = DAILY_USAGE_GROUPS.map((group) => ({
+    ...group,
+    items: dailySkus.filter((sku) => sku.daily_usage_group === group.label || group.names.includes(sku.name)),
+  }));
   return (
     <div className="inventory-print">
       {type === "daily" && (
         <>
           <h1 style={{ textAlign: "center", fontSize: 16, marginBottom: 4 }}>新余恒太城五楼大口章鱼烧｜每日物料使用登记表</h1>
           <p style={{ marginBottom: 7 }}>日期：____年__月__日　　只填高频营业物料的当日实际开封/领用数量（整数）；低频耗材放在阶段盘点表。</p>
-          <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-            {dailyGroups.map((group) => (
-              <table key={group.category}>
-                <thead>
-                  <tr><th colSpan={5} style={{ background: group.category === "冷链食材" ? "#0369a1" : group.category === "包装耗材" ? "#b45309" : "#0f766e", color: "white", textAlign: "left", fontSize: 10 }}>{group.label} · {group.items.length}项</th></tr>
-                  <tr><th style={{ width: "22%" }}>品名</th><th style={{ width: "28%" }}>规格</th><th style={{ width: "8%" }}>单位</th><th style={{ width: "14%" }}>今日使用</th><th style={{ width: "28%" }}>异常/备注</th></tr>
-                </thead>
-                <tbody>{group.items.map((sku) => <tr key={sku.id}><td>{sku.hq_name || sku.name}</td><td>{sku.spec || "规格待补"}</td><td style={{ textAlign: "center" }}>{unitOf(sku)}</td><td style={{ background: "#fef3c7" }} /><td /></tr>)}</tbody>
-              </table>
-            ))}
-          </div>
+          <table>
+            <thead><tr style={{ background: "#e6eeeb", color: "#21352f" }}><th style={{ width: "22%" }}>品名</th><th style={{ width: "28%" }}>规格</th><th style={{ width: "8%" }}>单位</th><th style={{ width: "14%" }}>今日使用</th><th style={{ width: "28%" }}>异常/备注</th></tr></thead>
+            <tbody>{dailyGroups.map((group, groupIndex) => (
+              <Fragment key={group.label}>
+                <tr><td colSpan={5} style={{ background: group.printFill, borderLeft: "4px solid #64877d", fontWeight: 700, color: "#2b413a" }}>{String(groupIndex + 1).padStart(2, "0")}　{group.label} · {group.items.length}项</td></tr>
+                {group.items.map((sku) => <tr key={sku.id}><td>{sku.hq_name || sku.name}</td><td>{sku.spec || "规格待补"}</td><td style={{ textAlign: "center" }}>{unitOf(sku)}</td><td style={{ background: "#fff6d8" }} /><td /></tr>)}
+              </Fragment>
+            ))}</tbody>
+          </table>
           <p style={{ marginTop: 6 }}>特殊情况（报损、撒漏、过期等）：________________________________________________________________________________</p>
         </>
       )}

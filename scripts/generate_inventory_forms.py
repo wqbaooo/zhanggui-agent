@@ -28,14 +28,16 @@ MUTED = colors.HexColor("#78716C")
 LINE = colors.HexColor("#A8A29E")
 SOFT = colors.HexColor("#FFF7ED")
 
-DAILY_USAGE_ORDER = [
-    "章鱼预拌粉", "调料包", "原味酱", "香甜酱", "藤椒酱", "蛋黄酱", "番茄酱", "芥末酱",
-    "木鱼花", "切丝海苔", "青海苔粉", "海苔肉松",
-    "章鱼粒", "章鱼花", "玉米粒", "培根丁", "肉肠", "麻辣鲜蛤", "咸蛋黄", "奶酪酱", "芝士", "蟹柳",
-    "章鱼烧盒子（4粒）", "章鱼烧盒子（6粒）", "全家福打包盒", "全家福打包盒塑料盖",
-    "外卖塑料袋", "外卖无纺布袋", "纸巾", "竹签", "外卖贴纸", "标签纸",
-    "收银纸80*80", "收银纸57*50", "烤肠竹签",
+DAILY_USAGE_GROUPS = [
+    ("基础粉料", ["章鱼预拌粉", "调料包"], "#E7F3EF"),
+    ("酱料", ["原味酱", "香甜酱", "藤椒酱", "蛋黄酱", "番茄酱", "芥末酱", "奶酪酱"], "#FBF1DC"),
+    ("撒料", ["木鱼花", "切丝海苔", "青海苔粉", "海苔肉松"], "#EDF3DF"),
+    ("冷链配料", ["章鱼粒", "章鱼花", "玉米粒", "培根丁", "肉肠", "麻辣鲜蛤", "咸蛋黄", "芝士", "蟹柳"], "#E7F1F7"),
+    ("餐盒与袋装", ["章鱼烧盒子（4粒）", "章鱼烧盒子（6粒）", "全家福打包盒", "全家福打包盒塑料盖", "外卖塑料袋", "外卖无纺布袋"], "#FAEEE3"),
+    ("出餐辅助耗材", ["纸巾", "竹签", "烤肠竹签"], "#F0EFEC"),
+    ("标签与收银耗材", ["外卖贴纸", "标签纸", "收银纸80*80", "收银纸57*50"], "#EDF0F2"),
 ]
+DAILY_USAGE_ORDER = [name for _, names, _ in DAILY_USAGE_GROUPS for name in names]
 
 
 def register_font() -> None:
@@ -105,25 +107,34 @@ def build_daily_usage_form(skus: list[dict]) -> Path:
         p("营业日期：____年__月__日　只记当天实际开封/领用整数；未使用留空；低频耗材在阶段盘点表管理。", 7.5, align=TA_CENTER),
         Spacer(1, 2 * mm),
     ]
-    groups = [("常温食材", "常温食材", "#0F766E"), ("冷链食材", "冷链食材", "#0369A1"), ("包装耗材", "营业包装", "#B45309")]
     widths = [42 * mm, 57 * mm, 18 * mm, 26 * mm, 51 * mm]
-    for category, label, color in groups:
-        items = [sku for sku in daily if sku.get("category") == category]
-        rows = [
-            [p(f"{label} · {len(items)}项", 8.5, True)],
-            [p("品名", 7.5, True, TA_CENTER), p("规格", 7.5, True, TA_CENTER), p("单位", 7.5, True, TA_CENTER), p("今日使用", 7.5, True, TA_CENTER), p("异常/备注", 7.5, True, TA_CENTER)],
-        ]
-        rows.extend([[p(name_of(sku), 7), p(str(sku.get("spec") or "待补"), 7), p(unit_of(sku), 7, align=TA_CENTER), "", ""] for sku in items])
-        table = Table(rows, colWidths=widths, rowHeights=[6 * mm, 6 * mm] + [5.35 * mm] * len(items))
-        table.setStyle(TableStyle([
-            ("SPAN", (0, 0), (-1, 0)), ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(color)), ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("BACKGROUND", (0, 1), (-1, 1), INK), ("TEXTCOLOR", (0, 1), (-1, 1), colors.white),
-            ("BACKGROUND", (3, 2), (3, -1), colors.HexColor("#FEF3C7")),
-            ("FONTNAME", (0, 0), (-1, -1), FONT_NAME), ("GRID", (0, 1), (-1, -1), 0.45, LINE),
-            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("LEFTPADDING", (0, 0), (-1, -1), 2), ("RIGHTPADDING", (0, 0), (-1, -1), 2),
-            ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-        ]))
-        story.append(table)
+    rows = [[p("品名", 7.5, True, TA_CENTER), p("规格", 7.5, True, TA_CENTER), p("单位", 7.5, True, TA_CENTER), p("今日使用", 7.5, True, TA_CENTER), p("异常/备注", 7.5, True, TA_CENTER)]]
+    row_heights = [6 * mm]
+    group_rows = []
+    data_rows = []
+    for group_index, (label, names, fill) in enumerate(DAILY_USAGE_GROUPS):
+        items = [sku for sku in daily if sku.get("daily_usage_group") == label or name_of(sku) in names]
+        group_row = len(rows)
+        group_rows.append((group_row, fill))
+        rows.append([p(f"{group_index + 1:02d}　{label} · {len(items)}项", 8, True), "", "", "", ""])
+        row_heights.append(5.2 * mm)
+        for sku in items:
+            data_rows.append(len(rows))
+            rows.append([p(name_of(sku), 7), p(str(sku.get("spec") or "待补"), 7), p(unit_of(sku), 7, align=TA_CENTER), "", ""])
+            row_heights.append(5.05 * mm)
+    table = Table(rows, colWidths=widths, rowHeights=row_heights)
+    commands = [
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E6EEEB")), ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#21352F")),
+        ("FONTNAME", (0, 0), (-1, -1), FONT_NAME), ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#B8C5C0")),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("LEFTPADDING", (0, 0), (-1, -1), 2), ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+        ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]
+    for row_index, fill in group_rows:
+        commands.extend([("SPAN", (0, row_index), (-1, row_index)), ("BACKGROUND", (0, row_index), (-1, row_index), colors.HexColor(fill)), ("TEXTCOLOR", (0, row_index), (-1, row_index), colors.HexColor("#2B413A"))])
+    for row_index in data_rows:
+        commands.append(("BACKGROUND", (3, row_index), (3, row_index), colors.HexColor("#FFF6D8")))
+    table.setStyle(TableStyle(commands))
+    story.append(table)
     story.extend([Spacer(1, 1.5 * mm), p("录入线上库存时按同一营业日期照纸面整数录入；重复保存覆盖当天旧版，不会重复扣库。", 7, align=TA_CENTER)])
     doc.build(story)
     return output

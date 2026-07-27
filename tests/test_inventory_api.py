@@ -19,6 +19,8 @@ def create_test_sku(client: TestClient, project_id: str, stock: float = 10):
         "unit": "包",
         "display_unit": "包",
         "tracking_mode": "open_pack",
+        "daily_usage_group": "基础粉料",
+        "daily_usage_sort": 1,
         "current_stock": stock,
         "unit_cost": 26.5,
     })
@@ -51,6 +53,8 @@ def test_inventory_baseline_counts_allocate_legacy_stock_without_duplication(tmp
     assert warehouse_count.status_code == 200
 
     persisted = client.get(f"/api/projects/{project_id}/skus/{sku['id']}").json()["sku"]
+    assert persisted["daily_usage_group"] == "基础粉料"
+    assert persisted["daily_usage_sort"] == 1
     assert persisted["stock_by_location"] == {
         "unallocated": 0.0,
         "store": 4.0,

@@ -181,12 +181,14 @@ def main():
         "tracking_rule": "opened_package_counts_as_used", "default_open_quantity": 1,
         "employee_action": "选择物料后点击开封1包；系统立即减1并记录成本。",
         "exception": "盘点只用于纠正实际剩余数量，不要求员工记录在用余量。",
+        "classification_rule": "库存主档按仓储属性分类；每日使用表另按员工营业取用路径分类。",
+        "daily_usage_groups": ["基础粉料", "酱料", "撒料", "冷链配料", "餐盒与袋装", "出餐辅助耗材", "标签与收银耗材"],
     }
     book.operational_forms = [
         {"id": "daily-cash", "name": "每日现金交接表", "frequency": "每日早晚", "fields": ["日期", "早班POS现金", "当天现金收款", "现金支出", "打烊实点", "与客如云差异", "交接人"]},
         {"id": "daily-open-pack", "name": "每日物料开封表", "frequency": "随开随记", "fields": ["日期时间", "物料", "开封数量(默认1)", "操作员工", "备注"]},
         {"id": "daily-attendance", "name": "员工上班与加班登记表", "frequency": "每日", "fields": ["员工", "上班", "下班", "休息", "加班小时", "签名"]},
-        {"id": "daily-material-usage", "name": "每日物料使用登记表", "frequency": "每天营业结束后，一日一张", "fields": ["日期", "固定品名", "固定规格", "固定单位", "今日开封/领用整数", "特殊报损说明"]},
+        {"id": "daily-material-usage", "name": "每日物料使用登记表", "frequency": "每天营业结束后，一日一张", "grouping": ["基础粉料", "酱料", "撒料", "冷链配料", "餐盒与袋装", "出餐辅助耗材", "标签与收银耗材"], "fields": ["日期", "固定品名", "固定规格", "固定单位", "今日开封/领用整数", "特殊报损说明"]},
         {"id": "weekly-full-count", "name": "每周全量盘点表", "frequency": "每周", "fields": ["物料", "系统数", "实盘数", "差异", "原因", "复核人"]},
         {"id": "supplier-reconciliation", "name": "供应商月结对账表", "frequency": "月度", "fields": ["供应商", "发票日期", "应付", "已付", "未付", "付款凭证"]},
     ]

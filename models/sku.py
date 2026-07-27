@@ -52,6 +52,8 @@ class SkuItem:
     stock_by_location: Dict[str, float] = field(default_factory=dict)
     count_units: List[Dict[str, Any]] = field(default_factory=list)
     tracking_mode: str = "periodic_count"
+    daily_usage_group: str = ""
+    daily_usage_sort: int = 0
     display_unit: str = ""
     store_target_days: float = 0.0
     supplier_lead_days: int = 3
@@ -79,7 +81,8 @@ class SkuItem:
             "notes": "", "hq_code": "", "hq_name": "", "hq_image": "", "hq_category": "",
             "standard_unit": "", "spec": "", "pack_quantity": 0.0,
             "stock_by_location": {}, "count_units": [],
-            "tracking_mode": "periodic_count", "display_unit": "", "active": True,
+            "tracking_mode": "periodic_count", "daily_usage_group": "", "daily_usage_sort": 0,
+            "display_unit": "", "active": True,
             "store_target_days": 0.0, "supplier_lead_days": 3,
             "reorder_enabled": True, "usage_integer_only": True,
             "asset_class": "inventory", "master_source": "", "master_source_row": 0,

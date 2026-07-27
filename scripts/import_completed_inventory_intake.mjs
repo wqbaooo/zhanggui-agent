@@ -12,14 +12,16 @@ const DATA_FILE = path.join(ROOT, "project_data", PROJECT_ID, "skus.json");
 const OUT_DIR = path.join(ROOT, "outputs/inventory-intake-import-20260727");
 const APPLY = process.argv.includes("--apply");
 const IMPORT_ID = "owner-inventory-intake-20260726-v1";
-const DAILY_USAGE_NAMES = new Set([
-  "章鱼预拌粉", "调料包", "原味酱", "香甜酱", "藤椒酱", "蛋黄酱", "番茄酱", "芥末酱",
-  "木鱼花", "切丝海苔", "青海苔粉", "海苔肉松", "章鱼粒", "章鱼花", "玉米粒", "培根丁",
-  "肉肠", "麻辣鲜蛤", "咸蛋黄", "奶酪酱", "芝士", "蟹柳",
-  "章鱼烧盒子（4粒）", "章鱼烧盒子（6粒）", "全家福打包盒", "全家福打包盒塑料盖",
-  "外卖塑料袋", "外卖无纺布袋", "纸巾", "竹签", "外卖贴纸", "标签纸",
-  "收银纸80*80", "收银纸57*50", "烤肠竹签",
-]);
+const DAILY_USAGE_GROUPS = [
+  ["基础粉料", ["章鱼预拌粉", "调料包"]],
+  ["酱料", ["原味酱", "香甜酱", "藤椒酱", "蛋黄酱", "番茄酱", "芥末酱", "奶酪酱"]],
+  ["撒料", ["木鱼花", "切丝海苔", "青海苔粉", "海苔肉松"]],
+  ["冷链配料", ["章鱼粒", "章鱼花", "玉米粒", "培根丁", "肉肠", "麻辣鲜蛤", "咸蛋黄", "芝士", "蟹柳"]],
+  ["餐盒与袋装", ["章鱼烧盒子（4粒）", "章鱼烧盒子（6粒）", "全家福打包盒", "全家福打包盒塑料盖", "外卖塑料袋", "外卖无纺布袋"]],
+  ["出餐辅助耗材", ["纸巾", "竹签", "烤肠竹签"]],
+  ["标签与收银耗材", ["外卖贴纸", "标签纸", "收银纸80*80", "收银纸57*50"]],
+];
+const DAILY_USAGE_INDEX = new Map(DAILY_USAGE_GROUPS.flatMap(([group, names]) => names.map((name, index) => [name, { group, index }])));
 
 const cleanText = (value) => {
   const text = value == null ? "" : String(value).trim();
@@ -89,6 +91,7 @@ for (const row of baselineRows) {
   const systemId = cleanText(row[12]);
   const override = operationalOverrides[originalName] || {};
   const finalName = override.name || originalName;
+  const dailyUsage = DAILY_USAGE_INDEX.get(finalName);
   let sku = (systemId && skuById.get(systemId)) || skuByName.get(originalName) || skuByName.get(finalName);
   if (!sku) {
     const id = missingIds[originalName] || `sku-local-${slug(originalName)}`;
@@ -114,7 +117,9 @@ for (const row of baselineRows) {
       unallocated: 0,
     },
     asset_class: isEquipment ? "equipment" : "inventory",
-    tracking_mode: isEquipment ? "asset_registry" : DAILY_USAGE_NAMES.has(finalName) ? "daily_usage" : "periodic_count",
+    tracking_mode: isEquipment ? "asset_registry" : dailyUsage ? "daily_usage" : "periodic_count",
+    daily_usage_group: dailyUsage?.group || "",
+    daily_usage_sort: dailyUsage ? DAILY_USAGE_GROUPS.findIndex(([group]) => group === dailyUsage.group) * 100 + dailyUsage.index : 0,
     reorder_enabled: !isEquipment,
     usage_integer_only: true,
     active: true,

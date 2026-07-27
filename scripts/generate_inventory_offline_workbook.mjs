@@ -20,14 +20,16 @@ const PUBLIC_EVIDENCE_DIR = path.join(ROOT, "web/public/downloads/inventory-evid
 
 const data = JSON.parse(await fs.readFile(DATA_FILE, "utf8"));
 const categoryOrder = { "常温食材": 0, "冷链食材": 1, "包装耗材": 2, "清洁耗材": 3, "低值耗材": 4 };
-const nameOrder = [
-  "章鱼预拌粉", "调料包", "原味酱", "香甜酱", "藤椒酱", "蛋黄酱", "番茄酱", "芥末酱",
-  "木鱼花", "切丝海苔", "青海苔粉", "海苔肉松",
-  "章鱼粒", "章鱼花", "玉米粒", "培根丁", "肉肠", "麻辣鲜蛤", "咸蛋黄", "奶酪酱", "芝士", "蟹柳",
-  "章鱼烧盒子（4粒）", "章鱼烧盒子（6粒）", "全家福打包盒", "全家福打包盒塑料盖",
-  "外卖塑料袋", "外卖无纺布袋", "纸巾", "竹签", "外卖贴纸", "标签纸",
-  "收银纸80*80", "收银纸57*50", "烤肠竹签",
+const dailyUsageGroups = [
+  { label: "基础粉料", names: ["章鱼预拌粉", "调料包"], fill: "#E7F3EF", accent: "#4F7D70" },
+  { label: "酱料", names: ["原味酱", "香甜酱", "藤椒酱", "蛋黄酱", "番茄酱", "芥末酱", "奶酪酱"], fill: "#FBF1DC", accent: "#A87932" },
+  { label: "撒料", names: ["木鱼花", "切丝海苔", "青海苔粉", "海苔肉松"], fill: "#EDF3DF", accent: "#71824A" },
+  { label: "冷链配料", names: ["章鱼粒", "章鱼花", "玉米粒", "培根丁", "肉肠", "麻辣鲜蛤", "咸蛋黄", "芝士", "蟹柳"], fill: "#E7F1F7", accent: "#527E98" },
+  { label: "餐盒与袋装", names: ["章鱼烧盒子（4粒）", "章鱼烧盒子（6粒）", "全家福打包盒", "全家福打包盒塑料盖", "外卖塑料袋", "外卖无纺布袋"], fill: "#FAEEE3", accent: "#A96E42" },
+  { label: "出餐辅助耗材", names: ["纸巾", "竹签", "烤肠竹签"], fill: "#F0EFEC", accent: "#77736B" },
+  { label: "标签与收银耗材", names: ["外卖贴纸", "标签纸", "收银纸80*80", "收银纸57*50"], fill: "#EDF0F2", accent: "#687781" },
 ];
+const nameOrder = dailyUsageGroups.flatMap((group) => group.names);
 const materials = data.skus
   .filter((sku) => sku.active !== false && sku.asset_class !== "equipment" && sku.tracking_mode !== "asset_registry")
   .sort((a, b) => {
@@ -140,34 +142,35 @@ let dailyPrintArea = "$A$1:$E$40";
 {
   const sheet = workbook.worksheets.add("每日使用表");
   styleTitle(sheet, 4, "大口章鱼烧 · 每日物料使用登记表", "营业日期：____年__月__日    只记当天实际开封/领用整数；未使用留空；低频耗材在阶段盘点表管理。");
-  const groups = [
-    { category: "常温食材", label: "常温食材", color: COLORS.green },
-    { category: "冷链食材", label: "冷链食材", color: "#0369A1" },
-    { category: "包装耗材", label: "营业包装", color: COLORS.amber },
-  ];
   const headers = ["品名", "规格", "单位", "今日使用", "异常/备注"];
   let row = 4;
-  for (const group of groups) {
-    const groupItems = dailyMaterials.filter((sku) => sku.category === group.category);
+  sheet.getRange(`A${row}:E${row}`).values = [headers];
+  sheet.getRange(`A${row}:E${row}`).format = {
+    fill: "#E6EEEB", font: { name: FONT_NAME, bold: true, color: "#21352F", size: 9 },
+    horizontalAlignment: "center", verticalAlignment: "center",
+    borders: { preset: "all", style: "thin", color: "#AABAB4" },
+  };
+  sheet.getRange(`A${row}:E${row}`).format.rowHeight = 20;
+  row += 1;
+  for (let groupIndex = 0; groupIndex < dailyUsageGroups.length; groupIndex += 1) {
+    const group = dailyUsageGroups[groupIndex];
+    const groupItems = dailyMaterials.filter((sku) => sku.daily_usage_group === group.label || group.names.includes(sku.name));
     sheet.mergeCells(`A${row}:E${row}`);
-    sheet.getRange(`A${row}`).values = [[`${group.label}  ·  ${groupItems.length} 项`]];
+    sheet.getRange(`A${row}`).values = [[`${String(groupIndex + 1).padStart(2, "0")}　${group.label}  ·  ${groupItems.length} 项`]];
     sheet.getRange(`A${row}:E${row}`).format = {
-      fill: group.color, font: { name: FONT_NAME, bold: true, color: COLORS.white, size: 11 },
+      fill: group.fill, font: { name: FONT_NAME, bold: true, color: "#2B413A", size: 10 },
       horizontalAlignment: "left", verticalAlignment: "center",
+      borders: { left: { style: "medium", color: group.accent }, bottom: { style: "thin", color: "#C8D1CD" } },
     };
-    sheet.getRange(`A${row}:E${row}`).format.rowHeight = 19;
-    row += 1;
-    sheet.getRange(`A${row}:E${row}`).values = [headers];
-    styleHeader(sheet.getRange(`A${row}:E${row}`));
-    sheet.getRange(`A${row}:E${row}`).format.rowHeight = 18;
+    sheet.getRange(`A${row}:E${row}`).format.rowHeight = 17;
     row += 1;
     const rows = groupItems.map((sku) => [sku.name, sku.spec || "", sku.display_unit || sku.unit, "", ""]);
     const rowEnd = row + groupItems.length - 1;
     sheet.getRange(`A${row}:E${rowEnd}`).values = rows;
     styleBody(sheet.getRange(`A${row}:E${rowEnd}`));
-    sheet.getRange(`A${row}:E${rowEnd}`).format.rowHeight = 17;
+    sheet.getRange(`A${row}:E${rowEnd}`).format.rowHeight = 16;
     sheet.getRange(`D${row}:D${rowEnd}`).format = {
-      fill: COLORS.amberSoft, font: { name: FONT_NAME, bold: true, color: COLORS.ink, size: 10 }, horizontalAlignment: "center",
+      fill: "#FFF6D8", font: { name: FONT_NAME, bold: true, color: COLORS.ink, size: 10 }, horizontalAlignment: "center",
       verticalAlignment: "center", borders: { preset: "all", style: "thin", color: COLORS.line },
     };
     row = rowEnd + 1;

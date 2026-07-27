@@ -2030,6 +2030,8 @@ export interface SkuItem {
   stock_by_location: Partial<Record<"store" | "warehouse" | "freezer" | "unallocated", number>>;
   count_units: Array<{ unit: string; factor: number; label?: string }>;
   tracking_mode: "open_pack" | "periodic_count" | "daily_usage" | "asset_registry";
+  daily_usage_group?: string;
+  daily_usage_sort?: number;
   asset_class?: "inventory" | "equipment";
   master_source?: string;
   master_source_row?: number;

@@ -79,6 +79,8 @@ async def create_sku(project_id: str, req: SkuCreate):
         stock_by_location=req.stock_by_location,
         count_units=req.count_units,
         tracking_mode=req.tracking_mode,
+        daily_usage_group=req.daily_usage_group,
+        daily_usage_sort=req.daily_usage_sort,
         display_unit=req.display_unit,
         store_target_days=req.store_target_days,
         supplier_lead_days=req.supplier_lead_days,

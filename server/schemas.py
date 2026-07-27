@@ -237,6 +237,8 @@ class SkuCreate(BaseModel):
     stock_by_location: Dict[str, float] = Field(default_factory=dict, description="门店/仓库/待分配库存")
     count_units: List[Dict[str, Any]] = Field(default_factory=list, description="总部与盘点单位换算")
     tracking_mode: str = Field("periodic_count", description="open_pack/periodic_count")
+    daily_usage_group: str = Field("", description="每日使用表的营业动作分组，不替代仓储品类")
+    daily_usage_sort: int = Field(0, ge=0, description="每日使用表内排序")
     display_unit: str = Field("", description="老板查看和台账使用的单位")
     store_target_days: float = Field(0.0, ge=0, description="门店目标覆盖天数，0 表示未配置")
     supplier_lead_days: int = Field(3, ge=0, description="供应商到货周期")
@@ -258,6 +260,8 @@ class SkuUpdate(BaseModel):
     stock_by_location: Optional[Dict[str, float]] = None
     count_units: Optional[List[Dict[str, Any]]] = None
     tracking_mode: Optional[str] = None
+    daily_usage_group: Optional[str] = None
+    daily_usage_sort: Optional[int] = Field(None, ge=0)
     display_unit: Optional[str] = None
     store_target_days: Optional[float] = Field(None, ge=0)
     supplier_lead_days: Optional[int] = Field(None, ge=0)

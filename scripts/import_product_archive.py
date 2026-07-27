@@ -69,6 +69,20 @@ DAILY_USAGE_NAMES = {
     "外卖塑料袋", "外卖无纺布袋", "纸巾", "竹签", "外卖贴纸", "标签纸",
     "收银纸80*80", "收银纸57*50", "烤肠竹签",
 }
+DAILY_USAGE_GROUPS = {
+    "基础粉料": ["章鱼预拌粉", "调料包"],
+    "酱料": ["原味酱", "香甜酱", "藤椒酱", "蛋黄酱", "番茄酱", "芥末酱", "奶酪酱"],
+    "撒料": ["木鱼花", "切丝海苔", "青海苔粉", "海苔肉松"],
+    "冷链配料": ["章鱼粒", "章鱼花", "玉米粒", "培根丁", "肉肠", "麻辣鲜蛤", "咸蛋黄", "芝士", "蟹柳"],
+    "餐盒与袋装": ["章鱼烧盒子（4粒）", "章鱼烧盒子（6粒）", "全家福打包盒", "全家福打包盒塑料盖", "外卖塑料袋", "外卖无纺布袋"],
+    "出餐辅助耗材": ["纸巾", "竹签", "烤肠竹签"],
+    "标签与收银耗材": ["外卖贴纸", "标签纸", "收银纸80*80", "收银纸57*50"],
+}
+DAILY_USAGE_INDEX = {
+    name: (group, group_index * 100 + item_index)
+    for group_index, (group, names) in enumerate(DAILY_USAGE_GROUPS.items())
+    for item_index, name in enumerate(names)
+}
 
 
 def clean(value: Any) -> str:
@@ -169,6 +183,7 @@ def main() -> None:
         unit, count_units, price_conversion = inventory_unit_and_conversion(name, spec, price_unit)
         quoted_unit_cost = round(hq_price / price_conversion, 6) if hq_price is not None and price_conversion > 0 else None
         is_asset = row.get("category") == "设备用品"
+        daily_usage = DAILY_USAGE_INDEX.get(name)
 
         sku.update({
             "name": name,
@@ -185,6 +200,8 @@ def main() -> None:
             "batch_cycle_days": int(sku.get("batch_cycle_days", 14) or 14),
             "supplier_lead_days": int(sku.get("supplier_lead_days", 3) or 3),
             "tracking_mode": "asset_registry" if is_asset else ("daily_usage" if name in DAILY_USAGE_NAMES else "periodic_count"),
+            "daily_usage_group": daily_usage[0] if daily_usage else "",
+            "daily_usage_sort": daily_usage[1] if daily_usage else 0,
             "asset_class": "equipment" if is_asset else "inventory",
             "master_source": "商品档案.xlsx",
             "master_source_row": row.get("row"),
