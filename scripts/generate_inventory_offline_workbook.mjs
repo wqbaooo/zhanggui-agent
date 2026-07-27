@@ -16,7 +16,13 @@ const PUBLIC_EVIDENCE_DIR = path.join(ROOT, "web/public/downloads/inventory-evid
 
 const data = JSON.parse(await fs.readFile(DATA_FILE, "utf8"));
 const categoryOrder = { "常温食材": 0, "冷链食材": 1, "包装耗材": 2, "清洁耗材": 3, "低值耗材": 4 };
-const nameOrder = ["章鱼预拌粉", "调料包", "原味酱", "香甜酱", "藤椒酱", "蛋黄酱", "木鱼花", "切丝海苔", "青海苔粉", "海苔肉松", "章鱼粒", "章鱼花", "鸡蛋"];
+const nameOrder = [
+  "章鱼预拌粉", "调料包", "原味酱", "香甜酱", "藤椒酱", "蛋黄酱", "番茄酱", "芥末酱",
+  "木鱼花", "切丝海苔", "青海苔粉", "海苔肉松",
+  "章鱼粒", "章鱼花", "玉米粒", "培根丁", "肉肠", "麻辣鲜蛤", "咸蛋黄", "奶酪酱", "芝士", "蟹柳", "鸡蛋",
+  "章鱼烧盒子（4粒）", "章鱼烧盒子（6粒）", "全家福打包盒", "全家福打包盒塑料盖",
+  "外卖塑料袋", "外卖无纺布袋", "竹签", "烤肠竹签",
+];
 const materials = data.skus
   .filter((sku) => sku.active !== false && sku.asset_class !== "equipment" && sku.tracking_mode !== "asset_registry")
   .sort((a, b) => {

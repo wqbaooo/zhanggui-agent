@@ -71,8 +71,11 @@ const EVENT_LABELS: Record<string, string> = {
 };
 const REAL_FIXTURE_DATE = "2026-07-04";
 const DAILY_USAGE_PRIORITY = [
-  "章鱼预拌粉", "调料包", "原味酱", "香甜酱", "章鱼粒", "章鱼花", "木鱼花", "玉米粒", "海苔肉松",
-  "章鱼烧盒子（6粒）", "章鱼烧盒子（4粒）", "全家福打包盒", "全家福打包盒塑料盖",
+  "章鱼预拌粉", "调料包", "原味酱", "香甜酱", "藤椒酱", "蛋黄酱", "番茄酱", "芥末酱",
+  "木鱼花", "切丝海苔", "青海苔粉", "海苔肉松",
+  "章鱼粒", "章鱼花", "玉米粒", "培根丁", "肉肠", "麻辣鲜蛤", "咸蛋黄", "奶酪酱", "芝士", "蟹柳", "鸡蛋",
+  "章鱼烧盒子（4粒）", "章鱼烧盒子（6粒）", "全家福打包盒", "全家福打包盒塑料盖",
+  "外卖塑料袋", "外卖无纺布袋", "竹签", "烤肠竹签",
 ];
 
 function shanghaiDate() {
@@ -495,7 +498,7 @@ export default function InventoryPage() {
         )}
       </div>
 
-      <PrintTemplates type={printSheet} dailySkus={inventorySkus} allSkus={inventorySkus} />
+      <PrintTemplates type={printSheet} dailySkus={dailyUsageSkus} allSkus={inventorySkus} />
     </ModulePage>
   );
 }
@@ -1439,17 +1442,25 @@ function HistoryList({ title, empty, children }: { title: string; empty: string;
 }
 
 function PrintTemplates({ type, dailySkus, allSkus }: { type: PrintSheet; dailySkus: SkuItem[]; allSkus: SkuItem[] }) {
+  const dailyGroups = [
+    { category: "常温食材", label: "常温食材" },
+    { category: "冷链食材", label: "冷链食材" },
+    { category: "包装耗材", label: "营业包装" },
+  ].map((group) => ({ ...group, items: dailySkus.filter((sku) => sku.category === group.category) }));
   return (
     <div className="inventory-print">
       {type === "daily" && (
         <>
           <h1 style={{ textAlign: "center", fontSize: 16, marginBottom: 4 }}>新余恒太城五楼大口章鱼烧｜每日物料使用登记表</h1>
-          <p style={{ marginBottom: 7 }}>日期：____年__月__日　　只填写今天实际开封/领用数量，未使用留空；单位已固定。</p>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            {[dailySkus.slice(0, Math.ceil(dailySkus.length / 2)), dailySkus.slice(Math.ceil(dailySkus.length / 2))].map((items, panel) => (
-              <table key={panel}>
-                <thead><tr><th style={{ width: "13%" }}>类别</th><th>品名 / 规格</th><th style={{ width: "12%" }}>单位</th><th style={{ width: "17%" }}>今日使用</th></tr></thead>
-                <tbody>{items.map((sku) => <tr key={sku.id}><td>{sku.category.replace("食材", "")}</td><td>{sku.hq_name || sku.name}<br /><span style={{ color: "#666" }}>{sku.spec || "规格待补"}</span></td><td style={{ textAlign: "center" }}>{unitOf(sku)}</td><td /></tr>)}</tbody>
+          <p style={{ marginBottom: 7 }}>日期：____年__月__日　　只填高频营业物料的当日实际开封/领用数量（整数）；低频耗材放在阶段盘点表。</p>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+            {dailyGroups.map((group) => (
+              <table key={group.category}>
+                <thead>
+                  <tr><th colSpan={4} style={{ background: "#0f766e", color: "white", textAlign: "left", fontSize: 10 }}>{group.label} · {group.items.length}项</th></tr>
+                  <tr><th>品名 / 规格</th><th style={{ width: "12%" }}>单位</th><th style={{ width: "19%" }}>今日使用</th><th style={{ width: "20%" }}>异常</th></tr>
+                </thead>
+                <tbody>{group.items.map((sku) => <tr key={sku.id}><td>{sku.hq_name || sku.name}<br /><span style={{ color: "#666" }}>{sku.spec || "规格待补"}</span></td><td style={{ textAlign: "center" }}>{unitOf(sku)}</td><td /><td /></tr>)}</tbody>
               </table>
             ))}
           </div>
