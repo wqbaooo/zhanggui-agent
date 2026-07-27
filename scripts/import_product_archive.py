@@ -59,6 +59,17 @@ PREFERRED_IDS = {
     "切丝海苔": "sku-1783274150752-36",
 }
 
+# 每日表不是“所有库存物料”的缩小版，而是老板确认过、员工每天实际会
+# 按开封/领用整数记录的营业物料。其余物料仍保留在主档、进货和阶段盘点中。
+DAILY_USAGE_NAMES = {
+    "章鱼预拌粉", "调料包", "原味酱", "香甜酱", "藤椒酱", "蛋黄酱", "番茄酱", "芥末酱",
+    "木鱼花", "切丝海苔", "青海苔粉", "海苔肉松",
+    "章鱼粒", "章鱼花", "玉米粒", "培根丁", "肉肠", "麻辣鲜蛤", "咸蛋黄", "奶酪酱", "芝士", "蟹柳",
+    "章鱼烧盒子（4粒）", "章鱼烧盒子（6粒）", "全家福打包盒", "全家福打包盒塑料盖",
+    "外卖塑料袋", "外卖无纺布袋", "纸巾", "竹签", "外卖贴纸", "标签纸",
+    "收银纸80*80", "收银纸57*50", "烤肠竹签",
+}
+
 
 def clean(value: Any) -> str:
     text = str(value or "").strip()
@@ -173,7 +184,7 @@ def main() -> None:
             "supplier": sku.get("supplier") or "总部",
             "batch_cycle_days": int(sku.get("batch_cycle_days", 14) or 14),
             "supplier_lead_days": int(sku.get("supplier_lead_days", 3) or 3),
-            "tracking_mode": "asset_registry" if is_asset else "daily_usage",
+            "tracking_mode": "asset_registry" if is_asset else ("daily_usage" if name in DAILY_USAGE_NAMES else "periodic_count"),
             "asset_class": "equipment" if is_asset else "inventory",
             "master_source": "商品档案.xlsx",
             "master_source_row": row.get("row"),

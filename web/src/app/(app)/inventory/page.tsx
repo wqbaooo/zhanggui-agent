@@ -73,9 +73,10 @@ const REAL_FIXTURE_DATE = "2026-07-04";
 const DAILY_USAGE_PRIORITY = [
   "章鱼预拌粉", "调料包", "原味酱", "香甜酱", "藤椒酱", "蛋黄酱", "番茄酱", "芥末酱",
   "木鱼花", "切丝海苔", "青海苔粉", "海苔肉松",
-  "章鱼粒", "章鱼花", "玉米粒", "培根丁", "肉肠", "麻辣鲜蛤", "咸蛋黄", "奶酪酱", "芝士", "蟹柳", "鸡蛋",
+  "章鱼粒", "章鱼花", "玉米粒", "培根丁", "肉肠", "麻辣鲜蛤", "咸蛋黄", "奶酪酱", "芝士", "蟹柳",
   "章鱼烧盒子（4粒）", "章鱼烧盒子（6粒）", "全家福打包盒", "全家福打包盒塑料盖",
-  "外卖塑料袋", "外卖无纺布袋", "竹签", "烤肠竹签",
+  "外卖塑料袋", "外卖无纺布袋", "纸巾", "竹签", "外卖贴纸", "标签纸",
+  "收银纸80*80", "收银纸57*50", "烤肠竹签",
 ];
 
 function shanghaiDate() {
@@ -204,7 +205,7 @@ export default function InventoryPage() {
       <style jsx global>{`
         .inventory-print { display: none; }
         @media print {
-          @page { size: A4 landscape; margin: 8mm; }
+          @page { size: ${printSheet === "daily" ? "A4 portrait" : "A4 landscape"}; margin: 7mm; }
           body * { visibility: hidden !important; }
           .inventory-print, .inventory-print * { visibility: visible !important; }
           .inventory-print {
@@ -216,8 +217,8 @@ export default function InventoryPage() {
             background: #fff;
             padding: 20px;
           }
-          .inventory-print table { width: 100%; border-collapse: collapse; font-size: 8px; }
-          .inventory-print th, .inventory-print td { border: 1px solid #777; padding: 3px; height: 18px; }
+          .inventory-print table { width: 100%; border-collapse: collapse; font-size: 9px; }
+          .inventory-print th, .inventory-print td { border: 1px solid #777; padding: 3px 5px; height: 18px; }
         }
       `}</style>
 
@@ -1453,14 +1454,14 @@ function PrintTemplates({ type, dailySkus, allSkus }: { type: PrintSheet; dailyS
         <>
           <h1 style={{ textAlign: "center", fontSize: 16, marginBottom: 4 }}>新余恒太城五楼大口章鱼烧｜每日物料使用登记表</h1>
           <p style={{ marginBottom: 7 }}>日期：____年__月__日　　只填高频营业物料的当日实际开封/领用数量（整数）；低频耗材放在阶段盘点表。</p>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
             {dailyGroups.map((group) => (
               <table key={group.category}>
                 <thead>
-                  <tr><th colSpan={4} style={{ background: "#0f766e", color: "white", textAlign: "left", fontSize: 10 }}>{group.label} · {group.items.length}项</th></tr>
-                  <tr><th>品名 / 规格</th><th style={{ width: "12%" }}>单位</th><th style={{ width: "19%" }}>今日使用</th><th style={{ width: "20%" }}>异常</th></tr>
+                  <tr><th colSpan={5} style={{ background: group.category === "冷链食材" ? "#0369a1" : group.category === "包装耗材" ? "#b45309" : "#0f766e", color: "white", textAlign: "left", fontSize: 10 }}>{group.label} · {group.items.length}项</th></tr>
+                  <tr><th style={{ width: "22%" }}>品名</th><th style={{ width: "28%" }}>规格</th><th style={{ width: "8%" }}>单位</th><th style={{ width: "14%" }}>今日使用</th><th style={{ width: "28%" }}>异常/备注</th></tr>
                 </thead>
-                <tbody>{group.items.map((sku) => <tr key={sku.id}><td>{sku.hq_name || sku.name}<br /><span style={{ color: "#666" }}>{sku.spec || "规格待补"}</span></td><td style={{ textAlign: "center" }}>{unitOf(sku)}</td><td /><td /></tr>)}</tbody>
+                <tbody>{group.items.map((sku) => <tr key={sku.id}><td>{sku.hq_name || sku.name}</td><td>{sku.spec || "规格待补"}</td><td style={{ textAlign: "center" }}>{unitOf(sku)}</td><td style={{ background: "#fef3c7" }} /><td /></tr>)}</tbody>
               </table>
             ))}
           </div>

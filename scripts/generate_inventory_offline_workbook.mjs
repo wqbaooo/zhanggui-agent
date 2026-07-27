@@ -3,7 +3,11 @@
 
 import fs from "node:fs/promises";
 import path from "node:path";
+import { createRequire } from "node:module";
 import { SpreadsheetFile, Workbook } from "/Users/wqboo/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/@oai/artifact-tool/dist/artifact_tool.mjs";
+
+const require = createRequire("/Users/wqboo/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/package.json");
+const JSZip = require("jszip");
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const DATA_FILE = path.join(ROOT, "project_data/xinyu-hengtai-dakou/skus.json");
@@ -19,9 +23,10 @@ const categoryOrder = { "常温食材": 0, "冷链食材": 1, "包装耗材": 2,
 const nameOrder = [
   "章鱼预拌粉", "调料包", "原味酱", "香甜酱", "藤椒酱", "蛋黄酱", "番茄酱", "芥末酱",
   "木鱼花", "切丝海苔", "青海苔粉", "海苔肉松",
-  "章鱼粒", "章鱼花", "玉米粒", "培根丁", "肉肠", "麻辣鲜蛤", "咸蛋黄", "奶酪酱", "芝士", "蟹柳", "鸡蛋",
+  "章鱼粒", "章鱼花", "玉米粒", "培根丁", "肉肠", "麻辣鲜蛤", "咸蛋黄", "奶酪酱", "芝士", "蟹柳",
   "章鱼烧盒子（4粒）", "章鱼烧盒子（6粒）", "全家福打包盒", "全家福打包盒塑料盖",
-  "外卖塑料袋", "外卖无纺布袋", "竹签", "烤肠竹签",
+  "外卖塑料袋", "外卖无纺布袋", "纸巾", "竹签", "外卖贴纸", "标签纸",
+  "收银纸80*80", "收银纸57*50", "烤肠竹签",
 ];
 const materials = data.skus
   .filter((sku) => sku.active !== false && sku.asset_class !== "equipment" && sku.tracking_mode !== "asset_registry")
@@ -42,6 +47,7 @@ const COLORS = {
   ink: "#17211E", muted: "#64706C", line: "#B9C5C0", soft: "#F2F6F4",
   green: "#0F766E", greenSoft: "#DFF3ED", amber: "#B45309", amberSoft: "#FEF3C7", white: "#FFFFFF",
 };
+const FONT_NAME = "Hiragino Sans GB";
 const workbook = Workbook.create();
 workbook.comments.setSelf({ displayName: "掌柜Agent" });
 
@@ -62,14 +68,14 @@ function styleTitle(sheet, endCol, title, subtitle) {
   sheet.mergeCells(`A1:${end}1`);
   sheet.getRange("A1").values = [[title]];
   sheet.getRange(`A1:${end}1`).format = {
-    fill: COLORS.green, font: { bold: true, color: COLORS.white, size: 18 },
+    fill: COLORS.green, font: { name: FONT_NAME, bold: true, color: COLORS.white, size: 18 },
     horizontalAlignment: "center", verticalAlignment: "center",
   };
   sheet.getRange(`A1:${end}1`).format.rowHeight = 34;
   sheet.mergeCells(`A2:${end}2`);
   sheet.getRange("A2").values = [[subtitle]];
   sheet.getRange(`A2:${end}2`).format = {
-    fill: COLORS.greenSoft, font: { color: COLORS.ink, size: 10 },
+    fill: COLORS.greenSoft, font: { name: FONT_NAME, color: COLORS.ink, size: 10 },
     horizontalAlignment: "center", verticalAlignment: "center", wrapText: true,
   };
   sheet.getRange(`A2:${end}2`).format.rowHeight = 28;
@@ -77,7 +83,7 @@ function styleTitle(sheet, endCol, title, subtitle) {
 
 function styleHeader(range) {
   range.format = {
-    fill: COLORS.ink, font: { bold: true, color: COLORS.white, size: 9 },
+    fill: COLORS.ink, font: { name: FONT_NAME, bold: true, color: COLORS.white, size: 9 },
     horizontalAlignment: "center", verticalAlignment: "center", wrapText: true,
     borders: { preset: "all", style: "thin", color: COLORS.line },
   };
@@ -86,59 +92,93 @@ function styleHeader(range) {
 
 function styleBody(range) {
   range.format = {
-    font: { color: COLORS.ink, size: 9 }, verticalAlignment: "center", wrapText: true,
+    font: { name: FONT_NAME, color: COLORS.ink, size: 9 }, verticalAlignment: "center", wrapText: true,
     borders: { preset: "all", style: "thin", color: COLORS.line },
   };
   range.format.rowHeight = 25;
 }
 
-// 1) One day, one A4 landscape sheet. Only frequent operating items belong here;
+async function applyDailyPrintSettings(filePath, printArea) {
+  const archive = await JSZip.loadAsync(await fs.readFile(filePath));
+  const sheetPath = "xl/worksheets/sheet1.xml";
+  let sheetXml = await archive.file(sheetPath).async("string");
+  if (sheetXml.includes("<x:sheetPr")) {
+    sheetXml = sheetXml.replace(/<x:sheetPr([^>]*)\/>/, '<x:sheetPr$1><x:pageSetUpPr fitToPage="1" autoPageBreaks="0" /></x:sheetPr>');
+    sheetXml = sheetXml.replace(/<x:sheetPr([^>]*)>(?![\s\S]*?<x:pageSetUpPr)/, '<x:sheetPr$1><x:pageSetUpPr fitToPage="1" autoPageBreaks="0" />');
+  } else {
+    sheetXml = sheetXml.replace(/(<x:worksheet[^>]*>)/, '$1<x:sheetPr><x:pageSetUpPr fitToPage="1" autoPageBreaks="0" /></x:sheetPr>');
+  }
+  sheetXml = sheetXml.replace(/<x:printOptions[^>]*\/>/g, "");
+  sheetXml = sheetXml.replace(/<x:pageMargins[^>]*\/>/g, "");
+  sheetXml = sheetXml.replace(/<x:pageSetup[^>]*\/>/g, "");
+  sheetXml = sheetXml.replace(
+    /<\/x:worksheet>/,
+    '<x:printOptions horizontalCentered="1" verticalCentered="0" headings="0" gridLines="0" />' +
+      '<x:pageMargins left="0.25" right="0.25" top="0.3" bottom="0.3" header="0" footer="0" />' +
+      '<x:pageSetup paperSize="9" orientation="portrait" fitToWidth="1" fitToHeight="1" horizontalDpi="600" verticalDpi="600" />' +
+      '</x:worksheet>',
+  );
+  archive.file(sheetPath, sheetXml);
+
+  let workbookXml = await archive.file("xl/workbook.xml").async("string");
+  const printName = `<x:definedName name="_xlnm.Print_Area" localSheetId="0">'\u6bcf\u65e5\u4f7f\u7528\u8868'!${printArea}</x:definedName>`;
+  workbookXml = workbookXml.replace(/<x:definedName name="_xlnm.Print_Area" localSheetId="0">[\s\S]*?<\/x:definedName>/, printName);
+  if (!workbookXml.includes('name="_xlnm.Print_Area" localSheetId="0"')) {
+    workbookXml = workbookXml.includes("<x:definedNames>")
+      ? workbookXml.replace("<x:definedNames>", `<x:definedNames>${printName}`)
+      : workbookXml.includes("<x:calcPr")
+        ? workbookXml.replace("<x:calcPr", `<x:definedNames>${printName}</x:definedNames><x:calcPr`)
+        : workbookXml.replace("</x:workbook>", `<x:definedNames>${printName}</x:definedNames></x:workbook>`);
+  }
+  archive.file("xl/workbook.xml", workbookXml);
+  await fs.writeFile(filePath, await archive.generateAsync({ type: "nodebuffer", compression: "DEFLATE" }));
+}
+
+// 1) One day, one A4 portrait sheet. Only frequent operating items belong here;
 // low-frequency consumables remain in the complete stocktake and purchase ledgers.
+let dailyPrintArea = "$A$1:$E$40";
 {
   const sheet = workbook.worksheets.add("每日使用表");
-  styleTitle(sheet, 16, "大口章鱼烧 · 每日物料使用登记表", "营业日期：____年__月__日    只记当天实际开封/领用数量（整数）；未使用留空；低频耗材在阶段盘点表管理。打印：A4 横向、1页。");
+  styleTitle(sheet, 4, "大口章鱼烧 · 每日物料使用登记表", "营业日期：____年__月__日    只记当天实际开封/领用整数；未使用留空；低频耗材在阶段盘点表管理。");
   const groups = [
     { category: "常温食材", label: "常温食材", color: COLORS.green },
     { category: "冷链食材", label: "冷链食材", color: "#0369A1" },
     { category: "包装耗材", label: "营业包装", color: COLORS.amber },
   ];
   const headers = ["品名", "规格", "单位", "今日使用", "异常/备注"];
-  const maxRows = Math.max(...groups.map((group) => dailyMaterials.filter((sku) => sku.category === group.category).length));
-  for (let panel = 0; panel < groups.length; panel += 1) {
-    const group = groups[panel];
+  let row = 4;
+  for (const group of groups) {
     const groupItems = dailyMaterials.filter((sku) => sku.category === group.category);
-    const startCol = panel * 6;
-    const start = colName(startCol);
-    const end = colName(startCol + 4);
-    sheet.mergeCells(`${start}4:${end}4`);
-    sheet.getRange(`${start}4`).values = [[`${group.label}  ·  ${groupItems.length} 项`]];
-    sheet.getRange(`${start}4:${end}4`).format = {
-      fill: group.color, font: { bold: true, color: COLORS.white, size: 11 },
+    sheet.mergeCells(`A${row}:E${row}`);
+    sheet.getRange(`A${row}`).values = [[`${group.label}  ·  ${groupItems.length} 项`]];
+    sheet.getRange(`A${row}:E${row}`).format = {
+      fill: group.color, font: { name: FONT_NAME, bold: true, color: COLORS.white, size: 11 },
       horizontalAlignment: "left", verticalAlignment: "center",
     };
-    sheet.getRange(`${start}4:${end}4`).format.rowHeight = 26;
-    sheet.getRange(`${start}5:${end}5`).values = [headers];
-    styleHeader(sheet.getRange(`${start}5:${end}5`));
-    const rows = [];
-    for (let offset = 0; offset < maxRows; offset += 1) {
-      const sku = groupItems[offset];
-      rows.push(sku ? [sku.name, sku.spec || "", sku.display_unit || sku.unit, "", ""] : ["", "", "", "", ""]);
-    }
-    const rowEnd = 5 + maxRows;
-    sheet.getRange(`${start}6:${end}${rowEnd}`).values = rows;
-    styleBody(sheet.getRange(`${start}6:${end}${rowEnd}`));
-    sheet.getRange(`${colName(startCol + 3)}6:${colName(startCol + 3)}${rowEnd}`).format = {
-      fill: COLORS.amberSoft, font: { bold: true, color: COLORS.ink, size: 11 }, horizontalAlignment: "center",
+    sheet.getRange(`A${row}:E${row}`).format.rowHeight = 19;
+    row += 1;
+    sheet.getRange(`A${row}:E${row}`).values = [headers];
+    styleHeader(sheet.getRange(`A${row}:E${row}`));
+    sheet.getRange(`A${row}:E${row}`).format.rowHeight = 18;
+    row += 1;
+    const rows = groupItems.map((sku) => [sku.name, sku.spec || "", sku.display_unit || sku.unit, "", ""]);
+    const rowEnd = row + groupItems.length - 1;
+    sheet.getRange(`A${row}:E${rowEnd}`).values = rows;
+    styleBody(sheet.getRange(`A${row}:E${rowEnd}`));
+    sheet.getRange(`A${row}:E${rowEnd}`).format.rowHeight = 17;
+    sheet.getRange(`D${row}:D${rowEnd}`).format = {
+      fill: COLORS.amberSoft, font: { name: FONT_NAME, bold: true, color: COLORS.ink, size: 10 }, horizontalAlignment: "center",
       verticalAlignment: "center", borders: { preset: "all", style: "thin", color: COLORS.line },
     };
-    if (panel < 2) sheet.getRange(`${colName(startCol + 5)}1:${colName(startCol + 5)}${rowEnd}`).format.columnWidth = 2;
-    [14, 17, 6, 10, 14].forEach((width, i) => { sheet.getRange(`${colName(startCol + i)}:${colName(startCol + i)}`).format.columnWidth = width; });
+    row = rowEnd + 1;
   }
-  const footerRow = 6 + maxRows;
-  sheet.mergeCells(`A${footerRow}:Q${footerRow}`);
+  const footerRow = row;
+  sheet.mergeCells(`A${footerRow}:E${footerRow}`);
   sheet.getRange(`A${footerRow}`).values = [["录入线上库存时：选择同一营业日期，照纸面“今日使用”整数录入；重复保存会覆盖当天旧版，不会重复扣库。"]];
-  sheet.getRange(`A${footerRow}:Q${footerRow}`).format = { fill: COLORS.soft, font: { color: COLORS.muted, size: 9 }, horizontalAlignment: "center", verticalAlignment: "center", wrapText: true };
-  sheet.getRange(`A${footerRow}:Q${footerRow}`).format.rowHeight = 25;
+  sheet.getRange(`A${footerRow}:E${footerRow}`).format = { fill: COLORS.soft, font: { name: FONT_NAME, color: COLORS.muted, size: 8 }, horizontalAlignment: "center", verticalAlignment: "center", wrapText: true };
+  sheet.getRange(`A${footerRow}:E${footerRow}`).format.rowHeight = 18;
+  [21, 27, 8, 13, 27].forEach((width, i) => { sheet.getRange(`${colName(i)}:${colName(i)}`).format.columnWidth = width; });
+  dailyPrintArea = `$A$1:$E$${footerRow}`;
 }
 
 // 2) Periodic owner stocktake. Two panels include the only three physical locations.
@@ -163,7 +203,7 @@ function styleBody(range) {
     sheet.getRange(`${start}5:${end}${rowEnd}`).values = rows;
     styleBody(sheet.getRange(`${start}5:${end}${rowEnd}`));
     sheet.getRange(`${colName(startCol + 5)}5:${colName(startCol + 8)}${rowEnd}`).format = {
-      fill: COLORS.amberSoft, font: { bold: true, color: COLORS.ink, size: 10 }, horizontalAlignment: "center", verticalAlignment: "center",
+      fill: COLORS.amberSoft, font: { name: FONT_NAME, bold: true, color: COLORS.ink, size: 10 }, horizontalAlignment: "center", verticalAlignment: "center",
       borders: { preset: "all", style: "thin", color: COLORS.line },
     };
     [5, 10, 14, 18, 7, 8, 8, 8, 8, 13].forEach((width, i) => { sheet.getRange(`${colName(startCol + i)}:${colName(startCol + i)}`).format.columnWidth = width; });
@@ -224,7 +264,7 @@ function styleBody(range) {
     sheet.mergeCells(`${left}${startRow + 12}:${right}${startRow + 12}`);
     sheet.getRange(`${left}${startRow + 12}`).values = [[fileName]];
     sheet.getRange(`${left}${startRow + 12}:${right}${startRow + 12}`).format = {
-      fill: COLORS.soft, font: { color: COLORS.ink, size: 8 }, horizontalAlignment: "center", verticalAlignment: "center", wrapText: true,
+      fill: COLORS.soft, font: { name: FONT_NAME, color: COLORS.ink, size: 8 }, horizontalAlignment: "center", verticalAlignment: "center", wrapText: true,
       borders: { preset: "outside", style: "thin", color: COLORS.line },
     };
     sheet.getRange(`${left}:${right}`).format.columnWidth = 16;
@@ -248,6 +288,7 @@ for (const sheetName of ["每日使用表", "阶段总盘点表", "进货台账"
 }
 const output = await SpreadsheetFile.exportXlsx(workbook);
 await output.save(OUTPUT);
+await applyDailyPrintSettings(OUTPUT, dailyPrintArea);
 await fs.copyFile(OUTPUT, PUBLIC_OUTPUT);
 await fs.unlink(PUBLIC_COMPAT).catch(() => {});
 await fs.link(PUBLIC_OUTPUT, PUBLIC_COMPAT);

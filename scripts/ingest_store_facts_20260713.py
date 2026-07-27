@@ -186,7 +186,7 @@ def main():
         {"id": "daily-cash", "name": "每日现金交接表", "frequency": "每日早晚", "fields": ["日期", "早班POS现金", "当天现金收款", "现金支出", "打烊实点", "与客如云差异", "交接人"]},
         {"id": "daily-open-pack", "name": "每日物料开封表", "frequency": "随开随记", "fields": ["日期时间", "物料", "开封数量(默认1)", "操作员工", "备注"]},
         {"id": "daily-attendance", "name": "员工上班与加班登记表", "frequency": "每日", "fields": ["员工", "上班", "下班", "休息", "加班小时", "签名"]},
-        {"id": "daily-core-count", "name": "核心物料日盘表", "frequency": "每日打烊", "fields": ["预拌粉", "章鱼粒", "鸡蛋", "盒子", "主要酱料", "异常"]},
+        {"id": "daily-material-usage", "name": "每日物料使用登记表", "frequency": "每天营业结束后，一日一张", "fields": ["日期", "固定品名", "固定规格", "固定单位", "今日开封/领用整数", "特殊报损说明"]},
         {"id": "weekly-full-count", "name": "每周全量盘点表", "frequency": "每周", "fields": ["物料", "系统数", "实盘数", "差异", "原因", "复核人"]},
         {"id": "supplier-reconciliation", "name": "供应商月结对账表", "frequency": "月度", "fields": ["供应商", "发票日期", "应付", "已付", "未付", "付款凭证"]},
     ]

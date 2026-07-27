@@ -15,9 +15,10 @@ const IMPORT_ID = "owner-inventory-intake-20260726-v1";
 const DAILY_USAGE_NAMES = new Set([
   "章鱼预拌粉", "调料包", "原味酱", "香甜酱", "藤椒酱", "蛋黄酱", "番茄酱", "芥末酱",
   "木鱼花", "切丝海苔", "青海苔粉", "海苔肉松", "章鱼粒", "章鱼花", "玉米粒", "培根丁",
-  "肉肠", "麻辣鲜蛤", "咸蛋黄", "奶酪酱", "芝士", "蟹柳", "鸡蛋",
+  "肉肠", "麻辣鲜蛤", "咸蛋黄", "奶酪酱", "芝士", "蟹柳",
   "章鱼烧盒子（4粒）", "章鱼烧盒子（6粒）", "全家福打包盒", "全家福打包盒塑料盖",
-  "外卖塑料袋", "外卖无纺布袋", "竹签", "烤肠竹签",
+  "外卖塑料袋", "外卖无纺布袋", "纸巾", "竹签", "外卖贴纸", "标签纸",
+  "收银纸80*80", "收银纸57*50", "烤肠竹签",
 ]);
 
 const cleanText = (value) => {
@@ -68,6 +69,8 @@ const operationalOverrides = {
   "章鱼烧盒子（4粒）": { unit: "组", unitCost: 43.5, countUnits: [{ unit: "箱", conversion: 10, base_unit: "组" }] },
   "章鱼烧盒子（6粒）": { unit: "组", unitCost: 36, countUnits: [{ unit: "箱", conversion: 10, base_unit: "组" }] },
   "纸巾": { unit: "提", spec: "一箱/4提/20kg", unitCost: 36.25 },
+  "收银纸40*35": { name: "收银纸80*80", unit: "卷", spec: "箱/50卷/10组" },
+  "烤肠竹签": { unit: "包", spec: "包" },
   "芝士": { unit: "袋", spec: "2.5kg/袋", unitCost: 88.53, supplier: "拼多多" },
 };
 
@@ -129,7 +132,7 @@ for (const row of baselineRows) {
 }
 
 const extras = [
-  { name: "鸡蛋", category: "冷链食材", spec: "箱/360个（总部目录）", unit: "个", stock: 0, supplier: "总部", unitCost: 280 / 360, tracking: "daily_usage", reorder: true },
+  { name: "鸡蛋", category: "冷链食材", spec: "箱/360个（总部目录）", unit: "个", stock: 0, supplier: "总部", unitCost: 280 / 360, tracking: "periodic_count", reorder: true },
   { name: "黑色记号笔", category: "低值耗材", spec: "4支/组", unit: "组", stock: 1, supplier: "淘宝", unitCost: 1.99, tracking: "periodic_count", reorder: false },
   { name: "蟑螂药", category: "清洁耗材", spec: "6枚/盒", unit: "盒", stock: 1, supplier: "淘宝闪购", unitCost: 6.08, tracking: "periodic_count", reorder: false },
 ];
