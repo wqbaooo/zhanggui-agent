@@ -16,9 +16,11 @@ import {
   History,
   FileText,
   PackageCheck,
+  Plus,
   Printer,
   RefreshCw,
   Store,
+  Trash2,
   X,
 } from "lucide-react";
 import { ModulePage, getModule } from "@/components/agent-os/ModulePage";
@@ -26,6 +28,7 @@ import {
   DEFAULT_PROJECT_ID,
   createInventoryCount,
   createInventoryTransfer,
+  createPurchase,
   replaceInventoryUsage,
   createInventoryWaste,
   createProductionBatch,
@@ -165,6 +168,13 @@ export default function InventoryPage() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get("tab") as InventoryTab | null;
+    if (requested && ["overview", "usage", "count", "flow", "analysis", "production", "forms"].includes(requested)) {
+      setActiveTab(requested);
+    }
+  }, []);
 
   const activeSkus = useMemo(() => skus.filter((sku) => sku.active !== false), [skus]);
   const inventorySkus = useMemo(() => activeSkus
@@ -328,7 +338,13 @@ export default function InventoryPage() {
             <button
               key={id}
               type="button"
-              onClick={() => setActiveTab(id)}
+              onClick={() => {
+                setActiveTab(id);
+                const url = new URL(window.location.href);
+                url.searchParams.set("tab", id);
+                if (id !== "flow") url.searchParams.delete("action");
+                window.history.replaceState({}, "", url);
+              }}
               className={`inline-flex min-h-10 flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-lg px-3 text-sm font-medium transition-colors ${
                 activeTab === id ? "bg-stone-900 text-white" : "text-stone-600 hover:bg-stone-100 hover:text-stone-900"
               }`}
@@ -456,6 +472,17 @@ export default function InventoryPage() {
             events={events}
             purchases={purchases}
             saving={saving}
+            onCreatePurchase={async (purchase) => {
+              setSaving(true);
+              try {
+                await createPurchase(purchase);
+                await afterSave(`${purchase.date} 进货单已按 ${purchase.items.length} 个 SKU 保存`);
+              } catch (error) {
+                setLoadError(error instanceof Error ? error.message : "进货单保存失败");
+              } finally {
+                setSaving(false);
+              }
+            }}
             onReceive={async (purchaseId, items, notes) => {
               setSaving(true);
               try {
@@ -1216,11 +1243,103 @@ function CountPanel({ skus, counts, variance, saving, onSubmit }: {
   );
 }
 
-function FlowPanel({ skus, events, purchases, saving, onReceive, onSubmit }: {
+function PurchaseCreatePanel({ skus, saving, onSubmit }: {
+  skus: SkuItem[];
+  saving: boolean;
+  onSubmit: (purchase: {
+    date: string;
+    supplier: string;
+    platform: string;
+    external_order_id: string;
+    paid_amount: number;
+    payment_status: string;
+    fulfillment_status: "ordered";
+    freight: number;
+    discount_amount: number;
+    notes: string;
+    items: Array<{ sku_id: string; name: string; quantity: number; unit_cost: number }>;
+  }) => Promise<void>;
+}) {
+  const [date, setDate] = useState(shanghaiDate());
+  const [platform, setPlatform] = useState("总部");
+  const [supplier, setSupplier] = useState("");
+  const [orderId, setOrderId] = useState("");
+  const [freight, setFreight] = useState("");
+  const [discount, setDiscount] = useState("");
+  const [paidAmount, setPaidAmount] = useState("");
+  const [paymentStatus, setPaymentStatus] = useState("已付");
+  const [notes, setNotes] = useState("");
+  const [lines, setLines] = useState<Array<{ sku_id: string; quantity: string; unit_cost: string }>>([
+    { sku_id: "", quantity: "", unit_cost: "" },
+  ]);
+  const validLines = lines.filter((line) => line.sku_id && Number(line.quantity) > 0 && Number(line.unit_cost) >= 0);
+  const goodsAmount = validLines.reduce((sum, line) => sum + Number(line.quantity) * Number(line.unit_cost), 0);
+  const payable = goodsAmount + Number(freight || 0) - Number(discount || 0);
+
+  return <section id="purchase-entry" className="scroll-mt-28 rounded-2xl border border-orange-200 bg-orange-50/40 p-5">
+    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-orange-700">进货单录入</p>
+        <h2 className="mt-1 text-base font-semibold text-stone-950">一次订单，逐个 SKU 写清数量和价格</h2>
+        <p className="mt-1 text-sm leading-6 text-stone-600">总部、拼多多、淘宝、淘宝闪购和 1688 都记在同一套台账里；渠道只是订单属性，后续消耗始终按 SKU 联系。</p>
+      </div>
+      <span className="rounded-full bg-white px-3 py-1 text-xs font-medium text-orange-800">保存订单不等于库存入库</span>
+    </div>
+    <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <label className="text-xs font-medium text-stone-600">进货日期<input required type="date" value={date} onChange={(event) => setDate(event.target.value)} className="mt-1 block h-10 w-full rounded-lg border border-stone-200 bg-white px-3 text-sm" /></label>
+      <label className="text-xs font-medium text-stone-600">渠道<select value={platform} onChange={(event) => setPlatform(event.target.value)} className="mt-1 block h-10 w-full rounded-lg border border-stone-200 bg-white px-3 text-sm"><option>总部</option><option>拼多多</option><option>淘宝</option><option>淘宝闪购</option><option>1688</option><option>线下采购</option><option>其他</option></select></label>
+      <label className="text-xs font-medium text-stone-600">供应商<input value={supplier} onChange={(event) => setSupplier(event.target.value)} className="mt-1 block h-10 w-full rounded-lg border border-stone-200 bg-white px-3 text-sm" placeholder="店铺或公司名" /></label>
+      <label className="text-xs font-medium text-stone-600">订单号<input value={orderId} onChange={(event) => setOrderId(event.target.value)} className="mt-1 block h-10 w-full rounded-lg border border-stone-200 bg-white px-3 text-sm" placeholder="可后补" /></label>
+    </div>
+    <div className="mt-4 overflow-x-auto rounded-xl border border-stone-200 bg-white">
+      <div className="grid min-w-[680px] grid-cols-[minmax(220px,1fr)_130px_150px_120px_48px] gap-2 border-b border-stone-200 bg-stone-50 px-3 py-2 text-xs font-semibold text-stone-500"><span>物料 SKU</span><span>进货数量</span><span>单价（元/核算单位）</span><span>小计</span><span /></div>
+      {lines.map((line, index) => {
+        const sku = skus.find((item) => item.id === line.sku_id);
+        return <div key={index} className="grid min-w-[680px] grid-cols-[minmax(220px,1fr)_130px_150px_120px_48px] items-center gap-2 border-b border-stone-100 px-3 py-2 last:border-0">
+          <select aria-label={`第${index + 1}行物料`} value={line.sku_id} onChange={(event) => setLines((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, sku_id: event.target.value } : item))} className="h-10 min-w-0 rounded-lg border border-stone-200 bg-white px-2 text-sm"><option value="">选择物料</option>{skus.map((item) => <option key={item.id} value={item.id}>{item.hq_name || item.name} · {unitOf(item)}</option>)}</select>
+          <div className="relative"><input aria-label={`${sku?.name || `第${index + 1}行`}进货数量`} type="number" min="0" step="any" value={line.quantity} onChange={(event) => setLines((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, quantity: event.target.value } : item))} className="h-10 w-full rounded-lg border border-stone-200 px-2 pr-9 text-right text-sm tabular-nums" /><span className="pointer-events-none absolute right-2 top-3 text-xs text-stone-400">{sku ? unitOf(sku) : ""}</span></div>
+          <input aria-label={`${sku?.name || `第${index + 1}行`}进货单价`} type="number" min="0" step="0.01" value={line.unit_cost} onChange={(event) => setLines((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, unit_cost: event.target.value } : item))} className="h-10 rounded-lg border border-stone-200 px-2 text-right text-sm tabular-nums" placeholder="0.00" />
+          <span className="text-right text-sm font-semibold tabular-nums text-stone-800">¥{(Number(line.quantity || 0) * Number(line.unit_cost || 0)).toFixed(2)}</span>
+          <button type="button" aria-label="删除这行" disabled={lines.length === 1} onClick={() => setLines((current) => current.filter((_, itemIndex) => itemIndex !== index))} className="flex h-10 w-10 items-center justify-center rounded-lg text-stone-400 hover:bg-stone-100 hover:text-red-600 disabled:opacity-25"><Trash2 className="h-4 w-4" /></button>
+        </div>;
+      })}
+    </div>
+    <button type="button" onClick={() => setLines((current) => [...current, { sku_id: "", quantity: "", unit_cost: "" }])} className="mt-2 inline-flex min-h-10 items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 text-sm font-semibold text-stone-700 hover:bg-stone-50"><Plus className="h-4 w-4" />增加 SKU</button>
+    <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      <label className="text-xs font-medium text-stone-600">运费<input type="number" min="0" step="0.01" value={freight} onChange={(event) => setFreight(event.target.value)} className="mt-1 block h-10 w-full rounded-lg border border-stone-200 bg-white px-3 text-sm" placeholder="0.00" /></label>
+      <label className="text-xs font-medium text-stone-600">优惠<input type="number" min="0" step="0.01" value={discount} onChange={(event) => setDiscount(event.target.value)} className="mt-1 block h-10 w-full rounded-lg border border-stone-200 bg-white px-3 text-sm" placeholder="0.00" /></label>
+      <label className="text-xs font-medium text-stone-600">实际已付<input type="number" min="0" step="0.01" value={paidAmount} onChange={(event) => setPaidAmount(event.target.value)} className="mt-1 block h-10 w-full rounded-lg border border-stone-200 bg-white px-3 text-sm" placeholder={payable.toFixed(2)} /></label>
+      <label className="text-xs font-medium text-stone-600">付款状态<select value={paymentStatus} onChange={(event) => setPaymentStatus(event.target.value)} className="mt-1 block h-10 w-full rounded-lg border border-stone-200 bg-white px-3 text-sm"><option>已付</option><option>部分付款</option><option>未付</option></select></label>
+      <label className="text-xs font-medium text-stone-600">备注<input value={notes} onChange={(event) => setNotes(event.target.value)} className="mt-1 block h-10 w-full rounded-lg border border-stone-200 bg-white px-3 text-sm" placeholder="可选" /></label>
+    </div>
+    <div className="mt-4 flex flex-col gap-3 rounded-xl border border-orange-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-stone-600"><span>货品 ¥{goodsAmount.toFixed(2)}</span><span>运费 ¥{Number(freight || 0).toFixed(2)}</span><span>优惠 -¥{Number(discount || 0).toFixed(2)}</span><strong className="text-stone-950">应付 ¥{payable.toFixed(2)}</strong></div>
+      <button type="button" disabled={saving || validLines.length === 0 || validLines.length !== lines.length} onClick={async () => {
+        await onSubmit({ date, supplier, platform, external_order_id: orderId, paid_amount: Number(paidAmount || payable), payment_status: paymentStatus, fulfillment_status: "ordered", freight: Number(freight || 0), discount_amount: Number(discount || 0), notes, items: validLines.map((line) => { const item = skus.find((candidate) => candidate.id === line.sku_id); return { sku_id: line.sku_id, name: item?.hq_name || item?.name || "", quantity: Number(line.quantity), unit_cost: Number(line.unit_cost) }; }) });
+        setLines([{ sku_id: "", quantity: "", unit_cost: "" }]); setOrderId(""); setPaidAmount(""); setFreight(""); setDiscount(""); setNotes("");
+      }} className="min-h-11 rounded-lg bg-stone-900 px-5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40">{saving ? "保存中…" : `保存 ${validLines.length} 个 SKU 的进货单`}</button>
+    </div>
+  </section>;
+}
+
+function FlowPanel({ skus, events, purchases, saving, onCreatePurchase, onReceive, onSubmit }: {
   skus: SkuItem[];
   events: InventoryEvent[];
   purchases: PurchaseRecord[];
   saving: boolean;
+  onCreatePurchase: (purchase: {
+    date: string;
+    supplier: string;
+    platform: string;
+    external_order_id: string;
+    paid_amount: number;
+    payment_status: string;
+    fulfillment_status: "ordered";
+    freight: number;
+    discount_amount: number;
+    notes: string;
+    items: Array<{ sku_id: string; name: string; quantity: number; unit_cost: number }>;
+  }) => Promise<void>;
   onReceive: (
     purchaseId: string,
     items: Array<{ sku_id: string; received_quantity: number; allocations: Partial<Record<"store" | "warehouse" | "freezer", number>> }>,
@@ -1239,6 +1358,7 @@ function FlowPanel({ skus, events, purchases, saving, onReceive, onSubmit }: {
   const pendingPurchase = purchases.find((purchase) => purchase.fulfillment_status === "ordered");
   return (
     <div className="space-y-4">
+      <PurchaseCreatePanel skus={skus} saving={saving} onSubmit={onCreatePurchase} />
       {pendingPurchase && <PendingReceiptPanel purchase={pendingPurchase} saving={saving} onReceive={onReceive} />}
       <div className="grid gap-4 xl:grid-cols-[420px_minmax(0,1fr)]">
       <section className="rounded-2xl border border-stone-200 bg-white/85 p-5">

@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from server.routes import analyze, chat, audit, documents, finance, labor, projects, capture, model_routing, operating_ledger, reports, skus, sops, speech, weather, amap
+from server.routes import analyze, chat, audit, documents, finance, labor, projects, products, capture, model_routing, operating_ledger, reports, skus, sops, speech, weather, amap
 
 try:
     from v2.routes import router as v2_router
@@ -58,6 +58,7 @@ app.include_router(speech.router, prefix="/api")
 app.include_router(model_routing.router, prefix="/api")
 app.include_router(documents.router, prefix="/api")
 app.include_router(skus.router, prefix="/api")
+app.include_router(products.router, prefix="/api")
 app.include_router(sops.router, prefix="/api")
 app.include_router(labor.router, prefix="/api")
 app.include_router(reports.router, prefix="/api")

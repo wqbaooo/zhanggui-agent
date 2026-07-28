@@ -2174,13 +2174,113 @@ export function getForecast(projectId = DEFAULT_PROJECT_ID) {
 export function createPurchase(purchase: {
   date: string;
   supplier?: string;
+  platform?: string;
   external_order_id?: string;
   paid_amount?: number;
   items: { sku_id: string; name?: string; quantity: number; unit_cost: number }[];
   payment_status?: string;
+  fulfillment_status?: "ordered" | "received" | "refunded";
+  location?: "store" | "warehouse" | "freezer";
+  freight?: number;
+  discount_amount?: number;
+  refund_amount?: number;
+  evidence_file?: string;
+  accounting_status?: string;
   notes?: string;
 }, projectId = DEFAULT_PROJECT_ID) {
   return apiPost<{ success: boolean; purchase: PurchaseRecord; forecast: ForecastItem[] }>(`/api/projects/${projectId}/skus/purchase`, purchase);
+}
+
+export interface ProductAlias {
+  channel: string;
+  name: string;
+}
+
+export interface ProductRecord {
+  id: string;
+  name: string;
+  category: string;
+  aliases: ProductAlias[];
+  notes: string;
+  active: boolean;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface ProductVariant {
+  id: string;
+  product_id: string;
+  name: string;
+  spec: string;
+  sale_unit: string;
+  channel_prices: Array<{ channel: string; price: number }>;
+  active: boolean;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface ProductBomVersion {
+  id: string;
+  product_id: string;
+  variant_id: string;
+  version: number;
+  effective_date: string;
+  source: string;
+  notes: string;
+  lines: Array<{ sku_id: string; sku_name: string; quantity: number; unit: string }>;
+  created_at: number;
+}
+
+export interface ProductCatalogResponse {
+  project_id: string;
+  products: ProductRecord[];
+  variants: ProductVariant[];
+  bom_versions: ProductBomVersion[];
+  active_boms: Record<string, ProductBomVersion>;
+  counts: { products: number; variants: number; bom_versions: number };
+  updated_at: number;
+}
+
+export interface ProductEntryContext extends ProductCatalogResponse {
+  materials: SkuItem[];
+}
+
+export function getProducts(projectId = DEFAULT_PROJECT_ID) {
+  return apiGet<ProductCatalogResponse>(`/api/projects/${projectId}/products`);
+}
+
+export function getProductEntryContext(projectId = DEFAULT_PROJECT_ID) {
+  return apiGet<ProductEntryContext>(`/api/projects/${projectId}/products/entry-context`);
+}
+
+export function createProduct(payload: {
+  name: string;
+  category?: string;
+  aliases?: ProductAlias[];
+  notes?: string;
+}, projectId = DEFAULT_PROJECT_ID) {
+  return apiPost<{ success: boolean; product: ProductRecord }>(`/api/projects/${projectId}/products`, payload);
+}
+
+export function createProductVariant(productId: string, payload: {
+  name: string;
+  spec?: string;
+  sale_unit?: string;
+  channel_prices?: Array<{ channel: string; price: number }>;
+}, projectId = DEFAULT_PROJECT_ID) {
+  return apiPost<{ success: boolean; variant: ProductVariant }>(`/api/projects/${projectId}/products/${productId}/variants`, payload);
+}
+
+export function saveProductBom(productId: string, variantId: string, payload: {
+  effective_date: string;
+  source: string;
+  notes?: string;
+  lines: Array<{ sku_id: string; quantity: number; unit: string }>;
+}, projectId = DEFAULT_PROJECT_ID) {
+  return apiPut<{ success: boolean; bom: ProductBomVersion }>(
+    `/api/projects/${projectId}/products/${productId}/variants/${variantId}/bom`,
+    payload,
+  );
 }
 
 export function getPurchases(projectId = DEFAULT_PROJECT_ID, limit = 30) {

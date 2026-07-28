@@ -32,9 +32,9 @@ export function ModulePage({
   const Icon = module.icon;
 
   return (
-    <main className="mx-auto flex w-full max-w-7xl flex-col gap-4 pb-8">
-      <section className={`glass-card rounded-xl ${compact ? "px-4 py-3" : "p-4 md:p-5"}`}>
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+    <main className="mx-auto flex w-full min-w-0 max-w-7xl flex-col gap-4 overflow-hidden pb-8">
+      <section className={`glass-card min-w-0 max-w-full overflow-hidden rounded-xl ${compact ? "px-4 py-3" : "p-4 md:p-5"}`}>
+        <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <span className="inline-flex items-center gap-1.5 rounded-full bg-octo-50 px-2.5 py-1 font-label-caps text-octo-700">
@@ -53,7 +53,7 @@ export function ModulePage({
             </p>
           </div>
 
-          {!compact && <div className="grid min-w-[260px] grid-cols-2 gap-2">
+          {!compact && <div className="grid w-full min-w-0 grid-cols-2 gap-2 lg:w-auto lg:min-w-[260px]">
             <MetricTile label="核心指标" value={module.primaryMetric} />
             <MetricTile label="当前状态" value={module.secondaryMetric} />
           </div>}
@@ -113,9 +113,9 @@ export function ChecklistBlock({ title, items, icon: Icon = CircleDot }: { title
 
 function MetricTile({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-2">
+    <div className="min-w-0 rounded-lg border border-stone-200 bg-stone-50 px-3 py-2">
       <p className="font-label-caps text-stone-500">{label}</p>
-      <p className="mt-1 text-sm font-semibold text-stone-900">{value}</p>
+      <p className="mt-1 break-all text-sm font-semibold text-stone-900">{value}</p>
     </div>
   );
 }

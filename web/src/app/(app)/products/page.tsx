@@ -1,269 +1,278 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import ReactEChartsCore from "echarts-for-react/lib/core";
-import * as echarts from "echarts/core";
-import { BarChart } from "echarts/charts";
-import { GridComponent, TooltipComponent } from "echarts/components";
-import { CanvasRenderer } from "echarts/renderers";
-import { ChefHat, Package, ReceiptText, Sparkles } from "lucide-react";
+import Link from "next/link";
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  ArrowRight,
+  BookOpenCheck,
+  Boxes,
+  Check,
+  ChevronDown,
+  CircleDollarSign,
+  ClipboardList,
+  Plus,
+  RefreshCw,
+  Save,
+  ShoppingCart,
+  Trash2,
+  Utensils,
+} from "lucide-react";
 import { ModulePage, getModule } from "@/components/agent-os/ModulePage";
-import { DEFAULT_PROJECT_ID, getOperationSummary, getStoreOperatingFacts, type OperationSummary, type StoreOperatingFactsV1 } from "@/lib/api";
-import { apiGet } from "@/lib/api";
+import {
+  DEFAULT_PROJECT_ID,
+  createProduct,
+  createProductVariant,
+  getProductEntryContext,
+  getStoreOperatingFacts,
+  saveProductBom,
+  type ProductEntryContext,
+  type StoreOperatingFactsV1,
+} from "@/lib/api";
 
-echarts.use([BarChart, GridComponent, TooltipComponent, CanvasRenderer]);
+type ProductTab = "overview" | "catalog" | "bom";
+type BomDraftLine = { sku_id: string; quantity: string; unit: string };
 
-interface MenuItem {
-  sku_id: string;
-  name: string;
-  category: string;
-  unit_cost: number;
-  current_stock: number;
-  safety_stock: number;
-  daily_consumption: number;
-  monthly_consumption: number;
-  monthly_cost: number;
-  stock_days: number;
-  status: string;
+function today() {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date());
+}
+
+function money(minor: number) {
+  return `¥${(minor / 100).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 export default function ProductsPage() {
-  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
-  const [summary, setSummary] = useState<OperationSummary | null>(null);
+  const [tab, setTab] = useState<ProductTab>("overview");
+  const [context, setContext] = useState<ProductEntryContext | null>(null);
   const [facts, setFacts] = useState<StoreOperatingFactsV1 | null>(null);
-  const [initialized, setInitialized] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
 
-  const fetchData = useCallback(async () => {
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
     try {
-      const [analysisRes, operationSummary, operatingFacts] = await Promise.all([
-        apiGet<{ items: MenuItem[]; total: number }>(
-          `/api/projects/${DEFAULT_PROJECT_ID}/skus/menu-analysis`,
-        ),
-        getOperationSummary(DEFAULT_PROJECT_ID, 30),
+      const [entryContext, operatingFacts] = await Promise.all([
+        getProductEntryContext(DEFAULT_PROJECT_ID),
         getStoreOperatingFacts(DEFAULT_PROJECT_ID),
       ]);
-      setMenuItems(analysisRes.items);
-      setSummary(operationSummary);
+      setContext(entryContext);
       setFacts(operatingFacts);
-    } catch { /* offline */ }
-    setInitialized(true);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "商品资料加载失败");
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => { void load(); }, [load]);
 
-  const ingredients = menuItems.filter((s) => s.category === "食材");
-  const packaging = menuItems.filter((s) => s.category === "包装" || s.category === "耗材");
-  const totalMonthlyCost = menuItems.reduce((s, m) => s + m.monthly_cost, 0);
-
-  // 月度成本排行图
-  const costBarOption = ingredients.length > 0 ? {
-    tooltip: {
-      trigger: "axis" as const,
-      backgroundColor: "rgba(255,255,255,0.92)",
-      borderColor: "rgba(0,0,0,0.08)",
-      borderRadius: 12,
-      textStyle: { color: "#1a1a1a", fontSize: 12 },
-      formatter: (params: Array<Record<string, unknown>>) => {
-        const p = params[0] as { name: string; value: number };
-        const item = ingredients.find((i) => i.name === p.name);
-        return `${p.name}<br/>月消耗 ${item?.monthly_consumption ?? "-"}${item ? "" : ""}<br/>月成本 ¥${p.value?.toLocaleString() ?? ""}<br/>可维持 ${item?.stock_days ?? "-"}天`;
-      },
-    },
-    grid: { left: 120, right: 16, top: 8, bottom: 24, containLabel: true },
-    xAxis: {
-      type: "value" as const,
-      axisLabel: { fontSize: 10, color: "#6b7280", formatter: (v: number) => `¥${v}` },
-      splitLine: { lineStyle: { color: "rgba(0,0,0,0.06)" } },
-    },
-    yAxis: {
-      type: "category" as const,
-      data: ingredients.map((i) => i.name),
-      axisLabel: { fontSize: 11, color: "#6b7280" },
-      axisLine: { show: false },
-      axisTick: { show: false },
-    },
-    series: [{
-      name: "月成本",
-      type: "bar",
-      data: ingredients.map((i) => ({
-        value: i.monthly_cost,
-        itemStyle: {
-          color: i.monthly_cost > 2000 ? "#D9261C" : i.monthly_cost > 1000 ? "#c8a64e" : "#0F4C3A",
-          borderRadius: [0, 4, 4, 0],
-        },
-      })),
-      barMaxWidth: 20,
-      label: { show: true, position: "right" as const, fontSize: 10, color: "#6b7280", formatter: (p: { value: number }) => `¥${p.value}` },
-    }],
-  } : null;
+  async function perform(action: () => Promise<unknown>, message: string) {
+    setSaving(true);
+    setError("");
+    try {
+      await action();
+      setNotice(message);
+      await load();
+      window.setTimeout(() => setNotice(""), 3200);
+      return true;
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "保存失败");
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <ModulePage module={getModule("/products")}>
       <div className="space-y-4">
-        {!initialized && <div className="h-0.5 w-full animate-pulse rounded-full bg-primary/30" />}
+        {loading && <div className="h-0.5 animate-pulse rounded-full bg-orange-400" />}
+        {error && <div className="flex items-center justify-between gap-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"><span>{error}</span><button type="button" onClick={() => void load()} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-red-700 px-3 font-semibold text-white"><RefreshCw className="h-4 w-4" />重试</button></div>}
+        {notice && <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800"><Check className="h-4 w-4" />{notice}</div>}
 
-        <section className="rounded-3xl border border-stone-200 bg-white/85 p-5 shadow-sm">
-          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <ReceiptText className="h-4 w-4 text-octo-600" />
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-stone-500">真实商品经营</p>
-              </div>
-              <h1 className="mt-2 text-xl font-bold text-stone-950">卖了什么，贡献了多少，再关联怎么做</h1>
-              <p className="mt-1 w-full max-w-[42rem] text-sm leading-6 text-stone-600">
-                商品销量来自客如云，物料成本来自配方与生产记录。当前只展示已经识别的商品，不再用预设“爆品梯队”冒充真实结论。
+        <header className="min-w-0 max-w-full overflow-hidden rounded-3xl border border-stone-200 bg-stone-950 text-white shadow-sm">
+          <div className="grid min-w-0 max-w-full gap-6 p-5 md:grid-cols-[minmax(0,1fr)_auto] md:p-7">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-300">商品 × 物料 × 销售</p>
+              <h1 className="mt-2 break-words text-2xl font-bold tracking-tight">先建真实商品档案，再让每个数字互相影响</h1>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-stone-300">
+                销量按营业日进来，每日物料使用、进货单和阶段盘点分别保留原始事实。BOM 只保存你确认的配方版本，不根据名称猜用量。
               </p>
             </div>
-            <span className="w-fit rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800">
-              {facts?.product_sales.ranked_products.length ? "已接入客如云商品前20" : "等待商品销售明细"}
-            </span>
-          </div>
-
-          {facts?.product_sales.ranked_products.length ? (
-            <>
-            <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <ProductLoopCard title="商品销售原价" body={`¥${(facts.product_sales.gross_sales_minor / 100).toLocaleString("zh-CN", { minimumFractionDigits: 2 })} · ${facts.product_sales.total_quantity}份`} status="客如云商品口径" />
-              <ProductLoopCard title="退款" body={`¥${(facts.product_sales.refund_minor / 100).toFixed(2)} · ${facts.product_sales.refund_quantity}份`} status="单独扣减" />
-              <ProductLoopCard title="营业收入" body={`¥${(facts.product_sales.recognized_revenue_minor / 100).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}`} status="优惠退款后主账" />
-              <ProductLoopCard title="两口径差额" body={`¥${(facts.product_sales.gross_to_recognized_difference_minor / 100).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}`} status="优惠/退款等，不重复相加" />
-            </div>
-            <div className="mt-5 grid gap-3 md:grid-cols-3">
-              {facts.product_sales.ranked_products.map((product) => (
-                <div key={product.name} className="rounded-2xl border border-stone-200 bg-stone-50/75 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-xs font-semibold text-stone-400">#{product.rank}</span>
-                    <span className="text-xs text-stone-500">{product.quantity} 份</span>
-                  </div>
-                  <p className="mt-3 text-base font-bold text-stone-950">{product.name}</p>
-                  <p className="mt-1 text-xl font-bold tabular-nums text-octo-700">¥{(product.amount_minor / 100).toLocaleString()}</p>
-                  <p className="mt-2 text-[11px] leading-5 text-stone-500">
-                    {product.official_spec ? `官方/多平台共识规格：${product.official_spec.replace("_两盒四粒", "，两盒四粒")}` : "官方规格仍待映射"} · 商品原价均价 ¥{(product.amount_minor / 100 / Math.max(product.quantity, 1)).toFixed(1)}
-                  </p>
-                </div>
-              ))}
-            </div>
-            </>
-          ) : (
-            <div className="mt-5 rounded-2xl border border-dashed border-stone-300 p-6 text-center text-sm text-stone-500">
-              上传客如云“商品销售统计”完整截图后开始建立商品基准。
-            </div>
-          )}
-        </section>
-
-        {facts && <section className="rounded-2xl border border-sky-200 bg-sky-50/65 p-5">
-          <div className="flex items-start justify-between gap-4"><div><p className="text-xs font-semibold text-sky-700">销量 → 包装需求（管理估算）</p><h2 className="mt-1 text-base font-bold text-sky-950">只对官方名称或多平台官方共识已确认的规格推算</h2></div><span className="rounded-full bg-white px-2 py-1 text-[10px] text-sky-700">不直接扣库存</span></div>
-          <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-            <Estimate label="6粒标准盒" value={facts.packaging_estimate.standard_six_box} />
-            <Estimate label="9粒全家福盒" value={facts.packaging_estimate.family_nine_box} />
-            <Estimate label="4粒盒（DIY两盒）" value={facts.packaging_estimate.four_piece_box} />
-            <Estimate label="3粒大丸子盒" value={facts.packaging_estimate.large_three_box} />
-            <Estimate label="规格未映射" value={facts.packaging_estimate.unmapped_quantity} warning />
-          </div>
-          <p className="mt-3 text-xs leading-5 text-sky-800">这组数字用于和员工开封记录、包装库存和每周实盘交叉核验；出现差异时提示复核，不会代替真实出库。</p>
-        </section>}
-
-        <section className="grid gap-3 md:grid-cols-3">
-          <ProductLoopCard title="销售事实" body="每个商品的份数、金额、退款和销售时段" status="已开始" />
-          <ProductLoopCard title="制作标准" body="四粒/六粒/九粒、配方、锅次、盒型和制作时间" status="待补完整商品表" />
-          <ProductLoopCard title="盈利判断" body="售价减去食材、包装、渠道和制作成本" status="成本补齐后计算" />
-        </section>
-
-        <div className="flex items-center gap-2 pt-2">
-          <Sparkles className="h-4 w-4 text-stone-400" />
-          <h2 className="text-sm font-bold text-stone-900">商品关联物料</h2>
-          <span className="text-xs text-stone-400">用于成本和断货核验，不代表商品本身</span>
-        </div>
-
-        {/* 食材成本分析 */}
-        {ingredients.length > 0 && costBarOption ? (
-          <div className="rounded-2xl border border-white/45 bg-white/42 p-4">
-            <div className="flex items-center gap-2">
-              <ChefHat className="h-4 w-4 text-on-surface-variant" />
-              <p className="text-xs font-medium text-on-surface-variant">物料消耗成本估算</p>
-            </div>
-            <div className="mt-3 h-72">
-              <ReactEChartsCore echarts={echarts} option={costBarOption} style={{ height: "100%" }} notMerge />
+            <div className="grid min-w-0 grid-cols-3 gap-2 self-start md:w-[300px]">
+              <Metric value={context?.counts.products ?? 0} label="商品" />
+              <Metric value={context?.counts.variants ?? 0} label="规格" />
+              <Metric value={context?.counts.bom_versions ?? 0} label="BOM版本" />
             </div>
           </div>
-        ) : null}
-
-        {/* 库存明细 */}
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="rounded-2xl border border-white/45 bg-white/42 p-4">
-            <div className="flex items-center gap-2">
-              <ChefHat className="h-4 w-4 text-on-surface-variant" />
-              <p className="text-xs font-medium text-on-surface-variant">原料库存明细</p>
-            </div>
-            {ingredients.length > 0 ? (
-              <div className="mt-3 space-y-2">
-                {ingredients.map((sku) => (
-                  <div key={sku.sku_id} className="flex items-center justify-between rounded-xl bg-white/55 px-3 py-2.5">
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-on-background">{sku.name}</p>
-                      <p className="text-xs text-on-surface-variant">日耗 {sku.daily_consumption} · 月成本 ¥{sku.monthly_cost}</p>
-                    </div>
-                    <div className="text-right shrink-0 ml-2">
-                      <p className={`text-sm font-bold ${sku.status === "断货" || sku.status === "严重不足" ? "text-red-600" : sku.status === "偏低" ? "text-amber-600" : "text-emerald-600"}`}>
-                        {sku.current_stock}
-                      </p>
-                      <p className="text-[10px] text-on-surface-variant">{sku.status} · {sku.stock_days}天</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : null}
+          <div className="grid border-t border-white/10 sm:grid-cols-3">
+            <EntryLink href="/inventory?tab=usage" icon={ClipboardList} title="录每日物料" description="按营业日覆盖保存" />
+            <EntryLink href="/inventory?tab=flow&action=purchase" icon={ShoppingCart} title="建进货单" description="按订单和 SKU 记录" />
+            <EntryLink href="/inventory?tab=count" icon={Boxes} title="做阶段盘点" description="按实际周期校准库存" />
           </div>
+        </header>
 
-          <div className="rounded-2xl border border-white/45 bg-white/42 p-4">
-            <div className="flex items-center gap-2">
-              <Package className="h-4 w-4 text-on-surface-variant" />
-              <p className="text-xs font-medium text-on-surface-variant">包装耗材</p>
-            </div>
-            {packaging.length > 0 ? (
-              <div className="mt-3 space-y-2">
-                {packaging.map((sku) => (
-                  <div key={sku.sku_id} className="flex items-center justify-between rounded-xl bg-white/55 px-3 py-2.5">
-                    <div>
-                      <p className="text-sm font-semibold text-on-background">{sku.name}</p>
-                      <p className="text-xs text-on-surface-variant">单位 ¥{sku.unit_cost} · 日耗 {sku.daily_consumption}</p>
-                    </div>
-                    <p className={`text-sm font-bold ${sku.status === "断货" ? "text-red-600" : "text-on-background"}`}>
-                      {sku.current_stock}{sku.status === "正常" ? "" : ` · ${sku.status}`}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-          </div>
-        </div>
+        <nav aria-label="商品工作台" className="flex gap-1 overflow-x-auto rounded-xl border border-stone-200 bg-white p-1">
+          {([
+            ["overview", "经营概览", CircleDollarSign],
+            ["catalog", "商品资料", Utensils],
+            ["bom", "配方版本", BookOpenCheck],
+          ] as const).map(([id, label, Icon]) => (
+            <button key={id} type="button" onClick={() => setTab(id)} className={`inline-flex min-h-11 flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-lg px-4 text-sm font-semibold transition-colors ${tab === id ? "bg-stone-900 text-white" : "text-stone-600 hover:bg-stone-100"}`}>
+              <Icon className="h-4 w-4" />{label}
+            </button>
+          ))}
+        </nav>
 
-        {/* 月度成本汇总 */}
-        {totalMonthlyCost > 0 && (
-          <div className="rounded-2xl border border-white/45 bg-white/42 p-4">
-            <p className="text-xs font-medium text-on-surface-variant">月度物料成本估算</p>
-            <div className="mt-2 flex items-baseline gap-3">
-              <p className="text-2xl font-bold text-on-background">¥{totalMonthlyCost.toLocaleString()}</p>
-              <p className="text-sm text-on-surface-variant">{menuItems.length} 项 SKU · {ingredients.length} 食材 + {packaging.length} 耗材</p>
-            </div>
-          </div>
-        )}
+        {tab === "overview" && <Overview facts={facts} context={context} />}
+        {tab === "catalog" && context && <CatalogEditor context={context} saving={saving} perform={perform} />}
+        {tab === "bom" && context && <BomEditor context={context} saving={saving} perform={perform} />}
       </div>
     </ModulePage>
   );
 }
 
-function ProductLoopCard({ title, body, status }: { title: string; body: string; status: string }) {
-  return (
-    <article className="rounded-2xl border border-stone-200 bg-white/75 p-4">
-      <div className="flex items-start justify-between gap-3">
-        <p className="text-sm font-bold text-stone-950">{title}</p>
-        <span className="shrink-0 rounded-full bg-stone-100 px-2 py-1 text-[10px] font-medium text-stone-600">{status}</span>
+function Overview({ facts, context }: { facts: StoreOperatingFactsV1 | null; context: ProductEntryContext | null }) {
+  const sales = facts?.product_sales;
+  const mappedNames = useMemo(() => new Set(context?.products.flatMap((product) => [product.name, ...product.aliases.map((alias) => alias.name)]) ?? []), [context]);
+  const mappedSales = sales?.ranked_products.filter((item) => mappedNames.has(item.name)).length ?? 0;
+  return <div className="grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(320px,.75fr)]">
+    <section className="rounded-2xl border border-stone-200 bg-white p-5">
+      <div className="flex items-start justify-between gap-4"><div><p className="text-xs font-semibold text-stone-500">已接入的真实销售</p><h2 className="mt-1 text-lg font-bold text-stone-950">商品销量和营业收入</h2></div><span className="rounded-full bg-stone-100 px-3 py-1 text-xs text-stone-600">{sales?.period.start || "—"} 至 {sales?.period.end || "—"}</span></div>
+      <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Fact label="营业收入" value={sales ? money(sales.recognized_revenue_minor) : "—"} />
+        <Fact label="销售数量" value={sales ? `${sales.total_quantity}份` : "—"} />
+        <Fact label="退款" value={sales ? money(sales.refund_minor) : "—"} />
+        <Fact label="已对应商品" value={`${mappedSales}/${sales?.ranked_products.length ?? 0}`} />
       </div>
-      <p className="mt-2 text-xs leading-5 text-stone-500">{body}</p>
-    </article>
-  );
+      <div className="mt-5 overflow-hidden rounded-xl border border-stone-200">
+        {(sales?.ranked_products ?? []).slice(0, 12).map((product) => (
+          <div key={product.name} className="grid grid-cols-[36px_minmax(0,1fr)_70px_100px] items-center gap-3 border-b border-stone-100 px-3 py-3 last:border-0">
+            <span className="text-xs font-bold text-stone-400">#{product.rank}</span><span className="truncate text-sm font-semibold text-stone-900">{product.name}</span><span className="text-right text-sm tabular-nums text-stone-600">{product.quantity}份</span><span className="text-right text-sm font-bold tabular-nums text-stone-950">{money(product.amount_minor)}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+    <section className="rounded-2xl border border-stone-200 bg-white p-5">
+      <p className="text-xs font-semibold text-stone-500">计算链路</p><h2 className="mt-1 text-lg font-bold text-stone-950">什么时候才能出毛利</h2>
+      <div className="mt-4 space-y-2">
+        <ChainStep index="1" title="商品与规格" body="对齐客如云、美团、淘宝闪购等名称" done={Boolean(context?.variants.length)} />
+        <ChainStep index="2" title="真实 BOM 版本" body="你逐项录入每份商品的实际用量" done={Boolean(context?.bom_versions.length)} />
+        <ChainStep index="3" title="物料移动加权成本" body="来自每一次按 SKU 录入的进货单" done={false} />
+        <ChainStep index="4" title="商品毛利与耗损" body="销量×BOM 与实际使用、阶段盘点交叉核验" done={false} />
+      </div>
+      <p className="mt-4 rounded-xl bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-900">完整 BOM 和采购成本不足时，系统保持“数据不足”，不会用 0 成本制造虚假毛利。</p>
+    </section>
+  </div>;
 }
 
-function Estimate({ label, value, warning }: { label: string; value: number; warning?: boolean }) {
-  return <div className={`rounded-xl border bg-white/80 p-3 ${warning ? "border-amber-200" : "border-sky-100"}`}><p className="text-[11px] text-stone-500">{label}</p><p className={`mt-1 text-xl font-bold tabular-nums ${warning ? "text-amber-800" : "text-sky-950"}`}>{value}</p></div>;
+function CatalogEditor({ context, saving, perform }: { context: ProductEntryContext; saving: boolean; perform: (action: () => Promise<unknown>, message: string) => Promise<boolean> }) {
+  const [name, setName] = useState("");
+  const [category, setCategory] = useState("章鱼烧");
+  const [channel, setChannel] = useState("客如云");
+  const [alias, setAlias] = useState("");
+  const [productId, setProductId] = useState(context.products[0]?.id || "");
+  const [variantName, setVariantName] = useState("");
+  const [spec, setSpec] = useState("");
+  const [saleUnit, setSaleUnit] = useState("份");
+  useEffect(() => { if (!productId && context.products[0]) setProductId(context.products[0].id); }, [context.products, productId]);
+
+  async function submitProduct(event: FormEvent) {
+    event.preventDefault();
+    const ok = await perform(() => createProduct({ name, category, aliases: alias.trim() ? [{ channel, name: alias.trim() }] : [] }), "商品资料已保存");
+    if (ok) { setName(""); setAlias(""); }
+  }
+  async function submitVariant(event: FormEvent) {
+    event.preventDefault();
+    const ok = await perform(() => createProductVariant(productId, { name: variantName, spec, sale_unit: saleUnit }), "商品规格已保存");
+    if (ok) { setVariantName(""); setSpec(""); }
+  }
+  return <div className="grid gap-4 xl:grid-cols-[minmax(0,.8fr)_minmax(0,1.2fr)]">
+    <div className="space-y-4">
+      <EditorCard title="新建销售商品" description="商品名是统一主档；渠道名只作别名映射。">
+        <form onSubmit={submitProduct} className="grid gap-3">
+          <Field label="商品名"><input required value={name} onChange={(e) => setName(e.target.value)} className={inputClass} placeholder="例：经典原味章鱼烧" /></Field>
+          <Field label="品类"><input value={category} onChange={(e) => setCategory(e.target.value)} className={inputClass} /></Field>
+          <div className="grid grid-cols-[130px_minmax(0,1fr)] gap-2"><Field label="渠道"><input value={channel} onChange={(e) => setChannel(e.target.value)} className={inputClass} /></Field><Field label="该渠道商品名"><input value={alias} onChange={(e) => setAlias(e.target.value)} className={inputClass} placeholder="可选" /></Field></div>
+          <SaveButton saving={saving} label="保存商品" />
+        </form>
+      </EditorCard>
+      <EditorCard title="添加商品规格" description="四粒、六粒、全家福等规格分开建档。">
+        <form onSubmit={submitVariant} className="grid gap-3">
+          <Field label="所属商品"><Select value={productId} onChange={setProductId} options={context.products.map((item) => ({ value: item.id, label: item.name }))} /></Field>
+          <Field label="规格名"><input required value={variantName} onChange={(e) => setVariantName(e.target.value)} className={inputClass} placeholder="例：六粒装" /></Field>
+          <div className="grid grid-cols-[minmax(0,1fr)_100px] gap-2"><Field label="规格说明"><input value={spec} onChange={(e) => setSpec(e.target.value)} className={inputClass} placeholder="包装、口味等真实说明" /></Field><Field label="销售单位"><input value={saleUnit} onChange={(e) => setSaleUnit(e.target.value)} className={inputClass} /></Field></div>
+          <SaveButton saving={saving} label="保存规格" disabled={!productId} />
+        </form>
+      </EditorCard>
+    </div>
+    <section className="rounded-2xl border border-stone-200 bg-white p-5">
+      <p className="text-xs font-semibold text-stone-500">当前商品主档</p><h2 className="mt-1 text-lg font-bold text-stone-950">{context.products.length} 个商品 · {context.variants.length} 个规格</h2>
+      <div className="mt-4 space-y-3">
+        {context.products.map((product) => {
+          const variants = context.variants.filter((variant) => variant.product_id === product.id);
+          return <article key={product.id} className="rounded-xl border border-stone-200 bg-stone-50/60 p-4"><div className="flex items-start justify-between gap-3"><div><h3 className="font-semibold text-stone-950">{product.name}</h3><p className="mt-1 text-xs text-stone-500">{product.category || "未分类"}{product.aliases.length ? ` · ${product.aliases.map((item) => `${item.channel}：${item.name}`).join("；")}` : ""}</p></div><span className="rounded-full bg-white px-2 py-1 text-xs text-stone-600">{variants.length}规格</span></div><div className="mt-3 flex flex-wrap gap-2">{variants.map((variant) => <span key={variant.id} className="rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 text-xs text-stone-700">{variant.name}{variant.spec ? ` · ${variant.spec}` : ""}</span>)}</div></article>;
+        })}
+        {!context.products.length && <Empty message="先在左侧建第一个销售商品。" />}
+      </div>
+    </section>
+  </div>;
 }
+
+function BomEditor({ context, saving, perform }: { context: ProductEntryContext; saving: boolean; perform: (action: () => Promise<unknown>, message: string) => Promise<boolean> }) {
+  const [variantId, setVariantId] = useState(context.variants[0]?.id || "");
+  const [effectiveDate, setEffectiveDate] = useState(today());
+  const [source, setSource] = useState("店主实际配方");
+  const [notes, setNotes] = useState("");
+  const [lines, setLines] = useState<BomDraftLine[]>([{ sku_id: "", quantity: "", unit: "" }]);
+  useEffect(() => { if (!variantId && context.variants[0]) setVariantId(context.variants[0].id); }, [context.variants, variantId]);
+  const selectedVariant = context.variants.find((item) => item.id === variantId);
+  const selectedProduct = context.products.find((item) => item.id === selectedVariant?.product_id);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!selectedVariant || lines.some((line) => !line.sku_id || Number(line.quantity) <= 0 || !line.unit)) return;
+    const ok = await perform(() => saveProductBom(selectedVariant.product_id, selectedVariant.id, {
+      effective_date: effectiveDate, source, notes,
+      lines: lines.map((line) => ({ sku_id: line.sku_id, quantity: Number(line.quantity), unit: line.unit })),
+    }), `${selectedProduct?.name || "商品"} ${selectedVariant.name} 的 BOM 新版本已保存`);
+    if (ok) { setLines([{ sku_id: "", quantity: "", unit: "" }]); setNotes(""); }
+  }
+  return <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,.85fr)]">
+    <EditorCard title="录入真实 BOM" description="数量一律从空白开始。每次保存新建一个版本，方便以后追溯配方和成本变化。">
+      <form onSubmit={submit} className="grid gap-4">
+        <Field label="商品规格"><Select value={variantId} onChange={setVariantId} options={context.variants.map((variant) => ({ value: variant.id, label: `${context.products.find((p) => p.id === variant.product_id)?.name || "商品"} · ${variant.name}` }))} /></Field>
+        <div className="grid gap-3 sm:grid-cols-2"><Field label="生效日期"><input required type="date" value={effectiveDate} onChange={(e) => setEffectiveDate(e.target.value)} className={inputClass} /></Field><Field label="来源"><input required value={source} onChange={(e) => setSource(e.target.value)} className={inputClass} /></Field></div>
+        <div className="space-y-2">
+          <div className="grid grid-cols-[minmax(0,1fr)_110px_90px_42px] gap-2 px-1 text-xs font-semibold text-stone-500"><span>物料 SKU</span><span>每份用量</span><span>单位</span><span /></div>
+          {lines.map((line, index) => <div key={index} className="grid grid-cols-[minmax(0,1fr)_110px_90px_42px] gap-2">
+            <select required value={line.sku_id} onChange={(e) => { const material = context.materials.find((item) => item.id === e.target.value); setLines((current) => current.map((item, i) => i === index ? { ...item, sku_id: e.target.value, unit: material?.display_unit || material?.unit || "" } : item)); }} className={inputClass}><option value="">选择真实物料</option>{context.materials.map((material) => <option key={material.id} value={material.id}>{material.hq_name || material.name} · {material.spec || material.display_unit || material.unit}</option>)}</select>
+            <input required type="number" min="0.0001" step="any" inputMode="decimal" value={line.quantity} onChange={(e) => setLines((current) => current.map((item, i) => i === index ? { ...item, quantity: e.target.value } : item))} className={`${inputClass} text-right tabular-nums`} placeholder="空白" />
+            <input required value={line.unit} onChange={(e) => setLines((current) => current.map((item, i) => i === index ? { ...item, unit: e.target.value } : item))} className={inputClass} />
+            <button type="button" aria-label="删除这行" disabled={lines.length === 1} onClick={() => setLines((current) => current.filter((_, i) => i !== index))} className="flex h-11 w-11 items-center justify-center rounded-lg border border-stone-200 text-stone-500 hover:bg-stone-100 disabled:opacity-30"><Trash2 className="h-4 w-4" /></button>
+          </div>)}
+          <button type="button" onClick={() => setLines((current) => [...current, { sku_id: "", quantity: "", unit: "" }])} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-stone-200 px-3 text-sm font-semibold text-stone-700 hover:bg-stone-50"><Plus className="h-4 w-4" />增加物料</button>
+        </div>
+        <Field label="版本备注"><input value={notes} onChange={(e) => setNotes(e.target.value)} className={inputClass} placeholder="例：门店实测后调整" /></Field>
+        <SaveButton saving={saving} label="保存新 BOM 版本" disabled={!variantId} />
+      </form>
+    </EditorCard>
+    <section className="rounded-2xl border border-stone-200 bg-white p-5">
+      <p className="text-xs font-semibold text-stone-500">版本记录</p><h2 className="mt-1 text-lg font-bold text-stone-950">可追溯，不覆盖历史</h2>
+      <div className="mt-4 space-y-3">{[...context.bom_versions].reverse().map((bom) => { const variant = context.variants.find((item) => item.id === bom.variant_id); const product = context.products.find((item) => item.id === bom.product_id); return <article key={bom.id} className="rounded-xl border border-stone-200 p-4"><div className="flex items-start justify-between gap-3"><div><p className="text-sm font-semibold text-stone-950">{product?.name} · {variant?.name}</p><p className="mt-1 text-xs text-stone-500">{bom.effective_date} · {bom.source}</p></div><span className="rounded-full bg-stone-900 px-2 py-1 text-xs font-semibold text-white">v{bom.version}</span></div><p className="mt-3 text-xs leading-5 text-stone-600">{bom.lines.map((line) => `${line.sku_name} ${line.quantity}${line.unit}`).join("、")}</p></article>; })}{!context.bom_versions.length && <Empty message="尚无 BOM 版本；右侧的毛利链路会继续保持数据不足。" />}</div>
+    </section>
+  </div>;
+}
+
+const inputClass = "h-11 w-full rounded-lg border border-stone-200 bg-white px-3 text-sm text-stone-900 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-100";
+function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="block text-xs font-semibold text-stone-600">{label}<span className="mt-1.5 block">{children}</span></label>; }
+function Select({ value, onChange, options }: { value: string; onChange: (value: string) => void; options: Array<{ value: string; label: string }> }) { return <div className="relative"><select required value={value} onChange={(e) => onChange(e.target.value)} className={`${inputClass} appearance-none pr-9`}><option value="">请选择</option>{options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select><ChevronDown className="pointer-events-none absolute right-3 top-3.5 h-4 w-4 text-stone-400" /></div>; }
+function SaveButton({ saving, label, disabled }: { saving: boolean; label: string; disabled?: boolean }) { return <button disabled={saving || disabled} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-stone-900 px-5 text-sm font-semibold text-white hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-40"><Save className="h-4 w-4" />{saving ? "保存中…" : label}</button>; }
+function EditorCard({ title, description, children }: { title: string; description: string; children: React.ReactNode }) { return <section className="rounded-2xl border border-stone-200 bg-white p-5"><h2 className="text-lg font-bold text-stone-950">{title}</h2><p className="mt-1 text-sm leading-6 text-stone-500">{description}</p><div className="mt-5">{children}</div></section>; }
+function Empty({ message }: { message: string }) { return <div className="rounded-xl border border-dashed border-stone-300 bg-stone-50 p-6 text-center text-sm leading-6 text-stone-500">{message}</div>; }
+function Metric({ value, label }: { value: number; label: string }) { return <div className="min-w-0 rounded-xl border border-white/10 bg-white/[0.06] px-2 py-3 text-center"><p className="text-xl font-bold tabular-nums">{value}</p><p className="mt-1 truncate text-[11px] text-stone-400">{label}</p></div>; }
+function Fact({ label, value }: { label: string; value: string }) { return <div className="rounded-xl bg-stone-50 p-3"><p className="text-xs text-stone-500">{label}</p><p className="mt-1 text-lg font-bold tabular-nums text-stone-950">{value}</p></div>; }
+function ChainStep({ index, title, body, done }: { index: string; title: string; body: string; done: boolean }) { return <div className="flex gap-3 rounded-xl border border-stone-200 p-3"><span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${done ? "bg-emerald-100 text-emerald-800" : "bg-stone-100 text-stone-500"}`}>{done ? <Check className="h-4 w-4" /> : index}</span><div><p className="text-sm font-semibold text-stone-900">{title}</p><p className="mt-0.5 text-xs leading-5 text-stone-500">{body}</p></div></div>; }
+function EntryLink({ href, icon: Icon, title, description }: { href: string; icon: typeof Boxes; title: string; description: string }) { return <Link href={href} className="group flex min-h-[76px] items-center gap-3 border-b border-white/10 px-5 py-3 transition-colors hover:bg-white/[0.06] last:border-b-0 sm:border-b-0 sm:border-r sm:last:border-r-0"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-orange-400/15 text-orange-300"><Icon className="h-4 w-4" /></span><span className="min-w-0 flex-1"><span className="block text-sm font-semibold">{title}</span><span className="mt-0.5 block text-xs text-stone-400">{description}</span></span><ArrowRight className="h-4 w-4 text-stone-500 transition-transform group-hover:translate-x-0.5 group-hover:text-white" /></Link>; }
