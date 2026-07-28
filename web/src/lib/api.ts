@@ -1005,6 +1005,9 @@ export interface FinanceCategoryCatalogV1 {
 
 export interface FinanceQueryV1 {
   answer: string;
+  session_id?: string;
+  conversation_mode?: "social" | "finance" | "finance_action" | "finance_action_completed" | "cross_module";
+  learned_topic?: string;
   period: { start?: string | null; end?: string | null };
   intent?: string;
   metrics: Array<{
@@ -1020,16 +1023,62 @@ export interface FinanceQueryV1 {
   evidence_ids?: string[];
   completeness: "confirmed" | "partial" | "blocked" | "no_data";
   warnings?: string[];
-  follow_up_inputs?: Array<{ type: string; label: string; description: string }>;
-  execution_trace?: Array<{ step: string; status: "completed" | "running" | "failed"; detail: string; tool?: string }>;
+  follow_up_inputs?: Array<{ type?: string; label?: string; description?: string } | string>;
+  execution_trace?: Array<{ step: string; status: string; detail: string; tool?: string }>;
   sources?: Array<{ type: string; label: string; reference?: string | null }>;
   agent?: {
+    id?: string;
+    scope?: string;
+    label?: string;
+    role?: string;
     provider: string;
     model: string;
     mode: string;
     model_used: boolean;
     fallback_reason?: string | null;
   };
+  handoff?: {
+    id?: string;
+    target_agent: string;
+    coordinator_agent?: "master";
+    status: "suggested" | "queued_for_master";
+    reason: string;
+    summary: string;
+  } | null;
+  skills_used?: Array<{ name: string; tool: string; description: string; risk_level: string; source_pattern: string }>;
+  execution_plan?: FinanceExecutionPlanV1;
+  agent_decision?: { mode: string; goal: string; source: string };
+}
+
+export interface FinanceAgentInsightItemV1 {
+  id: string;
+  topic: string;
+  topic_label: string;
+  severity: "critical" | "warning" | "info" | "good";
+  title: string;
+  summary: string;
+  why_now: string;
+  action_query: string;
+  priority_score: number;
+  preference_boosted: boolean;
+}
+
+export interface FinanceAgentInsightsV1 {
+  schema_version: "finance_agent_insights_v1";
+  agent: { id: "finance"; label: string; scope: "finance"; role: string };
+  as_of: string;
+  period: { start: string; end: string };
+  daily_brief: { headline: string; summary: string; items: FinanceAgentInsightItemV1[] };
+  learned_focus: Array<{ topic: string; label: string; count: number; last_seen_at: string }>;
+  alert_count: number;
+  completeness: "confirmed" | "partial";
+}
+
+export interface AgentSessionV1 {
+  id: string;
+  scope: string;
+  title: string;
+  messages: Array<{ id: string; role: "user" | "assistant" | "system"; content: string; timestamp: string }>;
 }
 
 export interface EvidenceVoucherV1 {
@@ -1361,8 +1410,17 @@ export function getFinanceCategories(projectId = DEFAULT_PROJECT_ID) {
   return apiGet<FinanceCategoryCatalogV1>(`/api/projects/${projectId}/finance/categories`);
 }
 
-export function queryFinanceAgent(query: string, start?: string, end?: string, projectId = DEFAULT_PROJECT_ID) {
-  return apiPost<FinanceQueryV1>(`/api/projects/${projectId}/finance/query`, { query, start, end }, 45_000);
+export function queryFinanceAgent(query: string, start?: string, end?: string, sessionId?: string, projectId = DEFAULT_PROJECT_ID) {
+  return apiPost<FinanceQueryV1>(`/api/projects/${projectId}/finance/query`, { query, start, end, session_id: sessionId }, 45_000);
+}
+
+export function getFinanceAgentInsights(asOf: string, projectId = DEFAULT_PROJECT_ID) {
+  const params = new URLSearchParams({ as_of: asOf });
+  return apiGet<FinanceAgentInsightsV1>(`/api/projects/${projectId}/finance/agent-insights?${params.toString()}`);
+}
+
+export function getAgentSession(sessionId: string, projectId = DEFAULT_PROJECT_ID) {
+  return apiGet<{ session: AgentSessionV1 }>(`/api/projects/${projectId}/agent/sessions/${sessionId}`);
 }
 
 export function createBookkeepingRecord(payload: {

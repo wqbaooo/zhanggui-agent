@@ -49,3 +49,42 @@ def test_agent_session_import_is_idempotent(tmp_path: Path):
     session = store.get_session("xinyu-hengtai-dakou", "sess-local")
     assert session is not None
     assert len(session["messages"]) == 2
+
+
+def test_agent_preference_signals_are_scoped_and_ranked(tmp_path: Path):
+    store = AgentSessionStore(tmp_path / "agent_sessions.sqlite3")
+    store.record_preference_signal("xinyu-hengtai-dakou", "finance", "funds_settlement")
+    store.record_preference_signal("xinyu-hengtai-dakou", "finance", "funds_settlement")
+    store.record_preference_signal("xinyu-hengtai-dakou", "finance", "profit_cost")
+    store.record_preference_signal("xinyu-hengtai-dakou", "inventory", "stockout")
+
+    profile = store.get_preference_profile("xinyu-hengtai-dakou", scope="finance")
+
+    assert [item["topic"] for item in profile] == ["funds_settlement", "profit_cost"]
+    assert profile[0]["count"] == 2
+
+
+def test_cross_domain_handoff_is_durable_and_coordinated_by_master(tmp_path: Path):
+    store = AgentSessionStore(tmp_path / "agent_sessions.sqlite3")
+    session_id = store.ensure_session(
+        "xinyu-hengtai-dakou", "sess-handoff", scope="finance",
+    )
+
+    created = store.create_handoff(
+        "xinyu-hengtai-dakou",
+        session_id=session_id,
+        source_agent="finance",
+        target_agent="inventory",
+        coordinator_agent="master",
+        summary="核对食材采购与库存事实",
+        reason="财务 Agent 不得越权修改库存事实",
+    )
+    queued = store.list_handoffs(
+        "xinyu-hengtai-dakou", status="queued_for_master",
+    )
+
+    assert created["status"] == "queued_for_master"
+    assert len(queued) == 1
+    assert queued[0]["source_agent"] == "finance"
+    assert queued[0]["target_agent"] == "inventory"
+    assert queued[0]["coordinator_agent"] == "master"

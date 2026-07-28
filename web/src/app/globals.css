@@ -784,3 +784,216 @@ button { cursor: pointer; font-family: inherit; }
   outline: 2px solid rgba(194, 65, 12, .55);
   outline-offset: 2px;
 }
+
+/* Finance Agent — desktop glass workspace */
+.finance-agent-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 85;
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px;
+  background:
+    radial-gradient(circle at 80% 18%, rgba(255, 241, 229, .20), transparent 34%),
+    rgba(37, 29, 24, .38);
+  backdrop-filter: blur(14px) saturate(1.08);
+  -webkit-backdrop-filter: blur(14px) saturate(1.08);
+}
+
+.finance-agent-panel {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  width: min(620px, 100%);
+  height: calc(100vh - 24px);
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, .76);
+  border-radius: 28px;
+  background: linear-gradient(155deg, rgba(255, 253, 250, .94), rgba(248, 244, 239, .90));
+  box-shadow:
+    0 28px 90px rgba(46, 31, 22, .22),
+    0 8px 30px rgba(64, 43, 31, .10),
+    inset 0 1px 0 rgba(255, 255, 255, .86);
+  backdrop-filter: blur(30px) saturate(1.28);
+  -webkit-backdrop-filter: blur(30px) saturate(1.28);
+}
+
+.finance-agent-ambient {
+  position: absolute;
+  z-index: -1;
+  border-radius: 999px;
+  filter: blur(48px);
+  pointer-events: none;
+}
+
+.finance-agent-ambient-one {
+  top: -120px;
+  right: -90px;
+  width: 340px;
+  height: 340px;
+  background: rgba(251, 191, 132, .24);
+}
+
+.finance-agent-ambient-two {
+  bottom: 90px;
+  left: -150px;
+  width: 330px;
+  height: 330px;
+  background: rgba(255, 237, 213, .26);
+}
+
+.finance-agent-header {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  min-height: 78px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid rgba(231, 226, 220, .68);
+  background: rgba(255, 255, 255, .70);
+  padding: 14px 18px;
+  backdrop-filter: blur(22px) saturate(1.18);
+  -webkit-backdrop-filter: blur(22px) saturate(1.18);
+}
+
+.finance-agent-body {
+  flex: 1;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 22px 22px 32px;
+  background: linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,250,246,.30));
+  scrollbar-width: thin;
+  scrollbar-color: rgba(120, 113, 108, .28) transparent;
+}
+
+.finance-agent-welcome {
+  border: 1px solid rgba(255, 255, 255, .84);
+  border-radius: 22px;
+  background: linear-gradient(145deg, rgba(255,255,255,.72), rgba(255,250,246,.52));
+  padding: 18px;
+  box-shadow: 0 12px 36px rgba(85, 57, 39, .07), inset 0 1px 0 rgba(255,255,255,.84);
+  backdrop-filter: blur(22px) saturate(1.16);
+  -webkit-backdrop-filter: blur(22px) saturate(1.16);
+}
+
+.finance-agent-prompt {
+  display: flex;
+  min-height: 50px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid rgba(231, 226, 220, .78);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, .48);
+  padding: 10px 13px;
+  color: #57514b;
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: left;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  transition: transform 220ms cubic-bezier(.22,1,.36,1), border-color 180ms ease, background-color 180ms ease, box-shadow 220ms ease, color 180ms ease;
+}
+
+.finance-agent-prompt span { color: #a8a29e; transition: transform 220ms cubic-bezier(.22,1,.36,1), color 180ms ease; }
+.finance-agent-prompt:hover {
+  transform: translateY(-2px);
+  border-color: rgba(194, 65, 12, .20);
+  background: rgba(255, 251, 247, .80);
+  color: #8a2f13;
+  box-shadow: 0 10px 24px rgba(87, 53, 34, .07);
+}
+.finance-agent-prompt:hover span { transform: translate(2px, -2px); color: #9a3412; }
+
+.finance-agent-bubble-user,
+.finance-agent-bubble-assistant {
+  max-width: 86%;
+  padding: 12px 15px;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.finance-agent-bubble-user {
+  border: 1px solid rgba(154, 52, 18, .86);
+  border-radius: 20px 20px 7px 20px;
+  background: linear-gradient(145deg, #ad3d16, #8f2e10);
+  color: white;
+  box-shadow: 0 10px 24px rgba(124, 45, 18, .16);
+}
+
+.finance-agent-bubble-assistant {
+  border: 1px solid rgba(255, 255, 255, .88);
+  border-radius: 8px 21px 21px 21px;
+  background: rgba(255, 255, 255, .68);
+  color: #3f3833;
+  box-shadow: 0 12px 32px rgba(72, 48, 33, .075), inset 0 1px 0 rgba(255,255,255,.82);
+  backdrop-filter: blur(22px) saturate(1.14);
+  -webkit-backdrop-filter: blur(22px) saturate(1.14);
+}
+
+.finance-agent-thinking {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid rgba(255,255,255,.84);
+  border-radius: 8px 18px 18px 18px;
+  background: rgba(255,255,255,.60);
+  padding: 10px 14px;
+  color: #78716c;
+  font-size: 11px;
+  box-shadow: 0 8px 24px rgba(72,48,33,.055);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.finance-agent-thinking-dot {
+  display: block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #c2410c;
+  animation: finance-agent-dot 1s ease-in-out infinite;
+}
+
+@keyframes finance-agent-dot {
+  0%, 60%, 100% { transform: translateY(0); opacity: .35; }
+  30% { transform: translateY(-4px); opacity: 1; }
+}
+
+.finance-agent-composer-wrap {
+  position: relative;
+  z-index: 2;
+  border-top: 1px solid rgba(231, 226, 220, .60);
+  background: rgba(255, 255, 255, .48);
+  padding: 13px 18px 14px;
+  backdrop-filter: blur(26px) saturate(1.2);
+  -webkit-backdrop-filter: blur(26px) saturate(1.2);
+}
+
+.finance-agent-composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  border: 1px solid rgba(214, 211, 209, .82);
+  border-radius: 22px;
+  background: rgba(255,255,255,.73);
+  padding: 6px 7px 6px 13px;
+  box-shadow: 0 10px 30px rgba(72, 48, 33, .07), inset 0 1px 0 rgba(255,255,255,.92);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  transition: border-color 180ms ease, box-shadow 200ms ease, background-color 180ms ease;
+}
+
+.finance-agent-composer:focus-within {
+  border-color: rgba(194, 65, 12, .42);
+  background: rgba(255,255,255,.88);
+  box-shadow: 0 12px 34px rgba(72,48,33,.08), 0 0 0 4px rgba(194,65,12,.08);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .finance-agent-thinking-dot { animation: none; opacity: .7; }
+  .finance-agent-prompt { transition: none; }
+}

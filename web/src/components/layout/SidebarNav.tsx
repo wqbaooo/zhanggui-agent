@@ -10,7 +10,7 @@ import { DEFAULT_PROJECT_ID, getBusinessFacts, type BusinessFact } from "@/lib/a
 
 const AGENT_BUSINESS_STATUS = [
   { key: "store_manager", label: "店长", icon: Briefcase, activeTask: false, pendingHref: "", greeting: "" },
-  { key: "accountant", label: "会计", icon: Users, activeTask: false, pendingHref: "/finance/workspace#pending", greeting: "" },
+  { key: "accountant", label: "财务", icon: Users, activeTask: false, pendingHref: "/finance/workspace#pending", greeting: "" },
   { key: "warehouse", label: "仓管", icon: Package, activeTask: false, pendingHref: "/inventory#pending", greeting: "" },
   { key: "operations", label: "运营", icon: TrendingUp, activeTask: false, pendingHref: "/channels#pending", greeting: "" },
 ];
@@ -91,7 +91,7 @@ export function SidebarNav() {
   const teamGroups = navGroups.filter((g) => g.label !== "👨‍💼 掌柜");
 
   return (
-    <aside className="hidden h-screen w-60 shrink-0 border-r border-slate-200 bg-white lg:flex lg:flex-col">
+    <aside className="hidden h-screen w-60 shrink-0 border-r border-white/70 bg-white/88 shadow-[8px_0_30px_rgba(72,52,40,0.025)] backdrop-blur-2xl lg:flex lg:flex-col">
       {/* 第一层：品牌区 */}
       <div className="border-b border-slate-100 px-4 py-3.5">
         <Link href="/overview" className="group flex items-center gap-2.5">
@@ -123,25 +123,21 @@ export function SidebarNav() {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`group relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                className={`group relative flex items-center gap-2.5 overflow-hidden rounded-xl px-3 py-2 text-sm font-medium transition-colors duration-200 ${
                   active
-                    ? "bg-octo-700 text-white"
+                    ? "text-octo-900"
                     : "text-slate-700 hover:bg-octo-50 hover:text-octo-800"
                 }`}
               >
-                <Icon className="h-3.5 w-3.5 shrink-0" />
-                <span className="flex-1 truncate">{item.label}</span>
+                {active && <motion.span layoutId="sidebar-active-surface" transition={{ type: "spring", stiffness: 420, damping: 36, mass: .8 }} className="absolute inset-0 rounded-xl border border-octo-100 bg-gradient-to-r from-octo-100/90 to-orange-50/65 shadow-[0_5px_16px_rgba(154,52,18,0.08)]" />}
+                <Icon className="relative z-10 h-3.5 w-3.5 shrink-0" />
+                <span className="relative z-10 flex-1 truncate">{item.label}</span>
                 {item.label === "今日待确认" && totalPending > 0 && (
                     <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white">
                       {totalPending}
                     </span>
                 )}
-                {active && (
-                  <motion.div
-                    layoutId="navActiveIndicator"
-                    className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-r-full bg-white/70"
-                  />
-                )}
+                {active && <motion.span layoutId="sidebar-active-rail" transition={{ type: "spring", stiffness: 480, damping: 38 }} className="absolute left-0 top-1/2 z-20 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-octo-600" />}
               </Link>
             );
           })}
@@ -176,7 +172,7 @@ export function SidebarNav() {
                   <span className="flex-1 text-left">{group.label.replace(/^[^\s]+\s/, "")}</span>
                   <motion.div
                     animate={{ rotate: isCollapsed ? 0 : 180 }}
-                    transition={{ duration: 0.2, ease: "easeInOut" }}
+                  transition={{ type: "spring", stiffness: 420, damping: 30 }}
                   >
                     <ChevronDown className="h-3 w-3" />
                   </motion.div>
@@ -202,28 +198,29 @@ export function SidebarNav() {
                     initial={{ height: 0, opacity: 0 }}
                     animate={{ height: "auto", opacity: 1 }}
                     exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.2, ease: "easeInOut" }}
+                    transition={{ height: { duration: .26, ease: [0.22, 1, 0.36, 1] }, opacity: { duration: .18 } }}
                     className="overflow-hidden"
                   >
                     <div className="space-y-0.5 pb-1">
                       {group.items.map((item) => {
                         const Icon = item.icon;
-                        const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+                        const active = pathname === item.href
+                          || pathname.startsWith(`${item.href}/`)
+                          || (item.href === "/finance/intelligence" && ["/finance/profit", "/finance/reports"].includes(pathname));
                         return (
                           <Link
                             key={item.href}
                             href={item.href.startsWith("/finance/") && financeDate ? `${item.href}?date=${financeDate}` : item.href}
-                            className={`group relative flex items-center gap-2.5 rounded-lg px-3 py-1.5 text-[13px] transition-colors ${
+                            className={`group relative flex items-center gap-2.5 overflow-hidden rounded-xl px-3 py-2 text-[13px] transition-colors duration-200 ${
                               active
-                                ? "bg-octo-50 font-semibold text-octo-800"
+                                ? "font-semibold text-octo-900"
                                 : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
                             }`}
                           >
-                            {active && (
-                              <span className="absolute left-0 top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-r-full bg-octo-600" />
-                            )}
-                            <Icon className={`h-3.5 w-3.5 shrink-0 ${active ? "text-octo-700" : "text-slate-400 group-hover:text-slate-600"}`} />
-                            <span className="truncate">{item.label}</span>
+                            {active && <motion.span layoutId="sidebar-active-surface" transition={{ type: "spring", stiffness: 420, damping: 36, mass: .8 }} className="absolute inset-0 rounded-xl border border-octo-100/80 bg-gradient-to-r from-octo-50 to-orange-50/55 shadow-[0_5px_16px_rgba(154,52,18,0.07)]" />}
+                            {active && <motion.span layoutId="sidebar-active-rail" transition={{ type: "spring", stiffness: 480, damping: 38 }} className="absolute left-0 top-1/2 z-20 h-4 w-[3px] -translate-y-1/2 rounded-r-full bg-octo-600" />}
+                            <Icon className={`relative z-10 h-3.5 w-3.5 shrink-0 transition-colors duration-200 ${active ? "text-octo-700" : "text-slate-400 group-hover:text-slate-600"}`} />
+                            <span className="relative z-10 truncate">{item.label}</span>
                           </Link>
                         );
                       })}

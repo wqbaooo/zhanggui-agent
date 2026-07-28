@@ -27,10 +27,12 @@ from core.finance_intake import parse_finance_file
 from core.finance_text_intake import parse_finance_text
 from core.finance_execution import FinanceExecutionService
 from core.finance_categories import finance_category_catalog, find_finance_category
-from core.finance_agent import answer_finance_question
+from core.finance_intelligence import build_finance_agent_insights
+from core.finance_runtime import FinanceAgentRuntime
 from core.platform_report_intake import parse_platform_report
 from core.xlsx_export import FinanceSheet, Formula, build_finance_workbook
 from models.finance_ledger import FinanceLedger, FinanceMigrationError, money_to_minor
+from models.agent_sessions import AgentSessionStore
 from models.store_facts import StoreFactBook
 
 
@@ -1496,19 +1498,33 @@ class FinanceQueryRequest(BaseModel):
     query: str = Field(..., min_length=1)
     start: str | None = None
     end: str | None = None
+    session_id: str | None = None
 
 
 @router.post("/projects/{project_id}/finance/query")
 async def finance_query(project_id: str, req: FinanceQueryRequest):
     ledger = _ledger(project_id)
     first, last = ledger.period_bounds(project_id)
-    start, end = req.start or first, req.end or last
-    if not start or not end:
-        return {"answer": "暂无经营数据", "period": {"start": start, "end": end}, "metrics": [], "completeness": "no_data"}
+    end = req.end or last or _today()
+    start = req.start or first or end
     # Model calls are deliberately disabled inside pytest; tests inject a fake
     # gateway when exercising planning. Production uses the configured route.
     use_model = not bool(__import__("os").environ.get("PYTEST_CURRENT_TEST"))
-    return answer_finance_question(ledger, project_id, req.query, start, end, use_model=use_model)
+    runtime = FinanceAgentRuntime(ledger, AgentSessionStore.for_project(project_id))
+    return runtime.run(
+        project_id, req.query, start, end,
+        session_id=req.session_id, use_model=use_model,
+    )
+
+
+@router.get("/projects/{project_id}/finance/agent-insights")
+async def finance_agent_insights(project_id: str, as_of: str | None = None):
+    cutoff = as_of or _today()
+    store = AgentSessionStore.for_project(project_id)
+    return build_finance_agent_insights(
+        _ledger(project_id), project_id, cutoff,
+        store.get_preference_profile(project_id, scope="finance"),
+    )
 
 
 @router.post("/projects/{project_id}/finance/facts/{fact_id}/post")

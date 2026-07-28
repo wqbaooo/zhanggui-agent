@@ -77,6 +77,33 @@ class AgentSessionStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_agent_messages_session
                     ON agent_messages(session_id, created_at);
+
+                CREATE TABLE IF NOT EXISTS agent_preference_signals (
+                    project_id TEXT NOT NULL,
+                    scope TEXT NOT NULL,
+                    topic TEXT NOT NULL,
+                    count INTEGER NOT NULL DEFAULT 0,
+                    last_seen_at TEXT NOT NULL,
+                    PRIMARY KEY(project_id, scope, topic)
+                );
+                CREATE INDEX IF NOT EXISTS idx_agent_preference_signals
+                    ON agent_preference_signals(project_id, scope, count DESC, last_seen_at DESC);
+
+                CREATE TABLE IF NOT EXISTS agent_handoffs (
+                    id TEXT PRIMARY KEY,
+                    project_id TEXT NOT NULL,
+                    session_id TEXT REFERENCES agent_sessions(id) ON DELETE SET NULL,
+                    source_agent TEXT NOT NULL,
+                    target_agent TEXT NOT NULL,
+                    coordinator_agent TEXT NOT NULL DEFAULT 'master',
+                    summary TEXT NOT NULL,
+                    reason TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'queued_for_master',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_agent_handoffs_queue
+                    ON agent_handoffs(project_id, coordinator_agent, status, created_at);
                 """
             )
 
@@ -226,6 +253,110 @@ class AgentSessionStore:
                 (_now(), _now(), project_id, session_id),
             )
             return result.rowcount > 0
+
+    def record_preference_signal(self, project_id: str, scope: str, topic: str) -> None:
+        """Remember repeated areas of interest without inferring personal traits."""
+        if not topic.strip():
+            return
+        now = _now()
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO agent_preference_signals(project_id, scope, topic, count, last_seen_at)
+                VALUES (?, ?, ?, 1, ?)
+                ON CONFLICT(project_id, scope, topic) DO UPDATE SET
+                    count = count + 1,
+                    last_seen_at = excluded.last_seen_at
+                """,
+                (project_id, scope, topic.strip(), now),
+            )
+
+    def get_preference_profile(
+        self, project_id: str, *, scope: str, limit: int = 8,
+    ) -> list[dict[str, Any]]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT topic, count, last_seen_at
+                FROM agent_preference_signals
+                WHERE project_id = ? AND scope = ?
+                ORDER BY count DESC, last_seen_at DESC
+                LIMIT ?
+                """,
+                (project_id, scope, max(1, min(limit, 50))),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def create_handoff(
+        self,
+        project_id: str,
+        *,
+        source_agent: str,
+        target_agent: str,
+        summary: str,
+        reason: str,
+        session_id: str | None = None,
+        coordinator_agent: str = "master",
+    ) -> dict[str, Any]:
+        """Queue a cross-domain task through the master Agent.
+
+        A queued handoff is durable coordination intent, not proof that the
+        target specialist has accepted or completed the work.
+        """
+        handoff_id = f"handoff_{uuid.uuid4().hex}"
+        now = _now()
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO agent_handoffs(
+                    id, project_id, session_id, source_agent, target_agent,
+                    coordinator_agent, summary, reason, status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued_for_master', ?, ?)
+                """,
+                (
+                    handoff_id, project_id, session_id, source_agent, target_agent,
+                    coordinator_agent, summary.strip(), reason.strip(), now, now,
+                ),
+            )
+        return {
+            "id": handoff_id,
+            "project_id": project_id,
+            "session_id": session_id,
+            "source_agent": source_agent,
+            "target_agent": target_agent,
+            "coordinator_agent": coordinator_agent,
+            "summary": summary.strip(),
+            "reason": reason.strip(),
+            "status": "queued_for_master",
+            "created_at": now,
+            "updated_at": now,
+        }
+
+    def list_handoffs(
+        self,
+        project_id: str,
+        *,
+        coordinator_agent: str = "master",
+        status: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        filters = ["project_id = ?", "coordinator_agent = ?"]
+        parameters: list[Any] = [project_id, coordinator_agent]
+        if status:
+            filters.append("status = ?")
+            parameters.append(status)
+        parameters.append(max(1, min(limit, 200)))
+        with self.connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT * FROM agent_handoffs
+                WHERE {' AND '.join(filters)}
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                parameters,
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     @staticmethod
     def _session_dict(

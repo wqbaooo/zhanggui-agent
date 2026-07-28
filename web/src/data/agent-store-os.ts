@@ -212,7 +212,7 @@ export const agentDepartments: AgentDepartment[] = [
   },
   {
     key: "accountant",
-    title: "💰 会计",
+    title: "💰 财务 Agent",
     role: "钱账利润现金流",
     lead: "长期记住房租、工资、水电、抽成、平台费率和利润目标",
     icon: WalletCards,
@@ -624,14 +624,12 @@ export const navGroups = [
     ],
   },
   {
-    label: "💰 会计",
+    label: "💰 财务",
     items: [
-      { href: "/finance/workspace", label: "财务工作台", icon: CalendarDays },
-      { href: "/finance/intelligence", label: "财务智能分析", icon: BrainCircuit },
-      { href: "/finance/ledger", label: "台账", icon: ClipboardList },
+      { href: "/finance/workspace", label: "财务总览", icon: CalendarDays },
+      { href: "/finance/ledger", label: "记账与台账", icon: ClipboardList },
       { href: "/finance/funds", label: "资金与对账", icon: Wallet },
-      { href: "/finance/profit", label: "成本与利润", icon: BarChart3 },
-      { href: "/finance/reports", label: "凭证与报表", icon: FileText },
+      { href: "/finance/intelligence", label: "分析与报表", icon: BrainCircuit },
     ],
   },
   {

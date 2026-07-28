@@ -138,6 +138,27 @@ def build_domain_context(
     gaps = _unique(item for report in reports for item in report.gaps)
     conflicts = [item for report in reports for item in report.conflicts]
     status = "conflict" if conflicts else "needs_input" if gaps else "answered"
+    pending_handoffs: List[Dict[str, Any]] = []
+    try:
+        from models.agent_sessions import AgentSessionStore
+
+        pending_handoffs = [
+            {
+                key: item.get(key)
+                for key in (
+                    "id", "source_agent", "target_agent", "summary", "reason", "status",
+                )
+            }
+            for item in AgentSessionStore.for_project(project_id).list_handoffs(
+                project_id,
+                coordinator_agent="master",
+                status="queued_for_master",
+                limit=5,
+            )
+        ]
+    except Exception:
+        # A temporary coordination-store failure must not take down conversation.
+        pending_handoffs = []
     return {
         "query": effective_message,
         "route": {
@@ -146,6 +167,11 @@ def build_domain_context(
         },
         "status": status,
         "reports": [report.to_dict() for report in reports],
+        "agent_coordination": {
+            "current_agent": "master",
+            "authority": "coordinate_only",
+            "queued_handoffs": pending_handoffs,
+        },
         "response_contract": {
             "relationship": "用户是门店老板和经营决策者；你是与老板持续交流的经营助手，不扮演顾客、店员或门店。",
             "priority": ["硬性规则", "总部主数据", "本店已确认数据", "专业常识", "明确标注的推断"],
@@ -207,6 +233,7 @@ def context_for_prompt(context: Dict[str, Any]) -> Dict[str, Any]:
         "route": context.get("route", {}),
         "status": context.get("status", "answered"),
         "reports": compact_reports,
+        "agent_coordination": context.get("agent_coordination", {}),
         "response_contract": {
             "relationship": "用户是门店老板；你是经营助手，不扮演顾客或店员。",
             "priority": "硬规则 > 总部主数据 > 本店事实 > 专业常识 > 推断",

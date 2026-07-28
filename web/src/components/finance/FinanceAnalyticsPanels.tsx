@@ -11,7 +11,7 @@ import {
   Activity, AlertTriangle, ArrowLeftRight, BarChart3, BrainCircuit, CircleDollarSign, MessageCircle,
   ReceiptText, ShieldCheck, TrendingUp, WalletCards,
 } from "lucide-react";
-import type { DailyFinanceSnapshotV1, FinanceAnalyticsV1, FinanceOverviewV1 } from "@/lib/api";
+import type { DailyFinanceSnapshotV1, FinanceAgentInsightsV1, FinanceAnalyticsV1, FinanceOverviewV1 } from "@/lib/api";
 
 echarts.use([
   BarChart, LineChart, SankeyChart, AriaComponent,
@@ -96,10 +96,11 @@ function MetricTile({ label, value, note, formula, tone = "stone" }: {
   return <motion.div initial={reduceMotion ? false : { opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .25, ease: [0.22, 1, 0.36, 1] }} className={shared}>{body}</motion.div>;
 }
 
-export function FinanceIntelligenceDashboard({ analytics, snapshot, overview, voucherCount, onAsk }: {
+export function FinanceIntelligenceDashboard({ analytics, snapshot, overview, agentInsights, voucherCount, onAsk }: {
   analytics: FinanceAnalyticsV1;
   snapshot: DailyFinanceSnapshotV1;
   overview: FinanceOverviewV1;
+  agentInsights: FinanceAgentInsightsV1 | null;
   voucherCount: number;
   onAsk: AskHandler;
 }) {
@@ -159,6 +160,16 @@ export function FinanceIntelligenceDashboard({ analytics, snapshot, overview, vo
     { tone: analytics.missing_days.length ? "warn" : "good", title: analytics.missing_days.length ? `${analytics.missing_days.length}天营业资料空缺` : "期间资料日期连续", body: analytics.missing_days.length ? `空缺日：${analytics.missing_days.slice(0, 4).join("、")}${analytics.missing_days.length > 4 ? "…" : ""}，系统没有按0元计算。` : "所选范围每个自然日都有财务事实或关账记录。" },
   ];
   return <div className="space-y-4">
+    {agentInsights && <section className="finance-surface overflow-hidden">
+      <div className="flex items-start justify-between gap-5 border-b border-stone-200 px-6 py-5">
+        <div><div className="flex items-center gap-2 text-octo-800"><BrainCircuit className="h-5 w-5" /><span className="text-xs font-semibold">财务 Agent · {agentInsights.as_of}</span></div><h2 className="mt-2 text-lg font-semibold tracking-[-.02em] text-stone-950">{agentInsights.daily_brief.headline}</h2><p className="mt-1 text-xs leading-5 text-stone-500">{agentInsights.daily_brief.summary}</p></div>
+        {agentInsights.learned_focus.length > 0 && <div className="max-w-sm text-right"><p className="text-[10px] font-semibold uppercase tracking-wider text-stone-400">近期关注</p><div className="mt-2 flex flex-wrap justify-end gap-1.5">{agentInsights.learned_focus.slice(0, 3).map((item) => <span key={item.topic} title={`最近提及 ${item.count} 次`} className="rounded-full bg-stone-100 px-2.5 py-1 text-[10px] text-stone-600">{item.label}</span>)}</div></div>}
+      </div>
+      {agentInsights.daily_brief.items.length > 0 ? <div className="grid grid-cols-3 divide-x divide-stone-200">{agentInsights.daily_brief.items.map((item, index) => {
+        const tones = item.severity === "critical" ? "bg-rose-500" : item.severity === "warning" ? "bg-amber-500" : "bg-sky-500";
+        return <motion.button key={item.id} type="button" onClick={() => onAsk(item.action_query)} initial={reduceMotion ? false : { opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .28, delay: index * .05, ease: [0.22, 1, 0.36, 1] }} className="group min-w-0 px-5 py-5 text-left transition hover:bg-stone-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-octo-500"><div className="flex items-center gap-2"><span className={`h-2 w-2 rounded-full ${tones}`} /><span className="text-[10px] font-semibold text-stone-500">{item.topic_label}</span>{item.preference_boosted && <span className="rounded-full bg-octo-50 px-2 py-0.5 text-[9px] text-octo-700">你近期常问</span>}</div><h3 className="mt-3 text-sm font-semibold text-stone-950">{item.title}</h3><p className="mt-1.5 line-clamp-2 text-xs leading-5 text-stone-600">{item.summary}</p><p className="mt-3 border-t border-stone-100 pt-3 text-[10px] leading-4 text-stone-500">{item.why_now}</p><span className="mt-3 inline-flex items-center gap-1 text-[11px] font-semibold text-octo-700">让财务 Agent 核对 <span className="transition-transform group-hover:translate-x-0.5">→</span></span></motion.button>;
+      })}</div> : <div className="px-6 py-8 text-center text-sm text-stone-500">所选截止日没有识别到新的高优先级财务待办。</div>}
+    </section>}
     <section className="finance-surface overflow-hidden">
       <div className="grid grid-cols-[minmax(0,1.2fr)_repeat(4,minmax(150px,.55fr))]">
         <div className="relative overflow-hidden border-r border-stone-200 px-6 py-5">

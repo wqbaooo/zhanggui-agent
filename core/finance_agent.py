@@ -17,18 +17,14 @@ from datetime import date
 from typing import Any, Callable
 
 from config import DEEPSEEK_API_KEY
+from core.finance_skills import READ_ONLY_FINANCE_SKILLS, compact_skill_catalog, public_skill_records
 from models.finance_ledger import FinanceLedger
 from server.model_routing import chat_route
 
 
 logger = logging.getLogger(__name__)
 
-READ_ONLY_TOOLS = {
-    "finance_date_coverage",
-    "finance_funds_status",
-    "finance_profit_readiness",
-    "finance_metric_summary",
-}
+READ_ONLY_TOOLS = {skill.tool for skill in READ_ONLY_FINANCE_SKILLS}
 
 _PUBLIC_LABELS = {
     "daily_close": "当日关账",
@@ -147,6 +143,25 @@ def _execute_tool(
         }
     if tool == "finance_metric_summary":
         return {"tool": tool, "result": ledger.finance_query(store_id, query, start, end)}
+    if tool == "finance_evidence_audit":
+        vouchers = ledger.list_evidence_vouchers(store_id, start, end)
+        status_counts: dict[str, int] = {}
+        for voucher in vouchers:
+            status = str(voucher.get("status") or "unknown")
+            status_counts[status] = status_counts.get(status, 0) + 1
+        return {
+            "tool": tool,
+            "voucher_count": len(vouchers),
+            "status_counts": status_counts,
+            "undated_count": sum(1 for item in vouchers if not item.get("business_date")),
+            "missing_file_count": sum(1 for item in vouchers if not item.get("original_path")),
+        }
+    if tool == "finance_settlement_reconciliation":
+        return {
+            "tool": tool,
+            "platforms": ledger.reconcile_platforms(store_id, start, end),
+            "receivables": ledger.reconcile_receivables(store_id, start, end),
+        }
     raise ValueError(f"未授权的财务工具：{tool}")
 
 
@@ -162,19 +177,20 @@ def _fallback_plan(query: str) -> FinanceAgentPlan:
     return FinanceAgentPlan("metric_summary", ("finance_metric_summary",), "按所选日期范围分析")
 
 
-def _plan_with_model(query: str, start: str, end: str, gateway: FinanceModelGateway) -> FinanceAgentPlan:
+def _plan_with_model(
+    query: str, start: str, end: str, gateway: FinanceModelGateway,
+    conversation_history: list[dict[str, str]] | None = None,
+) -> FinanceAgentPlan:
     payload = gateway.json_completion(
-        """你是单店财务 Agent 的规划器。只理解问题、选择只读工具，不直接回答，不输出思维过程。
-可用工具：
-- finance_date_coverage：逐日判断完全空缺、有资金活动但缺营业收入、有平台销售但缺会计收入/订单、已有销售但未关账。
-- finance_funds_status：平台钱包、前老板代收、店铺可控资金和银行卡余额核对。
-- finance_profit_readiness：真实利润仍缺哪些成本资料。
-- finance_metric_summary：营业收入、成本、利润、保本和资金指标。
-严格返回 JSON：{"intent":"...","tools":["..."],"period_interpretation":"..."}。最多选3个工具。""",
-        f"问题：{query}\n分析范围：{start} 至 {end}",
+        f"""你是单店财务 Agent 的规划器。采用 Hermes 的按需技能加载和 Pi 的模型驱动工具循环：只理解问题、选择必要的只读财务 Skill，不直接回答，不输出思维过程。
+可用财务 Skills：
+{compact_skill_catalog()}
+综合分析财务情况时应覆盖业绩、资金位置、利润完整性和数据缺口；只问单一事实时只选最少技能。
+严格返回 JSON：{{"intent":"...","tools":["..."],"period_interpretation":"..."}}。最多选4个工具。""",
+        f"最近财务对话：{json.dumps((conversation_history or [])[-6:], ensure_ascii=False)}\n当前问题：{query}\n分析范围：{start} 至 {end}",
         max_tokens=1200,
     )
-    tools = tuple(dict.fromkeys(str(item) for item in payload.get("tools", [])))[:3]
+    tools = tuple(dict.fromkeys(str(item) for item in payload.get("tools", [])))[:4]
     if not tools or any(item not in READ_ONLY_TOOLS for item in tools):
         raise ValueError("模型选择了空工具或越权工具")
     intent_by_tool = {
@@ -183,8 +199,14 @@ def _plan_with_model(query: str, start: str, end: str, gateway: FinanceModelGate
         "finance_profit_readiness": "profit_readiness",
         "finance_metric_summary": "metric_summary",
     }
+    requested_intent = str(payload.get("intent") or "").strip()
+    intent = (
+        "comprehensive_analysis"
+        if len(tools) > 1
+        else intent_by_tool[tools[0]]
+    )
     return FinanceAgentPlan(
-        intent=intent_by_tool[tools[0]],
+        intent=intent,
         tools=tools,
         period_interpretation=str(payload.get("period_interpretation") or "按所选日期范围分析")[:120],
     )
@@ -192,6 +214,59 @@ def _plan_with_model(query: str, start: str, end: str, gateway: FinanceModelGate
 
 def _deterministic_answer(plan: FinanceAgentPlan, results: list[dict[str, Any]], end: str) -> str:
     coverage = next((item for item in results if item.get("tool") == "finance_date_coverage"), None)
+    nested_results = [item["result"] for item in results if isinstance(item.get("result"), dict)]
+    if plan.intent == "comprehensive_analysis":
+        metrics = {
+            str(metric.get("metric_code")): metric
+            for nested in nested_results
+            for metric in nested.get("metrics", [])
+            if isinstance(metric, dict) and metric.get("metric_code")
+        }
+        revenue = metrics.get("revenue")
+        net_profit = metrics.get("operating_net_profit")
+        gross_profit = metrics.get("gross_profit")
+        former_owner = metrics.get("former_owner_receivable")
+        unsettled = metrics.get("platform_unsettled")
+        controlled = metrics.get("store_controlled_funds")
+        parts = ["**财务结论**", ""]
+        if revenue and revenue.get("value") is not None:
+            parts.append(f"- **营业收入**：¥{float(revenue['value']):,.2f}")
+        if gross_profit and gross_profit.get("value") is None:
+            parts.append("- **营业毛利**：暂不能确认，食材或包装成本尚未完整归集")
+        if net_profit and net_profit.get("value") is None:
+            parts.append("- **经营净利润**：暂不能确认，不能把缺失成本按 0 元处理")
+        if former_owner and former_owner.get("value") is not None:
+            parts.append(f"- **前老板代收待转**：¥{float(former_owner['value']):,.2f}")
+        if unsettled and unsettled.get("value") is not None:
+            parts.append(f"- **平台待结算**：¥{float(unsettled['value']):,.2f}")
+        if controlled and controlled.get("value") is not None:
+            parts.append(
+                f"- **账面可追溯店铺资金**：¥{float(controlled['value']):,.2f}，"
+                "这不是工商银行卡实际余额"
+            )
+        if coverage:
+            missing_days = sorted({
+                day
+                for key in ("empty_days", "activity_without_sales", "platform_only_days", "open_close_days")
+                for day in coverage.get(key, [])
+            })
+            if missing_days:
+                parts.extend(["", "**数据完整性**", ""])
+                if coverage.get("empty_days"):
+                    parts.append(f"- 完全空缺：{_range_text(coverage['empty_days'])}")
+                if coverage.get("activity_without_sales"):
+                    parts.append(f"- 缺营业收入：{_range_text(coverage['activity_without_sales'])}")
+                if coverage.get("platform_only_days"):
+                    parts.append(f"- 缺收入或订单明细：{_range_text(coverage['platform_only_days'])}")
+                if coverage.get("open_close_days"):
+                    parts.append(f"- 未完成日结：{_range_text(coverage['open_close_days'])}")
+        parts.extend([
+            "",
+            "**下一步**",
+            "",
+            "先补完全空缺日与食材、包装、人工、房租和水电等成本，再核算真实净利润。",
+        ])
+        return "\n".join(parts)
     if coverage:
         missing_days = sorted({
             day
@@ -219,9 +294,8 @@ def _deterministic_answer(plan: FinanceAgentPlan, results: list[dict[str, Any]],
                 "先补“完全空缺”和“缺营业收入”的日期，再补平台明细并完成日结。",
             ])
         return "\n".join(parts)
-    for item in results:
-        nested = item.get("result")
-        if isinstance(nested, dict) and nested.get("answer"):
+    for nested in nested_results:
+        if nested.get("answer"):
             return str(nested["answer"])
     readiness = next((item for item in results if item.get("tool") == "finance_profit_readiness"), None)
     if readiness:
@@ -233,11 +307,12 @@ def _deterministic_answer(plan: FinanceAgentPlan, results: list[dict[str, Any]],
 def _answer_with_model(
     query: str, start: str, end: str, plan: FinanceAgentPlan,
     results: list[dict[str, Any]], gateway: FinanceModelGateway,
+    conversation_history: list[dict[str, str]] | None = None,
 ) -> str:
     payload = gateway.json_completion(
         """你是新余恒太城五楼大口章鱼烧的财务 Agent。根据只读工具结果直接回答老板的问题。
 规则：不得补造数字或日期；不同缺口必须分开表达；不得暴露 daily_close 等内部字段名；不要输出思维过程；不把累计到账当银行卡余额；个人消费不进入店铺利润。回答必须结论优先、简短可扫描：先用一个短标题和一句结论，再用 Markdown 列表分组事实，最后只给一个最重要的下一步；避免连续长段落和重复解释。返回 JSON：{"answer":"..."}。""",
-        json.dumps({"question": query, "period": {"start": start, "end": end}, "plan": plan.__dict__, "tool_results": results}, ensure_ascii=False),
+        json.dumps({"recent_finance_conversation": (conversation_history or [])[-6:], "question": query, "period": {"start": start, "end": end}, "plan": plan.__dict__, "tool_results": results}, ensure_ascii=False),
         max_tokens=2000,
     )
     return str(payload.get("answer") or "").strip()
@@ -276,6 +351,7 @@ def answer_finance_question(
     *,
     gateway_factory: Callable[[], FinanceModelGateway] = FinanceModelGateway,
     use_model: bool = True,
+    conversation_history: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Run the finance Agent and return a user-visible, auditable result."""
     model_gateway: FinanceModelGateway | None = None
@@ -285,7 +361,7 @@ def answer_finance_question(
         if not use_model:
             raise RuntimeError("模型通道已关闭")
         model_gateway = gateway_factory()
-        plan = _plan_with_model(query, start, end, model_gateway)
+        plan = _plan_with_model(query, start, end, model_gateway, conversation_history)
         plan_source = "模型规划"
     except Exception as exc:
         logger.warning("财务 Agent 规划降级: %s", exc)
@@ -298,7 +374,7 @@ def answer_finance_question(
     answer = deterministic
     if model_gateway is not None:
         try:
-            candidate = _sanitize_answer(_answer_with_model(query, start, end, plan, results, model_gateway))
+            candidate = _sanitize_answer(_answer_with_model(query, start, end, plan, results, model_gateway, conversation_history))
             if _answer_is_grounded(candidate, plan, results):
                 answer = candidate
             else:
@@ -308,10 +384,24 @@ def answer_finance_question(
             model_error = str(exc)
 
     answer = _sanitize_answer(answer)
-    legacy = next((item.get("result") for item in results if isinstance(item.get("result"), dict)), {}) or {}
-    evidence_ids = list(dict.fromkeys(str(item) for item in legacy.get("evidence_ids", [])))
+    nested_results = [item["result"] for item in results if isinstance(item.get("result"), dict)]
+    legacy = nested_results[0] if nested_results else {}
+    merged_metrics = list({
+        str(metric.get("metric_code")): metric
+        for nested in nested_results
+        for metric in nested.get("metrics", [])
+        if isinstance(metric, dict) and metric.get("metric_code")
+    }.values())
+    merged_formula_trace = list(dict.fromkeys(
+        str(item) for nested in nested_results for item in nested.get("formula_trace", [])
+    ))
+    evidence_ids = list(dict.fromkeys(
+        str(item) for nested in nested_results for item in nested.get("evidence_ids", [])
+    ))
     coverage = next((item for item in results if item.get("tool") == "finance_date_coverage"), None)
-    warnings = list(legacy.get("warnings", []))
+    warnings = list(dict.fromkeys(
+        str(item) for nested in nested_results for item in nested.get("warnings", [])
+    ))
     if coverage:
         warnings = []
         if coverage["empty_days"]:
@@ -329,6 +419,7 @@ def answer_finance_question(
         "funds_status": "资金位置核对",
         "profit_readiness": "利润资料完整性核对",
         "metric_summary": "财务指标分析",
+        "comprehensive_analysis": "综合财务分析",
     }
     trace = [
         {"step": "理解问题", "status": "completed", "detail": f"{plan.period_interpretation}；识别为{intent_labels.get(plan.intent, '财务问题')}"},
@@ -351,15 +442,20 @@ def answer_finance_question(
         "answer": answer,
         "period": {"start": start, "end": end},
         "intent": plan.intent,
-        "metrics": legacy.get("metrics", []),
-        "formula_trace": legacy.get("formula_trace", []),
+        "metrics": merged_metrics,
+        "formula_trace": merged_formula_trace,
         "evidence_ids": evidence_ids,
         "completeness": "partial" if warnings else legacy.get("completeness", "confirmed"),
         "warnings": [_sanitize_answer(str(item)) for item in warnings],
         "follow_up_inputs": legacy.get("follow_up_inputs", []),
         "execution_trace": trace,
         "sources": sources,
+        "skills_used": public_skill_records(plan.tools),
         "agent": {
+            "id": "finance",
+            "scope": "finance",
+            "label": "财务 Agent",
+            "role": "店铺会计与资金守门人",
             "provider": route.provider,
             "model": route.model,
             "mode": plan_source,

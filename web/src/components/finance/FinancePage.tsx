@@ -18,12 +18,12 @@ import {
   getDailyRevenueChecklist, getPlatformArrivals, matchPlatformBoundCardTransfer, saveDailyRevenue,
   getEvidenceVoucherFileUrl, getEvidenceVouchers, getFinanceAlerts,
   getFinanceDailySnapshot, getFinanceExecutionPlans, getFinanceExportUrl, getFinanceFundAccounts, getFinancePeriodSnapshot,
-  getFinanceOverview, getFinanceReconciliationQueue, getPlatformCollectionBindings, matchFinanceReconciliation, queryFinanceAgent,
+  getFinanceOverview, getFinanceReconciliationQueue, getPlatformCollectionBindings, getFinanceAgentInsights, getAgentSession, matchFinanceReconciliation, queryFinanceAgent,
   parseFinanceIntakeText, previewPlatformReport, recognizeCapture, reopenFinanceDailyClose, reviewBookkeepingRecord, saveFinanceDailyClose, uploadFinanceStatement,
   savePlatformCollectionBinding,
   type BookkeepingRecordV1, type CashChainForecastV1,
   type DailyFinanceSnapshotV1, type DailyRevenueChecklistV1, type EvidenceVoucherV1, type FinanceAlertV1, type FinanceAnalyticsV1,
-  type FinanceCategoryCatalogV1, type FinanceExecutionPlanV1, type FinanceOverviewV1, type FinanceQueryV1, type FinanceTextParseV1, type FundAccountV1, type PlatformArrivalMatchV1, type PlatformCollectionBindingV1, type PlatformReportPreviewV1, type ReconciliationQueueItemV1,
+  type AgentSessionV1, type FinanceAgentInsightsV1, type FinanceCategoryCatalogV1, type FinanceExecutionPlanV1, type FinanceOverviewV1, type FinanceQueryV1, type FinanceTextParseV1, type FundAccountV1, type PlatformArrivalMatchV1, type PlatformCollectionBindingV1, type PlatformReportPreviewV1, type ReconciliationQueueItemV1,
 } from "@/lib/api";
 
 export type FinanceView = "workspace" | "intelligence" | "ledger" | "funds" | "profit" | "reports";
@@ -39,9 +39,9 @@ const RANGE_OPTIONS: Array<{ key: FinanceRange; label: string }> = [
 ];
 
 const FINANCE_VIEW_META: Record<FinanceView, { label: string; description: string; icon: React.ElementType }> = {
-  workspace: { label: "财务工作台", description: "围绕一个营业日，完成收入、支出、到账、凭证和日结。", icon: CalendarDays },
+  workspace: { label: "财务总览", description: "围绕一个营业日，完成收入、支出、到账、凭证和日结。", icon: CalendarDays },
   intelligence: { label: "财务智能分析", description: "用真实台账、资金、到账和成本数据，动态判断经营结果与风险。", icon: BrainCircuit },
-  ledger: { label: "台账", description: "按期间查询、分类和修正每一笔财务事实。", icon: BookOpen },
+  ledger: { label: "记账与台账", description: "按期间查询、分类和修正每一笔财务事实。", icon: BookOpen },
   funds: { label: "资金与对账", description: "跟踪平台到账、工商银行、现金与流水核销。", icon: Landmark },
   profit: { label: "成本与利润", description: "按统一期间分析收入、成本完整性和经营结果。", icon: Banknote },
   reports: { label: "凭证与报表", description: "查找原始凭证、查看专业报表并导出工作簿。", icon: FileSearch },
@@ -159,6 +159,7 @@ export function FinancePage({ initialView = "workspace", initialDate = "" }: { i
   const [snapshot, setSnapshot] = useState<DailyFinanceSnapshotV1 | null>(null);
   const [periodSnapshot, setPeriodSnapshot] = useState<DailyFinanceSnapshotV1 | null>(null);
   const [analytics, setAnalytics] = useState<FinanceAnalyticsV1 | null>(null);
+  const [agentInsights, setAgentInsights] = useState<FinanceAgentInsightsV1 | null>(null);
   const [forecast, setForecast] = useState<CashChainForecastV1 | null>(null);
   const [accounts, setAccounts] = useState<FundAccountV1[]>([]);
   const [bookkeeping, setBookkeeping] = useState<BookkeepingRecordV1[]>([]);
@@ -191,10 +192,11 @@ export function FinancePage({ initialView = "workspace", initialDate = "" }: { i
       const finance = await getFinanceOverview(DEFAULT_PROJECT_ID, analysisStart, target);
       const day = await getFinanceDailySnapshot(target);
       const monthStart = `${target.slice(0, 7)}-01`;
-      const [cash, period, analysis, accountResult, recordResult, voucherResult, matchResult, alertResult, planResult, bindingResult, checklistResult] = await Promise.all([
+      const [cash, period, analysis, insightResult, accountResult, recordResult, voucherResult, matchResult, alertResult, planResult, bindingResult, checklistResult] = await Promise.all([
         getCashChainForecast(target),
         getFinancePeriodSnapshot(analysisStart, target),
         getFinanceAnalytics(analysisStart, target),
+        getFinanceAgentInsights(target),
         getFinanceFundAccounts(target),
         getBookkeepingRecords(analysisStart, target),
         getEvidenceVouchers(analysisStart, target),
@@ -210,6 +212,7 @@ export function FinancePage({ initialView = "workspace", initialDate = "" }: { i
       setPeriodSnapshot(period);
       setForecast(cash);
       setAnalytics(analysis);
+      setAgentInsights(insightResult);
       setAccounts(accountResult.accounts);
       setBookkeeping(recordResult.rows);
       setVouchers(voucherResult.rows);
@@ -308,9 +311,8 @@ export function FinancePage({ initialView = "workspace", initialDate = "" }: { i
               <div className="flex min-w-0 items-start gap-3">
                 <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center text-octo-700"><ViewIcon className="h-[18px] w-[18px]" /></span>
                 <div className="min-w-0">
-                  {view !== "workspace" && <Link href={`/finance/workspace?date=${selectedDate || shanghaiToday()}`} className="text-xs font-medium text-stone-400 transition-colors duration-200 hover:text-octo-700">财务工作台&nbsp; /</Link>}
-                  <h1 className="text-[19px] font-semibold tracking-[-0.02em] text-stone-950">{viewMeta.label}</h1>
-                  <p className="mt-1 text-[13px] leading-5 text-stone-500">{viewMeta.description}</p>
+                  <h1 className="text-[19px] font-semibold tracking-[-0.02em] text-stone-950">财务中心</h1>
+                  <p className="mt-1 text-[13px] leading-5 text-stone-500"><span className="font-medium text-stone-700">{viewMeta.label}</span><span className="mx-1.5 text-stone-300">·</span>{viewMeta.description}</p>
                 </div>
               </div>
               {view === "workspace" && pendingCount > 0 && <span className="finance-status finance-status-warning shrink-0">{pendingCount} 项待处理</span>}
@@ -350,22 +352,13 @@ export function FinancePage({ initialView = "workspace", initialDate = "" }: { i
           {notice && <motion.div key="finance-notice" initial={reduceMotion ? false : { opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={reduceMotion ? undefined : { opacity: 0 }} className="flex items-start justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900"><span>{notice}</span><button onClick={() => setNotice(null)} aria-label="关闭提示"><X className="h-4 w-4" /></button></motion.div>}
         </AnimatePresence>
 
-        {!loading && overview && snapshot && analytics && <FinanceAINavigator
-          view={view}
-          selectedDate={selectedDate}
-          snapshot={snapshot}
-          analytics={analytics}
-          pendingCount={pendingCount}
-          pendingSettlementCount={pendingSettlementCount}
-          voucherCount={vouchers.length}
-          onAsk={openAgent}
-        />}
+        {!loading && (["intelligence", "profit", "reports"] as FinanceView[]).includes(view) && <FinanceAnalysisSubnav view={view} selectedDate={selectedDate} />}
 
         {!loading && view === "workspace" && snapshot && overview && <DailyFinanceHub snapshot={snapshot} overview={overview} voucherCount={vouchers.length} pendingSettlementCount={pendingSettlementCount} selectedDate={selectedDate} onDailyClose={() => setFinanceTool("daily")} />}
         {!loading && view === "workspace" && dailyChecklist && <DailyRevenueWorkspace checklist={dailyChecklist} selectedDate={selectedDate} working={working} onSaved={async (message) => { setNotice(message); await load(selectedDate); }} onError={setError} setWorking={setWorking} />}
         {!loading && view === "workspace" && categories && <FinanceQuickEntry selectedDate={selectedDate} categories={categories} onChooseCategory={openIntake} onImportStatement={() => setFinanceTool("reconcile")} />}
         {!loading && view === "workspace" && pendingPlans.length > 0 && <div id="pending"><PendingPlans plans={pendingPlans} vouchers={vouchers} accounts={accounts} working={working} onResume={(id) => void resumePlan(id)} onEdit={() => openIntake()} /></div>}
-        {!loading && view === "intelligence" && analytics && snapshot && overview && <FinanceIntelligenceDashboard analytics={analytics} snapshot={snapshot} overview={overview} voucherCount={vouchers.length} onAsk={openAgent} />}
+        {!loading && view === "intelligence" && analytics && snapshot && overview && <FinanceIntelligenceDashboard analytics={analytics} snapshot={snapshot} overview={overview} agentInsights={agentInsights} voucherCount={vouchers.length} onAsk={openAgent} />}
         {!loading && view === "ledger" && periodSnapshot && <LedgerWorkspace key={`ledger-${periodSnapshot.period_start}-${periodSnapshot.period_end}`} snapshot={periodSnapshot} working={working} onNew={() => openIntake()} onEdit={(record) => { setEditing(record); setEntryOpen(true); }} onConfirm={(id) => void confirmRecord(id)} />}
         {!loading && view === "funds" && snapshot && forecast && overview && analytics && <div className="space-y-4">
           <FinanceTaskHub pendingSettlementCount={pendingSettlementCount} reconciliationCount={reconciliation.length} dailyCloseStatus={snapshot.daily_close.status} onOpen={setFinanceTool} />
@@ -376,7 +369,7 @@ export function FinancePage({ initialView = "workspace", initialDate = "" }: { i
 
         {entryOpen && categories && <EntryDialog selectedDate={selectedDate} accounts={entryAccounts} categories={categories} records={bookkeeping} editing={editing} working={working} onClose={() => { setEntryOpen(false); setEditing(null); }} onSaved={async (message) => { setNotice(message); setEntryOpen(false); setEditing(null); await load(selectedDate); }} onError={setError} setWorking={setWorking} />}
         {intakeOpen && categories && <FinanceIntakeDialog selectedDate={selectedDate} accounts={entryAccounts} categories={categories} initialCategoryGroup={intakeCategoryGroup} onClose={() => setIntakeOpen(false)} onSaved={async (message) => { setNotice(message); setIntakeOpen(false); await load(selectedDate); }} onError={setError} />}
-        {agentOpen && overview && <FinanceAgentDrawer overview={overview} selectedDate={selectedDate} initialQuery={agentPrompt} onClose={() => setAgentOpen(false)} />}
+        <AnimatePresence>{agentOpen && overview && <FinanceAgentDrawer key="finance-agent-drawer" overview={overview} selectedDate={selectedDate} initialQuery={agentPrompt} onFinanceChanged={() => load(selectedDate)} onClose={() => setAgentOpen(false)} />}</AnimatePresence>
         {financeTool && snapshot && forecast && analytics && <FinanceToolDrawer title={financeTool === "settlement" ? "平台到账与收款路径" : financeTool === "reconcile" ? "流水导入与逐笔对账" : "截止日日结与资金计划"} detail={financeTool === "daily" ? `截至日期 ${selectedDate}` : `${analytics.period_start} 至 ${analytics.period_end}`} onClose={() => setFinanceTool(null)}>
           {financeTool === "settlement" && <div className="space-y-4"><WeeklyPlatformTransferPanel selectedDate={selectedDate} onSaved={async (message) => { setNotice(message); await load(selectedDate); }} onError={setError} /><FinanceSettlementAnalytics analytics={analytics} onAsk={openAgent} /><PlatformCollectionPanel selectedDate={selectedDate} bindings={collectionBindings} accounts={accounts} onSaved={async () => { setNotice("平台收款路径已按生效日更新；历史流水和旧路径均已保留。"); await load(selectedDate); }} onError={setError} /></div>}
           {financeTool === "reconcile" && <ReconciliationView accounts={storeAccounts} queue={reconciliation} periodStart={analytics.period_start} periodEnd={analytics.period_end} working={working} onUploaded={async (message) => { setNotice(message); await load(selectedDate); }} onMatched={async (item, candidate) => { setWorking(true); try { await matchFinanceReconciliation(item.record.id, { target_type: candidate.target_type, target_id: candidate.id, matched_amount: candidate.suggested_match_minor / 100 }); setNotice("对账关系已确认；不会重复增加营业收入。"); await load(selectedDate); } catch (cause) { setError(cause instanceof Error ? cause.message : "对账失败"); } finally { setWorking(false); } }} />}
@@ -391,66 +384,24 @@ export default function ProfitPage() {
   return <FinancePage />;
 }
 
-function FinanceAINavigator({ view, selectedDate, snapshot, analytics, pendingCount, pendingSettlementCount, voucherCount, onAsk }: {
-  view: FinanceView;
-  selectedDate: string;
-  snapshot: DailyFinanceSnapshotV1;
-  analytics: FinanceAnalyticsV1;
-  pendingCount: number;
-  pendingSettlementCount: number;
-  voucherCount: number;
-  onAsk: (question?: string) => void;
-}) {
+function FinanceAnalysisSubnav({ view, selectedDate }: { view: FinanceView; selectedDate: string }) {
   const reduceMotion = useReducedMotion();
-  const recordedDays = analytics.daily_series.filter((item) => item.state !== "missing").length;
-  const totalDays = Math.max(analytics.daily_series.length, 1);
-  const coverage = Math.round((recordedDays / totalDays) * 100);
-  const modules: Array<{ key: FinanceView; href: string; label: string; icon: React.ElementType; value: string }> = [
-    { key: "workspace", href: "/finance/workspace", label: "今日录入", icon: CalendarDays, value: snapshot.data_state === "missing" ? "待录" : "有记录" },
-    { key: "intelligence", href: "/finance/intelligence", label: "智能分析", icon: BrainCircuit, value: analytics.data_completeness === "confirmed" ? "可决策" : "待完整" },
-    { key: "ledger", href: "/finance/ledger", label: "台账", icon: BookOpen, value: `${analytics.daily_series.reduce((sum, item) => sum + (item.state === "missing" ? 0 : 1), 0)}天` },
-    { key: "funds", href: "/finance/funds", label: "资金", icon: Landmark, value: pendingSettlementCount ? `${pendingSettlementCount}待跟进` : "已同步" },
-    { key: "profit", href: "/finance/profit", label: "利润", icon: Banknote, value: analytics.kpis.net_profit_minor == null ? "待完整" : yuan(analytics.kpis.net_profit_minor) },
-    { key: "reports", href: "/finance/reports", label: "凭证", icon: ReceiptText, value: `${voucherCount}份` },
+  const items: Array<{ key: FinanceView; href: string; label: string; icon: React.ElementType }> = [
+    { key: "intelligence", href: "/finance/intelligence", label: "智能分析", icon: BrainCircuit },
+    { key: "profit", href: "/finance/profit", label: "成本与利润", icon: Banknote },
+    { key: "reports", href: "/finance/reports", label: "凭证与报表", icon: ReceiptText },
   ];
-  const insight = snapshot.data_state === "missing"
-    ? `${selectedDate} 的营业数据还没有完整录入，系统不会把空缺当作 0 元。`
-    : analytics.missing_inputs.length > 0
-      ? `利润口径仍缺 ${analytics.missing_inputs.length} 类资料；当前只展示已知结果，不冒充净利润。`
-      : pendingSettlementCount > 0
-        ? `有 ${pendingSettlementCount} 笔平台资金仍在结算或核对链路，可在资金页逐笔追踪。`
-        : pendingCount > 0
-          ? `有 ${pendingCount} 项已识别事实等待确认，确认前不会改动正式账。`
-          : "当前范围没有关键待办；台账、资金、利润与凭证口径保持一致。";
-  const scope = analytics.period_start === analytics.period_end ? analytics.period_end : `${analytics.period_start} 至 ${analytics.period_end}`;
-  const question = `请以 ${scope} 为口径，综合检查台账、资金到账、成本利润和凭证完整性。先说确定事实，再说缺口和我下一步只需做什么。`;
-
-  return <motion.section initial={reduceMotion ? false : { opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .34, ease: [0.22, 1, 0.36, 1] }} className="finance-surface overflow-hidden">
-    <div className="grid grid-cols-[minmax(250px,.72fr)_minmax(520px,1.45fr)_minmax(260px,.7fr)] items-stretch">
-      <div className="flex min-w-0 items-center gap-4 border-r border-stone-200 px-5 py-4">
-        <div className="relative grid h-14 w-14 shrink-0 place-items-center rounded-full" style={{ background: `conic-gradient(#a33a12 ${coverage * 3.6}deg, #eeeae6 0deg)` }} aria-label={`资料覆盖率 ${coverage}%`}>
-          <span className="absolute inset-[5px] rounded-full bg-white" />
-          <span className="relative text-xs font-bold tabular-nums text-stone-900">{coverage}%</span>
-        </div>
-        <div className="min-w-0"><div className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-octo-700" /><h2 className="text-[15px] font-semibold text-stone-950">财务 AI 导航仪</h2></div><p className="mt-1 text-xs text-stone-500">{scope} · {recordedDays}/{totalDays} 天有记录</p></div>
-      </div>
-      <nav className="grid grid-cols-6" aria-label="财务 AI 导航">
-        {modules.map((item) => {
-          const Icon = item.icon;
-          const active = item.key === view;
-          return <Link key={item.key} href={`${item.href}?date=${selectedDate}`} className={`group relative flex min-w-0 flex-col justify-center border-r border-stone-100 px-3 py-3.5 transition-colors duration-200 ${active ? "bg-octo-50/65" : "hover:bg-stone-50"}`}>
-            {active && <motion.span layoutId="finance-ai-active" className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-octo-700" />}
-            <span className="flex items-center gap-1.5 text-[11px] font-semibold text-stone-600"><Icon className={`h-3.5 w-3.5 ${active ? "text-octo-700" : "text-stone-400 group-hover:text-stone-600"}`} />{item.label}</span>
-            <strong className={`mt-1 truncate text-[13px] font-semibold tabular-nums ${active ? "text-octo-900" : "text-stone-900"}`}>{item.value}</strong>
-          </Link>;
-        })}
-      </nav>
-      <button type="button" onClick={() => onAsk(question)} className="group flex min-w-0 items-center justify-between gap-3 bg-[#fbfaf8] px-5 py-4 text-left transition-colors duration-200 hover:bg-octo-50/60">
-        <span className="min-w-0"><span className="text-[11px] font-semibold text-octo-700">AI 当前判断</span><span className="mt-1 block text-xs leading-5 text-stone-700">{insight}</span></span>
-        <MessageCircle className="h-5 w-5 shrink-0 text-stone-400 transition group-hover:text-octo-700" />
-      </button>
-    </div>
-  </motion.section>;
+  return <nav aria-label="分析与报表视图" className="flex w-fit items-center gap-1 rounded-xl border border-stone-200 bg-white p-1 shadow-[0_4px_16px_rgba(72,52,40,.04)]">
+    {items.map((item) => {
+      const Icon = item.icon;
+      const active = item.key === view;
+      return <Link key={item.key} href={`${item.href}?date=${selectedDate}`} className={`relative flex min-h-9 items-center gap-2 overflow-hidden rounded-lg px-3.5 text-xs font-semibold transition-colors ${active ? "text-octo-900" : "text-stone-500 hover:bg-stone-50 hover:text-stone-800"}`}>
+        {active && <motion.span layoutId="finance-analysis-subnav" transition={reduceMotion ? { duration: 0 } : { type: "spring", stiffness: 460, damping: 36 }} className="absolute inset-0 rounded-lg bg-octo-50 ring-1 ring-inset ring-octo-100" />}
+        <Icon className={`relative z-10 h-3.5 w-3.5 ${active ? "text-octo-700" : "text-stone-400"}`} />
+        <span className="relative z-10">{item.label}</span>
+      </Link>;
+    })}
+  </nav>;
 }
 
 function DailyFinanceHub({ snapshot, overview, voucherCount, pendingSettlementCount, selectedDate, onDailyClose }: {
@@ -1652,52 +1603,91 @@ function EntryDialog({ selectedDate, accounts, categories, records, editing, wor
   return <div className="fixed inset-0 z-50 flex items-end justify-center bg-stone-950/35 p-0 backdrop-blur-[2px] sm:items-center sm:p-4"><form onSubmit={submit} className="max-h-[92vh] w-full overflow-y-auto rounded-t-2xl bg-white p-5 shadow-2xl sm:max-w-xl sm:rounded-2xl"><div className="flex items-center justify-between"><div><p className="text-base font-bold text-stone-950">{editing ? "补充资金信息" : "记一笔资金"}</p><p className="mt-1 text-[11px] text-stone-500">确认后直接进入资金流和台账，不再增加第二次复核。</p></div><button type="button" onClick={onClose} aria-label="关闭记账"><X className="h-5 w-5 text-stone-500" /></button></div><div className="mt-5 grid gap-3 sm:grid-cols-2"><FormSelect label="财务分类" value={optionKey} onChange={(value) => { setAllowDuplicate(false); setOptionKey(value); }} options={categoryItems.map((item) => ({ value: item.key, label: `${item.groupName}｜${item.name}` }))} /><FormInput label="金额" type="number" value={amount} onChange={(value) => { setAllowDuplicate(false); setAmount(value); }} disabled={Boolean(editing)} /><FormSelect label="钱从哪个账户收付" value={account} onChange={(value) => { setAllowDuplicate(false); setAccount(value); }} options={accounts.map((item) => ({ value: item.account_key, label: item.name }))} />{option.transaction_kind === "account_transfer" && <FormSelect label="钱转到哪里" value={counterAccount} onChange={(value) => { setAllowDuplicate(false); setCounterAccount(value); }} options={[{ value: "", label: "请选择另一个账户" }, ...accounts.filter((item) => item.account_key !== account).map((item) => ({ value: item.account_key, label: item.name }))]} />}<FormInput label="钱付给谁 / 从谁收到" value={counterparty} onChange={setCounterparty} placeholder="供应商、员工、平台…" /><label className="block sm:col-span-2"><span className="text-xs font-medium text-stone-600">这笔钱的用途</span><textarea value={summary} onChange={(event) => setSummary(event.target.value)} className="mt-1 min-h-20 w-full rounded-lg border border-stone-200 px-3 py-2 text-sm outline-none focus:border-octo-500 focus:ring-2 focus:ring-octo-100" placeholder="例如：7月员工工资、第一批食材、老板个人取用" /></label></div>{possibleDuplicate && <label className="mt-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900"><input type="checkbox" checked={allowDuplicate} onChange={(event) => { const checked = event.target.checked; setAllowDuplicate(checked); if (checked) setDuplicateToken(String(Date.now())); }} className="mt-0.5 h-4 w-4 accent-octo-700" /><span>发现同日同金额、同类型、同账户记录。只有确认这是另一笔钱才再次记入。</span></label>}<div className="mt-5 flex gap-2"><button type="button" onClick={onClose} className="min-h-11 flex-1 rounded-lg border border-stone-200 text-sm font-semibold text-stone-700">取消</button><button disabled={working || !amount || !account || (option.transaction_kind === "account_transfer" && !counterAccount) || Boolean(possibleDuplicate && !allowDuplicate)} className="min-h-11 flex-[1.4] rounded-lg bg-octo-700 text-sm font-semibold text-white disabled:opacity-40">{working ? "正在记入…" : "确认记入"}</button></div></form></div>;
 }
 
-function FinanceAgentDrawer({ overview, selectedDate, initialQuery, onClose }: { overview: FinanceOverviewV1; selectedDate: string; initialQuery?: string; onClose: () => void }) {
+type FinanceChatMessage = { role: "user" | "assistant"; content: string; result?: FinanceQueryV1 };
+
+function FinanceAgentDrawer({ overview, selectedDate, initialQuery, onFinanceChanged, onClose }: { overview: FinanceOverviewV1; selectedDate: string; initialQuery?: string; onFinanceChanged: () => Promise<void>; onClose: () => void }) {
+  const reduceMotion = useReducedMotion();
   const [query, setQuery] = useState(initialQuery || "");
-  const [answer, setAnswer] = useState<FinanceQueryV1 | null>(null);
+  const [messages, setMessages] = useState<FinanceChatMessage[]>([]);
+  const [sessionId, setSessionId] = useState<string | undefined>();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const messageEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const questions = ["这段时间赚了多少钱？", "哪些钱还没到店铺账户？", "目前最缺哪些成本资料？", "资金够不够付工资和房租？"];
+
+  useEffect(() => {
+    const stored = window.localStorage.getItem("zhanggui:finance-agent-session") || undefined;
+    setSessionId(stored);
+    if (!stored) return;
+    void getAgentSession(stored).then(({ session }: { session: AgentSessionV1 }) => {
+      if (session.scope !== "finance") return;
+      setMessages(session.messages.filter((item) => item.role !== "system").map((item) => ({ role: item.role as "user" | "assistant", content: item.content })));
+    }).catch(() => window.localStorage.removeItem("zhanggui:finance-agent-session"));
+  }, []);
+
+  useEffect(() => {
+    messageEndRef.current?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "end" });
+  }, [messages, loading, reduceMotion]);
+
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("keydown", closeOnEscape);
+    const focusTimer = window.setTimeout(() => textareaRef.current?.focus(), 260);
+    return () => { window.removeEventListener("keydown", closeOnEscape); window.clearTimeout(focusTimer); };
+  }, [onClose]);
+
+  function newConversation() {
+    window.localStorage.removeItem("zhanggui:finance-agent-session");
+    setSessionId(undefined); setMessages([]); setError(null); setQuery("");
+  }
 
   async function ask(text: string) {
     const value = text.trim();
     if (!value) return;
-    setQuery(""); setLoading(true); setError(null);
+    setQuery(""); setMessages((current) => [...current, { role: "user", content: value }]); setLoading(true); setError(null);
     try {
-      setAnswer(await queryFinanceAgent(value, overview.period_start, selectedDate));
+      const result = await queryFinanceAgent(value, overview.period_start, selectedDate, sessionId);
+      if (result.session_id) {
+        setSessionId(result.session_id);
+        window.localStorage.setItem("zhanggui:finance-agent-session", result.session_id);
+      }
+      setMessages((current) => [...current, { role: "assistant", content: result.answer, result }]);
+      if (result.execution_plan) await onFinanceChanged();
     } catch (cause) {
-      setQuery(value);
+      setMessages((current) => current.slice(0, -1)); setQuery(value);
       setError(cause instanceof Error ? cause.message : "财务分析暂时不可用");
     } finally {
       setLoading(false);
     }
   }
 
-  return <div className="fixed inset-0 z-[85] flex justify-end bg-stone-950/35 backdrop-blur-[2px]" onClick={onClose}>
-    <aside className="flex h-full w-full max-w-xl flex-col bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
-      <header className="flex items-start justify-between border-b border-stone-200 px-5 py-4">
-        <div><div className="flex items-center gap-2"><MessageCircle className="h-4 w-4 text-octo-700" /><h2 className="text-base font-bold text-stone-950">财务 Agent</h2></div><p className="mt-1 text-[11px] text-stone-500">回答范围：{overview.period_start} 至 {selectedDate}；只使用店铺台账和凭证事实。</p></div>
-        <button type="button" onClick={onClose} aria-label="关闭财务Agent" className="grid h-9 w-9 place-items-center rounded-lg text-stone-500 hover:bg-stone-100"><X className="h-5 w-5" /></button>
+  function handleComposerKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
+    const composing = event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229;
+    if (event.key === "Enter" && !event.shiftKey && !composing) {
+      event.preventDefault();
+      if (!loading && query.trim()) void ask(query);
+    }
+  }
+
+  return <motion.div initial={reduceMotion ? false : { opacity: 0 }} animate={{ opacity: 1 }} exit={reduceMotion ? undefined : { opacity: 0 }} transition={{ duration: .24 }} className="finance-agent-overlay" onClick={onClose}>
+    <motion.aside initial={reduceMotion ? false : { opacity: 0, x: 42, scale: .985 }} animate={{ opacity: 1, x: 0, scale: 1 }} exit={reduceMotion ? undefined : { opacity: 0, x: 34, scale: .988 }} transition={{ type: "spring", stiffness: 360, damping: 36, mass: .85 }} className="finance-agent-panel" role="dialog" aria-modal="true" aria-label="财务 Agent" onClick={(event) => event.stopPropagation()}>
+      <div aria-hidden="true" className="finance-agent-ambient finance-agent-ambient-one" /><div aria-hidden="true" className="finance-agent-ambient finance-agent-ambient-two" />
+      <header className="finance-agent-header">
+        <div className="flex min-w-0 items-center gap-3"><span className="relative grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-white/90 bg-white/72 text-octo-700 shadow-[0_8px_24px_rgba(122,52,24,.10)] backdrop-blur-xl"><CircleDollarSign className="h-5 w-5" /><span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-white bg-emerald-500" /></span><div className="min-w-0"><div className="flex items-center gap-2"><h2 className="text-[17px] font-semibold tracking-[-.02em] text-stone-950">财务 Agent</h2><span className="rounded-full border border-emerald-200/70 bg-emerald-50/75 px-2 py-0.5 text-[9px] font-semibold text-emerald-700">在线</span></div><p className="mt-0.5 truncate text-[11px] text-stone-500">{overview.period_start} 至 {selectedDate} · 台账与凭证事实</p></div></div>
+        <div className="flex shrink-0 items-center gap-1"><button type="button" onClick={newConversation} className="rounded-xl px-3 py-2 text-xs font-medium text-stone-600 transition duration-200 hover:bg-white/70 hover:text-octo-800">新对话</button><button type="button" onClick={onClose} aria-label="关闭财务Agent" className="grid h-9 w-9 place-items-center rounded-xl text-stone-500 transition duration-200 hover:bg-white/75 hover:text-stone-900"><X className="h-[18px] w-[18px]" /></button></div>
       </header>
-      <div className="flex-1 overflow-y-auto p-5">
-        <div className="flex flex-wrap gap-2">{questions.map((item) => <button key={item} type="button" onClick={() => void ask(item)} className="shrink-0 whitespace-nowrap rounded-full border border-stone-200 px-3 py-2 text-left text-xs text-stone-700 hover:border-octo-300 hover:bg-octo-50">{item}</button>)}</div>
-        {loading && <div className="mt-6 space-y-3 rounded-xl border border-stone-200 bg-stone-50 p-4"><div className="flex items-center gap-2 text-sm font-medium text-stone-700"><Loader2 className="h-4 w-4 animate-spin text-octo-700" />正在理解问题并核对事实</div><div className="h-1.5 overflow-hidden rounded-full bg-stone-200"><div className="h-full w-2/3 animate-pulse rounded-full bg-octo-600" /></div><p className="text-[11px] text-stone-500">模型负责理解和选择工具，金额与日期由店铺台账计算。</p></div>}
-        {error && <p className="mt-6 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</p>}
-        {answer && !loading && <div className="mt-6 space-y-4">
-          <div className="rounded-xl bg-stone-950 p-4 text-white">
-            <div className="flex items-center justify-between gap-3"><span className="text-[10px] font-semibold uppercase tracking-wider text-stone-300">分析结论</span><div className="flex items-center gap-1.5"><span className="rounded-full bg-white/10 px-2 py-1 text-[10px]">{answer.agent?.model_used ? `${answer.agent.provider === "deepseek" ? "DeepSeek" : answer.agent.provider} 规划` : "事实规则兜底"}</span><span className="rounded-full bg-white/10 px-2 py-1 text-[10px]">{answer.completeness === "confirmed" ? "数据完整" : answer.completeness === "no_data" ? "暂无数据" : "存在资料缺口"}</span></div></div>
-            <p className="mt-3 whitespace-pre-line text-sm leading-6">{answer.answer}</p>
-          </div>
-          {answer.execution_trace && answer.execution_trace.length > 0 && <div className="rounded-xl border border-stone-200 bg-white p-4"><div className="flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-emerald-600" /><p className="text-xs font-bold text-stone-900">处理过程</p></div><div className="mt-3 space-y-3">{answer.execution_trace.map((item, index) => <div key={`${item.step}-${index}`} className="flex gap-3"><div className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-emerald-50 text-[10px] font-bold text-emerald-700">✓</div><div><p className="text-xs font-semibold text-stone-800">{item.step}</p><p className="mt-0.5 text-[11px] leading-4 text-stone-500">{financeText(item.detail)}</p></div></div>)}</div></div>}
-          {answer.sources && answer.sources.length > 0 && <div><p className="text-xs font-bold text-stone-900">事实依据</p><div className="mt-2 flex flex-wrap gap-2">{answer.sources.map((source, index) => <span key={`${source.label}-${index}`} className="rounded-full border border-stone-200 bg-stone-50 px-2.5 py-1 text-[10px] text-stone-600">{source.label}{source.reference ? ` · ${source.reference}` : ""}</span>)}</div></div>}
-          {answer.metrics.length > 0 && <div><p className="text-xs font-bold text-stone-900">计算依据</p><div className="mt-2 divide-y divide-stone-100 border-y border-stone-200">{answer.metrics.map((metric) => <div key={metric.metric_code} className="flex items-start justify-between gap-4 py-3"><div><p className="text-xs font-semibold text-stone-800">{metric.label}</p><p className="mt-1 text-[10px] leading-4 text-stone-500">{metric.formula || "按已确认财务事实计算"}</p></div><div className="text-right"><p className="text-sm font-bold tabular-nums text-stone-950">{metric.value == null ? "待核算" : metric.metric_code.includes("rate") ? `${metric.value.toFixed(2)}%` : `¥${metric.value.toLocaleString("zh-CN", { maximumFractionDigits: 2 })}`}</p><p className="mt-1 text-[10px] text-stone-400">{metric.completeness === "confirmed" ? "已确认" : "资料待补"}</p></div></div>)}</div></div>}
-          {answer.warnings && answer.warnings.length > 0 && <div className="rounded-xl border border-amber-200 bg-amber-50 p-3"><p className="text-xs font-bold text-amber-950">需要补齐的部分</p>{answer.warnings.map((item) => <p key={item} className="mt-1 text-[11px] leading-5 text-amber-800">{financeText(item)}</p>)}</div>}
-          {answer.agent?.fallback_reason && !answer.agent.model_used && <p className="text-[10px] leading-4 text-stone-400">模型通道不可用时已自动改用只读事实规则，未影响台账数据。</p>}
-        </div>}
+      <div className="finance-agent-body">
+        {messages.length === 0 && <motion.div initial={reduceMotion ? false : { opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .12, duration: .32 }} className="finance-agent-welcome"><div className="flex items-center gap-2 text-octo-800"><Sparkles className="h-4 w-4" /><span className="text-[11px] font-semibold">这家店的专属财务工作台</span></div><p className="mt-3 text-[15px] font-semibold tracking-[-.01em] text-stone-900">你问结论，我去核对账目和凭证</p><p className="mt-1.5 text-xs leading-5 text-stone-500">收入、到账、支出、成本和利润会分开计算；没有资料时会明确告诉你缺什么。</p></motion.div>}
+        {messages.length === 0 && <motion.div initial={reduceMotion ? false : { opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .18, duration: .32 }} className="mt-4 grid grid-cols-2 gap-2">{questions.map((item) => <button key={item} type="button" onClick={() => void ask(item)} className="finance-agent-prompt">{item}<span aria-hidden="true">↗</span></button>)}</motion.div>}
+        <div className="mt-2 space-y-5">{messages.map((message, index) => <motion.div initial={reduceMotion ? false : { opacity: 0, y: 8, scale: .99 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: .26, ease: [0.22, 1, 0.36, 1] }} key={`${message.role}-${index}`} className={message.role === "user" ? "flex justify-end" : "flex items-start gap-2.5 justify-start"}>{message.role === "assistant" && <span className="mt-1 grid h-8 w-8 shrink-0 place-items-center rounded-xl border border-white/80 bg-white/68 text-octo-700 shadow-sm backdrop-blur-xl"><CircleDollarSign className="h-4 w-4" /></span>}<div className={message.role === "user" ? "finance-agent-bubble-user" : "finance-agent-bubble-assistant"}><div className="whitespace-pre-line">{financeText(message.content).replaceAll("**", "")}</div>{message.result?.execution_plan?.status === "awaiting_confirmation" && <motion.button whileHover={reduceMotion ? undefined : { y: -1 }} whileTap={reduceMotion ? undefined : { scale: .98 }} type="button" onClick={() => void ask("确认执行")} disabled={loading} className="mt-3 inline-flex min-h-9 items-center gap-2 rounded-xl bg-octo-700 px-3.5 text-xs font-semibold text-white shadow-[0_7px_18px_rgba(154,52,18,.18)] transition-colors hover:bg-octo-800 disabled:opacity-50"><Check className="h-3.5 w-3.5" />确认执行</motion.button>}{message.result?.conversation_mode === "finance" && <details className="mt-3 border-t border-stone-200/60 pt-2"><summary className="cursor-pointer select-none text-[11px] font-medium text-stone-500 transition hover:text-octo-700">事实依据与核对过程</summary><div className="mt-2 space-y-2 text-[11px] leading-5 text-stone-500">{message.result.skills_used?.map((skill) => <p key={skill.name}>{skill.description}</p>)}{message.result.sources?.map((source, sourceIndex) => <p key={`${source.label}-${sourceIndex}`}>{source.label}{source.reference ? ` · ${source.reference}` : ""}</p>)}{message.result.warnings?.map((warning) => <p key={warning} className="text-amber-700">{financeText(warning)}</p>)}{message.result.handoff && <p className="text-sky-700">建议交给{message.result.handoff.target_agent}：{message.result.handoff.reason}</p>}</div></details>}</div></motion.div>)}</div>
+        {loading && <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="mt-5 flex items-start gap-2.5"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl border border-white/80 bg-white/68 text-octo-700 shadow-sm backdrop-blur-xl"><CircleDollarSign className="h-4 w-4" /></span><div className="finance-agent-thinking"><div className="flex items-center gap-1.5"><span className="finance-agent-thinking-dot" /><span className="finance-agent-thinking-dot [animation-delay:140ms]" /><span className="finance-agent-thinking-dot [animation-delay:280ms]" /></div><span>正在理解并核对财务事实…</span></div></motion.div>}
+        {error && <motion.p initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} className="mt-5 rounded-2xl border border-red-200/70 bg-red-50/75 p-3 text-sm text-red-800 backdrop-blur-xl">{error}</motion.p>}
+        <div ref={messageEndRef} className="h-1" />
       </div>
-      <form onSubmit={(event) => { event.preventDefault(); void ask(query); }} className="border-t border-stone-200 p-4"><div className="flex items-end gap-2"><textarea value={query} onChange={(event) => setQuery(event.target.value)} className="min-h-12 flex-1 resize-none rounded-xl border border-stone-200 px-3 py-2 text-sm outline-none focus:border-octo-500" placeholder="问营业额、成本、到账、借款或资金缺口" /><button disabled={loading || !query.trim()} className="grid h-12 w-12 place-items-center rounded-xl bg-octo-700 text-white disabled:opacity-40" aria-label="发送财务问题"><Send className="h-4 w-4" /></button></div></form>
-    </aside>
-  </div>;
+      <form onSubmit={(event) => { event.preventDefault(); void ask(query); }} className="finance-agent-composer-wrap"><div className="finance-agent-composer"><textarea ref={textareaRef} rows={1} value={query} onKeyDown={handleComposerKeyDown} onChange={(event) => setQuery(event.target.value)} className="max-h-32 min-h-[48px] flex-1 resize-none bg-transparent px-1 py-3 text-sm leading-6 text-stone-900 outline-none placeholder:text-stone-400" placeholder="直接问这家店的收入、到账、成本或资金…" /><motion.button whileHover={reduceMotion ? undefined : { scale: 1.04 }} whileTap={reduceMotion ? undefined : { scale: .94 }} disabled={loading || !query.trim()} className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-octo-700 text-white shadow-[0_8px_22px_rgba(154,52,18,.22)] transition-colors hover:bg-octo-800 disabled:bg-stone-200 disabled:text-stone-400 disabled:shadow-none" aria-label="发送财务问题"><Send className="h-4 w-4" /></motion.button></div><div className="mt-2 flex items-center justify-between px-1 text-[10px] text-stone-400"><span>Enter 发送 · Shift + Enter 换行</span><span>关键结论可追溯到台账与凭证</span></div></form>
+    </motion.aside>
+  </motion.div>;
 }
 
 function FinanceFileDropzone({ file, onFile, accept, title, hint, autoFocus = false }: { file: File | null; onFile: (file: File | null) => void; accept: string; title: string; hint: string; autoFocus?: boolean }) {
